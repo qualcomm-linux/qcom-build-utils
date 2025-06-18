@@ -337,6 +337,18 @@ class PackageBuilder:
             else:
                 logger.debug(f"No .dsc file found for {package_name}")
 
+    def reorganize_dsc_in_oss_prop(self, repo_path):
+        oss_or_prop = search_manifest_map_for_path(self.MANIFEST_MAP, self.SOURCE_DIR, repo_path)
+        parent_dir = repo_path.parent
+
+        for file in os.listdir(parent_dir):
+            file_path = parent_dir / file
+            if file_path.is_file() and file.endswith('.dsc'):
+                pkg_name = file.split('_')[0]
+                pkg_dir = os.path.join(self.DEB_OUT_DIR, oss_or_prop, pkg_name)
+                create_new_directory(pkg_dir, delete_if_exists=False)
+                shutil.move(str(file_path), os.path.join(pkg_dir, file))
+
     def build_package(self, package):
         """
         Builds a package inside the chroot environment.
@@ -394,7 +406,8 @@ class PackageBuilder:
             print_build_logs(package_temp_dir)
             raise PackageBuildError(f"Failed to build {packages}: {e}")
 
-        self.reorganize_outputs_in_oss_prop(repo_path, package_temp_dir)
+        self.reorganize_dsc_in_oss_prop(repo_path)
+        self.reorganize_deb_in_oss_prop(repo_path)
 
         logger.info(f"{packages} built successfully!")
 
