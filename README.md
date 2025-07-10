@@ -16,31 +16,14 @@ git clone https://github.com/qualcomm-linux/kernel.git --single-branch -b qcom-n
 
 ### Add Kernel SQUASHFS configs required for Ubuntu
 ```
-vim qcom-next/arch/arm64/configs/defconfig
+./scripts/enable_squashfs_configs.sh $BUILD_TOP/qcom-next/
 ```
-Enable below:
-```
-CONFIG_SQUASHFS_XZ=y
-CONFIG_SQUASHFS_LZO=y
-CONFIG_SQUASHFS_XATTR=y
-CONFIG_SQUASHFS_ZLIB=y
-CONFIG_SQUASHFS_LZ4=y
-```
-Exit + save + commit defconfig change
 
 ### Run build_kernel.sh
 ```
 ./scripts/build_kernel.sh
 ```
 At the end of kernel build, below products will be deployed in ```kernel/out/```
-
-```
-.config
-Image
-modules/lib/modules/<kernel_version>
-x1e80100-crd.dtb
-qcs6490-rb3gen2.dtb
-```
 
 # Generate Linux Kernel Debian Package
 ```
