@@ -35,4 +35,13 @@ Run build-kernel-deb.sh and pass as argument the directory where kernel build ar
 ```
 ```linux-kernel-<kversion>-arm64.deb``` will be generated in ```kernel/```
 
+# Build EFI System Partition Image
+```
+cd kmake-image
+```
+```
+./bootloader/build-efi-esp.sh
+```
+```efiesp.bin``` will be generated and deployed in ```kmake-image/```
+
 
