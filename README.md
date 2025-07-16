@@ -44,4 +44,28 @@ cd kmake-image
 ```
 ```efiesp.bin``` will be generated and deployed in ```kmake-image/```
 
+# Download firmware debian package for X Elite CRD
+```
+wget "https://qli-stg-kernel-gh-artifacts.s3.amazonaws.com/kernel/ubuntu-firmware/linux-firmware-xelite_1.0-1%2Bnoble_arm64.deb?AWSAccessKeyId=AKIAXYMT55OHLXWGCTOU&Signature=TiG%2FZrnzJwhZoWK91y4qEf%2BczzA%3D&Expires=1788577277" -O "linux-firmware-xelite_1.0-1+noble_arm64.deb"
+```
+```linux-firmware-xelite_1.0-1+noble_arm64.deb``` will be downloaded in ```kmake-image/linux-firmware-xelite_1.0-1+noble_arm64.deb```
+
+# Build Ubuntu Rootfs
+```
+./rootfs/scripts/build-ubuntu-rootfs.sh kernel/linux-kernel-<kversion>-arm64.deb linux-firmware-xelite_1.0-1+noble_arm64.deb
+```
+```ubuntu.img``` root filesystem image will be generated in ```kmake-image/ubuntu.img```
+
+# Final Products
+Kernel Debian Package:
+```kmake-image/kernel/```
+```
+  -linux-kernel-<kversion>-arm64.deb
+```
+Bootable images: 
+```kmake-image/```
+```
+    - efiesp.bin
+    - ubuntu.img
+```
 
