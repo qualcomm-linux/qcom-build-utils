@@ -26,10 +26,7 @@ git clone https://github.com/qualcomm-linux/kernel.git --single-branch -b qcom-n
 At the end of kernel build, below products will be deployed in ```kernel/out/```
 
 # Generate Linux Kernel Debian Package
-```
-cd qcom-build-utils/kernel/
-```
-Run build-kernel-deb.sh and pass as argument the directory where kernel build artifacts were deployed (```out/```):
+Run ```build-kernel-deb.sh``` and pass as argument the directory where kernel build artifacts were deployed (```out/```):
 ```
 ./scripts/build-kernel-deb.sh out/
 ```
@@ -37,7 +34,7 @@ Run build-kernel-deb.sh and pass as argument the directory where kernel build ar
 
 # Build EFI System Partition Image
 ```
-cd qcom-build-utils
+cd ../  # Moves you into the qcom-build-utils/ directory
 ```
 ```
 ./bootloader/build-efi-esp.sh
