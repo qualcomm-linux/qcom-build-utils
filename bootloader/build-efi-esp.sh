@@ -79,9 +79,9 @@ grub-install \
 # ==============================================================================
 echo "[INFO] Writing bootstrap grub.cfg…"
 cat > "${MNT_DIR}/boot/grub/grub.cfg" <<EOF
-set root=(hd0,gpt13)
-set prefix=(\$root)/boot
-configfile \$prefix/grub.cfg
+search --no-floppy --label system --set=root
+set prefix=(\$root)/boot/grub
+configfile /boot/grub.cfg
 EOF
 
 # ==============================================================================

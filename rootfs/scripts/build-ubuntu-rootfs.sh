@@ -150,9 +150,9 @@ tee /boot/grub.cfg > /dev/null <<EOF
 set timeout=5
 set default=noble_crd
 menuentry \"Ubuntu Noble IoT for X Elite CRD\" --id noble_crd {
-    set root=(hd0,gpt13)
+    search --no-floppy --label system --set=root
     devicetree \$dtb_path
-    linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=/dev/nvme0n1p13 cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
+    linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
     initrd /boot/initrd.img-\$kernel_ver
 }
 EOF
@@ -172,7 +172,7 @@ umount -l "$ROOTFS_DIR/proc"
 # ==============================================================================
 echo "[INFO] Creating ext4 rootfs image: $ROOTFS_IMG (6GB)"
 truncate -s 6G "$ROOTFS_IMG"
-mkfs.ext4 "$ROOTFS_IMG"
+mkfs.ext4 -L system "$ROOTFS_IMG"
 
 echo "[INFO] Copying rootfs contents into image..."
 mount -o loop "$ROOTFS_IMG" "$MNT_DIR"
