@@ -147,7 +147,7 @@ yes \"\" | dpkg -i /$(basename "$KERNEL_DEB")
 
 echo '[CHROOT] Detecting installed kernel version...'
 kernel_ver=\$(ls /boot/vmlinuz-* | sed 's|.*/vmlinuz-||' | sort -V | tail -n1)
-dtb_path=\"/lib/firmware/\$kernel_ver/device-tree/x1e80100-crd.dtb\"
+crd_dtb_path=\"/lib/firmware/\$kernel_ver/device-tree/x1e80100-crd.dtb\"
 
 echo '[CHROOT] Writing GRUB configuration...'
 tee /boot/grub.cfg > /dev/null <<EOF
@@ -155,11 +155,28 @@ set timeout=5
 set default=noble_crd
 menuentry \"Ubuntu Noble IoT for X Elite CRD\" --id noble_crd {
     search --no-floppy --label system --set=root
-    devicetree \$dtb_path
+    devicetree \$crd_dtb_path
     linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
     initrd /boot/initrd.img-\$kernel_ver
 }
 EOF
+
+# Conditionally append EVK entry if its DTB is present
+evk_dtb_path=\"/lib/firmware/\$kernel_ver/device-tree/hamoa-iot-evk.dtb\"
+
+if [ -f "\$evk_dtb_path" ]; then
+    echo '[CHROOT] EVK DTB detected — appending EVK GRUB menuentry...'
+    tee -a /boot/grub.cfg > /dev/null <<EVK
+menuentry \"Ubuntu Noble IoT for X Elite EVK\" --id noble_evk {
+    search --no-floppy --label system --set=root
+    devicetree \$evk_dtb_path
+    linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
+    initrd /boot/initrd.img-\$kernel_ver
+}
+EVK
+else
+    echo '[CHROOT] EVK DTB not found — skipping EVK GRUB menuentry.'
+fi
 "
 
 # ==============================================================================
