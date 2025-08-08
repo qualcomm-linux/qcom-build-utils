@@ -5,6 +5,7 @@
 # ===================================================
 kpath=$BUILD_TOP/qcom-next/arch/arm64/boot
 CRD_DTB=$kpath/dts/qcom/x1e80100-crd.dtb
+EVK_DTB=$kpath/dts/qcom/hamoa-iot-evk.dtb
 QCS6490_DTB=$kpath/dts/qcom/qcs6490-rb3gen2.dtb
  
 # Clean previous build
@@ -28,5 +29,6 @@ make ARCH=arm64 modules
 make ARCH=arm64 modules_install INSTALL_MOD_PATH=$BUILD_TOP/out/modules INSTALL_MOD_STRIP=1
 
 # Deploy device tree blobs to out/
-cp $CRD_DTB $BUILD_TOP/out/
-cp $QCS6490_DTB $BUILD_TOP/out/
+[ -f "$CRD_DTB" ] && cp "$CRD_DTB" "$BUILD_TOP/out/"
+[ -f "$EVK_DTB" ] && cp "$EVK_DTB" "$BUILD_TOP/out/"
+[ -f "$QCS6490_DTB" ] && cp "$QCS6490_DTB" "$BUILD_TOP/out/"
