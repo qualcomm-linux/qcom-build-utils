@@ -50,16 +50,18 @@ WORKDIR=$(pwd)
 MNT_DIR="$WORKDIR/mnt"
 ROOTFS_DIR="$WORKDIR/rootfs"
 
-if [[ $# -ne 2 ]]; then
-    echo "Usage: $0 <kernel_package.deb> <firmware_package.deb>"
+if [[ $# -ne 3 ]]; then
+        echo "Usage: $0 <kernel_package.deb> <firmware_package.deb> <target(KLM/hamoa)>"
     exit 1
 fi
 
 KERNEL_DEB="$1"
 FIRMWARE_DEB="$2"
+TARGET="$3"
 
 [[ -f "$KERNEL_DEB" ]] || { echo "[ERROR] Kernel package not found: $KERNEL_DEB"; exit 1; }
 [[ -f "$FIRMWARE_DEB" ]] || { echo "[ERROR] Firmware package not found: $FIRMWARE_DEB"; exit 1; }
+#[[ -f "$TARGET" ]] || {  echo "[ERROR] Target not provided: $TARGET  Please mentioned the required target  *hamoa  *KLM"; exit 1; }
 
 # ==============================================================================
 # Step 2: Download and Extract Ubuntu Preinstalled Image
@@ -128,10 +130,13 @@ mount --bind /dev/pts "$ROOTFS_DIR/dev/pts"
 # ==============================================================================
 # Step 7: Enter chroot to Install Packages and Configure GRUB
 # ==============================================================================
-echo "[INFO] Entering chroot to install packages and configure GRUB..."
+echo "[INFO] Set root as user and SSH permission as root..."
+chroot "$ROOTFS_DIR" /bin/bash -c "echo root:password | chpasswd"
+
+echo "[INFO] Entering chroot to install packages and configure GRUB...a"
 chroot "$ROOTFS_DIR" /bin/bash -c "
 set -e
-
+echo PermitRootLogin yes >> /etc/ssh/sshd_config
 echo '[CHROOT] Updating APT and installing base packages...'
 export UBUNTU_FRONTEND=noninteractive
 apt update
@@ -152,8 +157,20 @@ crd_dtb_path=\"/lib/firmware/\$kernel_ver/device-tree/x1e80100-crd.dtb\"
 echo '[CHROOT] Writing GRUB configuration...'
 tee /boot/grub.cfg > /dev/null <<EOF
 set timeout=5
-set default=noble_crd
-menuentry \"Ubuntu Noble IoT for X Elite CRD\" --id noble_crd {
+set default=\"KLM\"
+if [ "$TARGET" == \"hamoa\"  ]; then
+        set default=\"hamoa\"
+fi
+
+menuentry \"Ubuntu Noble IoT for Rb3gen2\" --id KLM {
+
+    search --no-floppy --label system --set=root
+    linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 pcie_pme=nomsi earlycon qcom_scm.download_mode=1 panic=reboot_warm console=ttyMSM0,115200n8 pcie_pme=nomsi earlycon root=LABEL=system rw rw ignore_loglevel
+    initrd /boot/initrd.img-\$kernel_ver
+}
+
+menuentry \"Ubuntu Noble IoT for X Elite CRD\" --id hamoa {
+
     search --no-floppy --label system --set=root
     devicetree \$crd_dtb_path
     linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
@@ -209,4 +226,3 @@ umount -l "$MNT_DIR"
 # Completion
 # ==============================================================================
 echo "[SUCCESS] Ubuntu rootfs image created successfully: $ROOTFS_IMG"
-
