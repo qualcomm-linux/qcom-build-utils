@@ -1,5 +1,9 @@
 #!/bin/bash
-
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+#
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+#
+# ===================================================
 # build-kernel-deb.sh
 #
 # Ubuntu-compliant packaging tool for Linux kernel builds.
@@ -20,14 +24,14 @@
 #  - Verifies that the .deb was created successfully
 #
 # Usage:
-#   sudo ./build-kernel-deb.sh <path_to_kernel_out_dir>
+#   ./build-kernel-deb.sh <path_to_kernel_out_dir>
 #
 # Example:
-#   sudo ./build-kernel-deb.sh /path/to/kernel/out/
+#   ./build-kernel-deb.sh /path/to/kernel/out/
 #
-# Author: Bjordis Collaku
-#
-#
+# Author: Bjordis Collaku <bcollaku@qti.qualcomm.com>
+# ===================================================
+
 # Ensure the script is run as root
 if [ "$EUID" -ne 0 ]; then
     echo "This script needs to be run as root. Re-running with sudo..."

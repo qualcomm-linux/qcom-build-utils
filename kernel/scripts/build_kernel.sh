@@ -1,8 +1,16 @@
 #!/bin/bash
-
-# Script by Bjordis C. to build and deploy linux kernel for iot & compute platforms
-
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+#
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+#
 # ===================================================
+# build_kernel.sh
+#
+# Tool to build and deploy linux kernel artifacts for iot & compute platforms
+#
+# Author: Bjordis Collaku <bcollaku@qti.qualcomm.com>
+# ===================================================
+
 kpath=$BUILD_TOP/qcom-next/arch/arm64/boot
 CRD_DTB=$kpath/dts/qcom/x1e80100-crd.dtb
 EVK_DTB=$kpath/dts/qcom/hamoa-iot-evk.dtb

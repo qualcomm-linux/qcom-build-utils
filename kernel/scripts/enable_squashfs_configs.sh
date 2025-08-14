@@ -1,7 +1,9 @@
 #!/bin/bash
-set -euo pipefail
-
-# ------------------------------------------------------------------
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+#
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+#
+# ===================================================
 # enable_squashfs_configs.sh
 #
 # Adds SQUASHFS compression-related options to arch/arm64/configs/defconfig
@@ -9,7 +11,11 @@ set -euo pipefail
 #
 # Usage:
 #   ./enable_squashfs_configs.sh /path/to/qcom-next
-# ------------------------------------------------------------------
+#
+# Author: Bjordis Collaku <bcollaku@qti.qualcomm.com>
+# ===================================================
+
+set -euo pipefail
 
 # Check for required argument
 if [ $# -ne 1 ]; then

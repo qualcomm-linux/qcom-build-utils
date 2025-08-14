@@ -1,13 +1,17 @@
 #!/bin/bash
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+#
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+#
 # ==============================================================================
 # Script: build-ubuntu-rootfs.sh
 # ------------------------------------------------------------------------------
 # Description:
 #   This script creates a bootable Ubuntu root filesystem image (ubuntu.img)
-#   for ARM64 platforms such as Snapdragon X Elite CRD.
+#   for ARM64 platforms.
 #
 #   It performs the following operations:
-#     1. Downloads and extracts the latest Ubuntu Noble ARM64 preinstalled image.
+#     1. Downloads and extracts the latest Ubuntu ARM64 preinstalled image.
 #     2. Mounts and extracts the root filesystem contents.
 #     3. Injects custom kernel and firmware packages (.deb).
 #     4. Replaces resolv.conf temporarily using the host’s DNS config (for chroot).
@@ -24,9 +28,9 @@
 #   ./build-ubuntu-rootfs.sh <kernel_package.deb> <firmware_package.deb>
 #
 # Output:
-#   - ubuntu.img : Flashable ext4 rootfs image (for /dev/nvme0n1p13)
+#   - ubuntu.img : Flashable ext4 rootfs image
 #
-# Author: Bjordis Collaku
+# Author: Bjordis Collaku <bcollaku@qti.qualcomm.com>
 # ==============================================================================
 
 set -euo pipefail
