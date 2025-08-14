@@ -4,11 +4,13 @@ on:
     branches:
       - main
       - latest
+      - njjetha
 
   push:
     branches:
       - main
       - latest
+      - njjetha
 
   workflow_dispatch:
 
