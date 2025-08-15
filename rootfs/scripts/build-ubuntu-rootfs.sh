@@ -7,7 +7,7 @@
 #   for ARM64 platforms such as Snapdragon X Elite CRD.
 #
 #   It performs the following operations:
-#     1. Downloads and extracts the latest Ubuntu Noble ARM64 preinstalled image.
+#     1. Downloads and extracts the latest Ubuntu Questing ARM64 preinstalled image.
 #     2. Mounts and extracts the root filesystem contents.
 #     3. Injects custom kernel and firmware packages (.deb).
 #     4. Replaces resolv.conf temporarily using the host’s DNS config (for chroot).
@@ -42,9 +42,9 @@ fi
 # ==============================================================================
 # Step 1: Configuration and Argument Parsing
 # ==============================================================================
-UBUNTU_URL="https://cdimage.ubuntu.com/ubuntu-server/noble/daily-preinstalled/current/noble-preinstalled-server-arm64.img.xz"
-IMG_XZ_NAME="noble-preinstalled-server-arm64.img.xz"
-IMG_NAME="noble-preinstalled-server-arm64.img"
+UBUNTU_URL="https://cdimage.ubuntu.com/ubuntu-server/daily-preinstalled/current/questing-preinstalled-server-arm64.img.xz"
+IMG_XZ_NAME="questing-preinstalled-server-arm64.img.xz"
+IMG_NAME="questing-preinstalled-server-arm64.img"
 ROOTFS_IMG="ubuntu.img"
 WORKDIR=$(pwd)
 MNT_DIR="$WORKDIR/mnt"
@@ -64,7 +64,7 @@ FIRMWARE_DEB="$2"
 # ==============================================================================
 # Step 2: Download and Extract Ubuntu Preinstalled Image
 # ==============================================================================
-echo "[INFO] Downloading Ubuntu Noble preinstalled ARM64 image..."
+echo "[INFO] Downloading Ubuntu Questing preinstalled ARM64 image..."
 if ! wget -c "$UBUNTU_URL" -O "$IMG_XZ_NAME"; then
     echo "[ERROR] Failed to download image from: $UBUNTU_URL"
     exit 1
@@ -152,8 +152,8 @@ crd_dtb_path=\"/lib/firmware/\$kernel_ver/device-tree/x1e80100-crd.dtb\"
 echo '[CHROOT] Writing GRUB configuration...'
 tee /boot/grub.cfg > /dev/null <<EOF
 set timeout=5
-set default=noble_crd
-menuentry \"Ubuntu Noble IoT for X Elite CRD\" --id noble_crd {
+set default=questing_crd
+menuentry \"Ubuntu Questing Quokka IoT for X Elite CRD\" --id questing_crd {
     search --no-floppy --label system --set=root
     devicetree \$crd_dtb_path
     linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
@@ -167,7 +167,7 @@ evk_dtb_path=\"/lib/firmware/\$kernel_ver/device-tree/hamoa-iot-evk.dtb\"
 if [ -f "\$evk_dtb_path" ]; then
     echo '[CHROOT] EVK DTB detected — appending EVK GRUB menuentry...'
     tee -a /boot/grub.cfg > /dev/null <<EVK
-menuentry \"Ubuntu Noble IoT for X Elite EVK\" --id noble_evk {
+menuentry \"Ubuntu Questing Quokka IoT for X Elite EVK\" --id questing_evk {
     search --no-floppy --label system --set=root
     devicetree \$evk_dtb_path
     linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
