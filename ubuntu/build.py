@@ -42,7 +42,7 @@ from color_logger import logger
 # Check for root privileges
 if not check_if_root():
     logger.critical('Please run this script as root user.')
-    exit(1)
+    #exit(1)
 
 DIST           = "noble"
 ARCH           = "arm64"
