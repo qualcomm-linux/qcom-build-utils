@@ -1,10 +1,14 @@
 #!/bin/bash
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+#
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+#
 # ==============================================================================
 # Script: build-efi-esp.sh
 # ------------------------------------------------------------------------------
 # Description:
 #   Creates a standalone EFI System Partition image (efiesp.bin) for ARM64
-#   platforms (e.g. Snapdragon X Elite CRD).
+#   platforms.
 #
 #   Workflow:
 #     1. **Auto‑elevate** – re‑executes itself with `sudo` if not already root.
@@ -20,7 +24,9 @@
 #   ./build-efi-esp.sh
 #
 # Output:
-#   efiesp.bin  → flash to /dev/nvme0n1p12 (or appropriate ESP partition)
+#   efiesp.bin  → flash to appropriate ESP partition
+#
+# Author: Bjordis Collaku <bcollaku@qti.qualcomm.com>
 # ==============================================================================
 
 set -euo pipefail
