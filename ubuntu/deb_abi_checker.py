@@ -43,6 +43,13 @@ import traceback
 from helpers import create_new_directory
 from color_logger import logger
 
+RETURN_ABI_NO_DIFF           = 0b00000
+RETURN_ABI_COMPATIBLE_DIFF   = 0b00001
+RETURN_ABI_INCOMPATIBLE_DIFF = 0b00010
+RETURN_ABI_STRIPPED_PACKAGE  = 0b00100
+RETURN_PPA_PACKAGE_NOT_FOUND = 0b01000
+RETURN_PPA_ERROR             = 0b10000
+
 class ABI_DIFF_Result:
     def __init__(self, package_name):
         self.package_name = package_name
@@ -65,9 +72,13 @@ class ABI_DIFF_Result:
 # package_name - result
 global_checker_results: dict[str, ABI_DIFF_Result] = {}
 
+
+
 def print_results(log_file=None):
 
     log = "ABI Check results\n"
+
+    log += ("-" * 100 + "\n")
 
     for package_name, result in global_checker_results.items():
         log += f"Package Name:     {package_name}\n"
@@ -98,7 +109,7 @@ def print_results(log_file=None):
         with open(log_file, 'w') as f:
             f.write(log)
 
-    print(log)
+    logger.debug(log)
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Compare two .deb packages using abipkgdiff or abidiff.")
@@ -126,11 +137,14 @@ def main():
 
     logger.debug(f"args: {args}")
 
+    if not os.path.isabs(args.new_package_dir):
+        args.new_package_dir = os.path.abspath(args.new_package_dir)
+
     print_debug_tree = True
 
 
 
-    passed = single_repo_deb_abi_checker(args.new_package_dir,
+    ret = single_repo_deb_abi_checker(args.new_package_dir,
                                          args.apt_server_config,
                                          True if args.delete_temp is False else False,
                                          None if not args.old_version else args.old_version,
@@ -138,7 +152,7 @@ def main():
 
     print_results(None)
 
-    sys.exit(0 if passed else 1)
+    sys.exit(ret)
 
 def multiple_repo_deb_abi_checker(package_dir, apt_server_config, keep_temp=True, specific_apt_version=None) -> bool:
     """
@@ -194,7 +208,7 @@ def multiple_repo_deb_abi_checker(package_dir, apt_server_config, keep_temp=True
 
     return all_repos_successful
 
-def single_repo_deb_abi_checker(repo_package_dir, apt_server_config, keep_temp=True, specific_apt_version=None, print_debug_tree=False):
+def single_repo_deb_abi_checker(repo_package_dir, apt_server_config, keep_temp=True, specific_apt_version=None, print_debug_tree=False) -> int:
     """
     Runs the ABI check for all the packages in a single repo output directory
 
@@ -265,11 +279,11 @@ def single_repo_deb_abi_checker(repo_package_dir, apt_server_config, keep_temp=T
 
     if not deb_files:
         logger.warning(f"[ABI_CHECKER]/[SINGLE_REPO]: No .deb file found, nothing to compare, returning success")
-        return True
+        return RETURN_ABI_NO_DIFF
 
     logger.debug(f"[ABI_CHECKER]/[SINGLE_REPO]: Found {len(deb_files)} package{"s" if len(deb_files) > 1 else ""}")
 
-    all_packages_passing = True
+    final_ret = 0
 
     for deb_file in deb_files:
         logger.debug(f"[ABI_CHECKER]/[SINGLE_REPO]: core deb file detected: {deb_file}")
@@ -283,19 +297,18 @@ def single_repo_deb_abi_checker(repo_package_dir, apt_server_config, keep_temp=T
         global_checker_results[package_name].repo_name = basedir
 
         # Run the single_package_abi_checker function for the package
-        passing = single_package_abi_checker(repo_package_dir=repo_package_dir,
-                                             package_abi_check_temp_dir=package_abi_check_temp_dir,
-                                             package_name=package_name,
-                                             package_file=deb_file,
-                                             apt_server_config=apt_server_config,
-                                             keep_temp=keep_temp,
-                                             specific_apt_version=specific_apt_version,
-                                             print_debug_tree=print_debug_tree)
+        ret = single_package_abi_checker(repo_package_dir=repo_package_dir,
+                                         package_abi_check_temp_dir=package_abi_check_temp_dir,
+                                         package_name=package_name,
+                                         package_file=deb_file,
+                                         apt_server_config=apt_server_config,
+                                         keep_temp=keep_temp,
+                                         specific_apt_version=specific_apt_version,
+                                         print_debug_tree=print_debug_tree)
 
-        if not passing:
-            all_packages_passing = False
+        final_ret = final_ret | ret
 
-    return all_packages_passing
+    return final_ret
 
 def single_package_abi_checker(repo_package_dir,
                                package_abi_check_temp_dir,
@@ -412,10 +425,12 @@ def single_package_abi_checker(repo_package_dir,
 
     # Update the package list
     cmd = "apt-get update" + opt
+
+    logger.debug(f"[ABI_CHECKER]/{package_name}: Running: {cmd}")
     apt_ret = subprocess.run(cmd, cwd=old_download_dir, shell=True, capture_output=True)
     if apt_ret.returncode != 0:
         logger.critical(f"[ABI_CHECKER]/{package_name}: Failed to update package list: {apt_ret.stderr}")
-        return False
+        return RETURN_PPA_ERROR
 
     # download the .deb package
     pkg = package_name + (("=" + specific_apt_version) if specific_apt_version else "")
@@ -423,7 +438,7 @@ def single_package_abi_checker(repo_package_dir,
     apt_ret = subprocess.run(cmd, cwd=old_download_dir, shell=True, capture_output=True)
     if apt_ret.returncode != 0:
         logger.error(f"[ABI_CHECKER]/{package_name}: Failed to download {pkg}: {apt_ret.stderr}")
-        return False
+        return RETURN_PPA_PACKAGE_NOT_FOUND
     else:
         logger.info(f"[ABI_CHECKER]/{package_name}: Downloaded {pkg}")
 
@@ -451,7 +466,8 @@ def single_package_abi_checker(repo_package_dir,
     if old_deb_file is None:
         logger.critical(f"[ABI_CHECKER]/{package_name}: No .deb file found in '{old_download_dir}' that does not contain '-dev' in the name")
         result.old_deb_name = "ERROR : None found"
-        return False
+        raise Exception("No .deb file found in '{old_download_dir}' that does not contain '-dev' in the name")
+
     old_deb_path = os.path.join(old_download_dir, old_deb_file)
     result.old_deb_name = old_deb_file
     result.old_deb_version = os.path.splitext(old_deb_file)[0].split('_')[1]
@@ -515,11 +531,11 @@ def single_package_abi_checker(repo_package_dir,
         if bit1:
             logger.critical(f"[ABI_CHECKER]: abipkgdiff encountered an error")
             result.abi_pkg_diff_result = "ERROR"
-            return False
+            raise Exception("abipkgdiff encountered an error")
         if bit2:
             logger.error(f"[ABI_CHECKER]: abipkgdiff usage error. This has shown to be true for stripped packages")
             result.abi_pkg_diff_result = "STRIPPED-PACKAGE"
-            return False
+            return RETURN_ABI_STRIPPED_PACKAGE
         if bit3:
             result.abi_pkg_diff_result = "COMPATIBLE-DIFF"
             logger.warning(f"[ABI_CHECKER]: abipkgdiff detected ABI changes")
