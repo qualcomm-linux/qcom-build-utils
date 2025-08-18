@@ -1,6 +1,3 @@
-# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
-#
-# SPDX-License-Identifier: BSD-3-Clause-Clear
 certifi==2025.1.31
 charset-normalizer==3.4.1
 future==1.0.0

@@ -1,7 +1,3 @@
-# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
-#
-# SPDX-License-Identifier: BSD-3-Clause-Clear
-
 """
 build_kernel.py
 
@@ -10,7 +6,8 @@ It requires root privileges to execute and utilizes various helper functions for
 logging, and file management.
 """
 
-from helpers import check_if_root, logger, check_and_append_line_in_file, set_env, create_new_directory
+from helpers import check_if_root, check_and_append_line_in_file, set_env, create_new_directory
+from color_logger import logger
 import os
 import shutil
 import subprocess

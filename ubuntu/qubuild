@@ -1,7 +1,5 @@
 #!/bin/bash
-# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
-#
-# SPDX-License-Identifier: BSD-3-Clause-Clear
+
 
 if command -v readlink >/dev/null 2>&1 && readlink -f / >/dev/null 2>&1; then
   SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"

@@ -1,7 +1,3 @@
-# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
-#
-# SPDX-License-Identifier: BSD-3-Clause-Clear
-
 '''
 generate_project_info_from_manifest.py
 
@@ -14,7 +10,7 @@ import collections
 import os
 import requests
 from lxml import etree
-from helpers import logger
+from color_logger import logger
 
 
 def parse_from_string(xml_string):

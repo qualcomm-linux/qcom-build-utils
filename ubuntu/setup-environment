@@ -1,7 +1,4 @@
 #!/bin/bash
-# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
-#
-# SPDX-License-Identifier: BSD-3-Clause-Clear
 
 log() {
     echo "[`date '+%Y-%m-%d %H:%M:%S'`] $1"
