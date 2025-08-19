@@ -317,7 +317,7 @@ def single_package_abi_checker(repo_package_dir,
                                apt_server_config,
                                keep_temp=True,
                                specific_apt_version=None,
-                               print_debug_tree=False) -> bool:
+                               print_debug_tree=False) -> int:
     """
     Runs the ABI check in a folder containing a single package.
     """
@@ -360,7 +360,7 @@ def single_package_abi_checker(repo_package_dir,
         if len(deb_dev_file) > 1:
             logger.critical(f"[ABI_CHECKER]/{package_name}: Multiple -dev.deb files found")
             result.new_dev_name = "ERROR : multiple detected"
-            return False
+            return -1
         new_dev_path = os.path.join(repo_package_dir, deb_dev_file[0])
         result.new_dev_name = deb_dev_file[0]
 
