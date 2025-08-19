@@ -1,4 +1,5 @@
-name: Qualcomm Preflight Checks
+workflow_content = """name: Qualcomm Preflight Checks
+
 on:
   pull_request_target:
     branches:
@@ -13,18 +14,30 @@ on:
   workflow_dispatch:
 
 permissions:
- contents: read
- security-events: write
+  contents: read
+  security-events: write
 
 jobs:
   qcom-preflight-checks:
     uses: qualcomm/qcom-reusable-workflows/.github/workflows/qcom-preflight-checks-reusable-workflow.yml@v1.1.4
     with:
-        # ✅ Preflight Checkers
-        repolinter: true                   # default: true
-        semgrep: true                      # default: true
-        copyright-license-detector: true   # default: true
-        pr-check-emails: true              # default: true
-        dependency-review: true            # default: true
+      repolinter: true
+      semgrep: true
+      copyright-license-detector: true
+      pr-check-emails: true
+      dependency-review: true
     secrets:
       SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+"""
+
+# Create the workflow file in the appropriate directory
+import os
+
+workflow_dir = ".github/workflows"
+os.makedirs(workflow_dir, exist_ok=True)
+
+workflow_path = os.path.join(workflow_dir, "preflight.yml")
+with open(workflow_path, "w") as f:
+    f.write(workflow_content)
+
+print(f"Workflow file created at: {workflow_path}")
