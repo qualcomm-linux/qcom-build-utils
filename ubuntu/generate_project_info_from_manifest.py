@@ -14,7 +14,7 @@ import collections
 import os
 import requests
 from lxml import etree
-from helpers import logger
+from color_logger import logger
 
 
 def parse_from_string(xml_string):

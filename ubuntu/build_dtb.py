@@ -16,7 +16,8 @@ import glob
 import shlex
 import tempfile
 import subprocess
-from helpers import logger, cleanup_directory, check_if_root
+from helpers import cleanup_directory, check_if_root
+from color_logger import logger
 
 def build_dtb(deb_dir, deb_file_regex, combined_dtb_filename, out_dir):
     """
@@ -55,7 +56,7 @@ def build_dtb(deb_dir, deb_file_regex, combined_dtb_filename, out_dir):
     deb_file = files[0] # Assuming only one file matches the regex
     try:
         temp_dir = tempfile.mkdtemp()
-        logger.info(f'Temp path for dtb extraction: {temp_dir}')
+        logger.debug(f'Temp path for dtb extraction: {temp_dir}')
         subprocess.run(["dpkg-deb", '-x', deb_file, temp_dir], check=True)
     except Exception as e:
         logger.error(f"Error extracting .deb file: {e}")
@@ -67,7 +68,7 @@ def build_dtb(deb_dir, deb_file_regex, combined_dtb_filename, out_dir):
         if combined_dtb_filename in files:
             file_path = os.path.join(root, combined_dtb_filename)
             break
-    
+
     # Step 3: Process the combined-dtb.dtb file
     if file_path:
         # Step 4: Use a hardcoded block size

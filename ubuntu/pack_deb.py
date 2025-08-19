@@ -21,8 +21,9 @@ from pathlib import Path
 from queue import Queue
 from collections import defaultdict, deque
 from constants import *
-from helpers import create_new_file, check_if_root, logger, run_command, create_new_directory, run_command_for_result, mount_img, umount_dir, cleanup_file, build_deb_package_gz
+from helpers import create_new_file, check_if_root, run_command, create_new_directory, run_command_for_result, mount_img, umount_dir, cleanup_file, build_deb_package_gz, parse_debs_manifest
 from deb_organize import search_manifest_map_for_path
+from color_logger import logger
 
 class PackagePacker:
     def __init__(self, MOUNT_DIR, IMAGE_TYPE, VARIANT, OUT_DIR, OUT_SYSTEM_IMG, APT_SERVER_CONFIG, TEMP_DIR, DEB_OUT_DIR, DEBIAN_INSTALL_DIR, IS_CLEANUP_ENABLED, PACKAGES_MANIFEST_PATH=None):
@@ -100,7 +101,7 @@ class PackagePacker:
 
         create_new_directory(self.EFI_MOUNT_PATH)
         run_command(f"mount -o loop {self.EFI_BIN_PATH} {self.EFI_MOUNT_PATH}")
-        grub_update_cmd = f"""echo 'GRUB_CMDLINE_LINUX="ro console=ttyMSM0,115200n8 pcie_pme=nomsi earlycon qcom_scm.download_mode=1 panic=reboot_warm"
+        grub_update_cmd = f"""echo 'GRUB_CMDLINE_LINUX="ro console=ttyMSM0,115200n8 pcie_pme=nomsi earlycon qcom_scm.download_mode=1 reboot=panic_warm"
 GRUB_DEVICE="/dev/disk/by-partlabel/system"
 GRUB_TERMINAL="console"
 GRUB_DISABLE_LINUX_UUID="true"
@@ -114,49 +115,23 @@ GRUB_DISABLE_RECOVERY="true"' >> {os.path.join(self.MOUNT_DIR, 'etc', 'default',
         self.QCOM_MANIFEST = None
         # 1. User-provided manifest
         if self.PACKAGES_MANIFEST_PATH:
-            user_manifest = Path(self.PACKAGES_MANIFEST_PATH)
-            if not user_manifest.is_file() or not user_manifest.name.endswith('.manifest'):
-                raise ValueError(f"Provided manifest path '{user_manifest}' is not a valid '.manifest' file.")
-            self.BASE_MANIFEST = str(user_manifest)
-            logger.info(f"Packages manifest path: {self.BASE_MANIFEST}")
+            logger.info(f"Packages manifest path: {self.PACKAGES_MANIFEST_PATH}")
             # Load packages from user manifest
-            with open(self.BASE_MANIFEST, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#'):
-                        parts = list(line.split('\t'))
-                        self.DEBS.append({
-                            'package': parts[0],
-                            'version': parts[1] if len(parts) > 1 else None,
-                        })
+            self.DEBS = parse_debs_manifest(self.PACKAGES_MANIFEST_PATH)
             return  # Done if user manifest is found and valid
+
         # 2. Default manifest(s) from packages/base and/or packages/qcom
         base_path = os.path.join(self.cur_file, "packages", "base", f"{self.IMAGE_TYPE}.manifest")
         if os.path.isfile(base_path):
             self.BASE_MANIFEST = base_path
-            with open(self.BASE_MANIFEST, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#'):
-                        parts = list(line.split('\t'))
-                        self.DEBS.append({
-                            'package': parts[0],
-                            'version': parts[1] if len(parts) > 1 else None,
-                        })
+            logger.debug(f"Using base manifest: {self.BASE_MANIFEST}")
+            self.DEBS = parse_debs_manifest(self.BASE_MANIFEST)
             # Also include qcom manifest if variant == qcom
             if self.VARIANT == "qcom":
                 qcom_path = os.path.join(self.cur_file, "packages", "qcom", f"{self.IMAGE_TYPE}.manifest")
-                if os.path.isfile(qcom_path):
-                    self.QCOM_MANIFEST = qcom_path
-                    with open(self.QCOM_MANIFEST, 'r') as f:
-                        for line in f:
-                            line = line.strip()
-                            if line and not line.startswith('#'):
-                                parts = list(line.split('\t'))
-                                self.DEBS.append({
-                                    'package': parts[0],
-                                    'version': parts[1] if len(parts) > 1 else None,
-                                })
+                self.QCOM_MANIFEST = qcom_path
+                logger.debug(f"Using QCOM manifest: {self.QCOM_MANIFEST}")
+                self.DEBS.extend(parse_debs_manifest(self.QCOM_MANIFEST))
             return
         # 3. No manifest found: print message and exit
         logger.error("No manifest found. Please provide a valid .manifest file via PACKAGES_MANIFEST_PATH or ensure default manifests exist.")
@@ -191,6 +166,7 @@ GRUB_DISABLE_RECOVERY="true"' >> {os.path.join(self.MOUNT_DIR, 'etc', 'default',
         bash_command = f"""
 sudo mmdebstrap --verbose --logfile={log_file} \
 --customize-hook='echo root:password | chroot "$1" chpasswd' \
+--customize-hook='cp {self.cur_file}/99-network-manager.cfg "$1/etc/cloud/cloud.cfg.d/99-network-manager.cfg"' \
 --customize-hook='echo "PermitRootLogin yes" >> "$1/etc/ssh/sshd_config"' \
 --setup-hook='echo /dev/disk/by-partlabel/system / ext4 defaults 0 1 > "$1/etc/fstab"' \
 --arch=arm64 \

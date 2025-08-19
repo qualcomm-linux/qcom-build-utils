@@ -13,7 +13,7 @@ The generated manifest map can be used to search for specific file paths within 
 
 import os
 import sys
-from helpers import logger
+from color_logger import logger
 
 from generate_project_info_from_manifest import create_project_info_file
 

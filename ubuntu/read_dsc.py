@@ -5,8 +5,8 @@
 """
 read_dsc.py
 
-This script provides a function to extract MD5 checksums, sizes, and filenames from a Debian source control (DSC) file. 
-It allows for filtering of the extracted files based on an optional filename pattern, making it useful for 
+This script provides a function to extract MD5 checksums, sizes, and filenames from a Debian source control (DSC) file.
+It allows for filtering of the extracted files based on an optional filename pattern, making it useful for
 analyzing package files in Debian packaging workflows.
 """
 
@@ -48,10 +48,10 @@ def extract_md5sum_from_files(dsc_path, filename_pattern=None):
             if line.startswith('Files:'):
                 in_files_section = True
                 continue
-            
+
             if in_files_section and not line.startswith(' '):
                 break
-            
+
             if in_files_section and line.startswith(' '):
                 parts = line.strip().split(maxsplit=2)
                 if len(parts) == 3:
@@ -62,5 +62,5 @@ def extract_md5sum_from_files(dsc_path, filename_pattern=None):
                             'size': size,
                             'filename': filename
                         })
-    
+
     return entries
