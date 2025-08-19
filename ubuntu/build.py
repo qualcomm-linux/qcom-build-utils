@@ -180,7 +180,7 @@ APT_SERVER_CONFIG = [config.strip() for config in args.apt_server_config.split('
 try:
     MANIFEST_MAP = generate_manifest_map(WORKSPACE_DIR)
 except Exception as e:
-    logger.error(f"Failed to generate manifest map: {e}")
+    logger.warning(f"Failed to generate manifest map: {e}")
     MANIFEST_MAP = {}
 
 APT_SERVER_CONFIG = list(set(APT_SERVER_CONFIG)) if APT_SERVER_CONFIG else None
