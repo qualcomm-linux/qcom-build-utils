@@ -443,7 +443,7 @@ def single_package_abi_checker(repo_package_dir,
         logger.info(f"[ABI_CHECKER]/{package_name}: Downloaded {pkg}")
 
     # download the -dev.deb package
-    pkg = package_name + "-dev"  + (("=" + specific_apt_version) if specific_apt_version else "")
+    pkg = package_name_without_major + "-dev"  + (("=" + specific_apt_version) if specific_apt_version else "")
     cmd = f"apt-get download {pkg}" + opt
     apt_ret = subprocess.run(cmd, cwd=old_download_dir, shell=True, capture_output=True)
     if apt_ret.returncode != 0:
