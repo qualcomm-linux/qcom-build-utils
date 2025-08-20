@@ -330,8 +330,8 @@ umount -l "$ROOTFS_DIR/proc"
 # ==============================================================================
 # Step 9: Create ext4 rootfs image and write contents
 # ==============================================================================
-echo "[INFO] Creating ext4 rootfs image: $ROOTFS_IMG (6GB)"
-truncate -s 6G "$ROOTFS_IMG"
+echo "[INFO] Creating ext4 rootfs image: $ROOTFS_IMG (8GB)"
+truncate -s 8G "$ROOTFS_IMG"
 mkfs.ext4 -L system "$ROOTFS_IMG"
 
 echo "[INFO] Copying rootfs contents into image..."
