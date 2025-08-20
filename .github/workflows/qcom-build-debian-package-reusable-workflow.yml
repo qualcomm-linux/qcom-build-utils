@@ -1,0 +1,182 @@
+name: Qualcomm Build Debian Package Reusable Workflow
+on:
+  workflow_call:
+    inputs:
+      repo_name:
+        description: Name of the repo to build from
+        type: string
+        required: true
+      package_name:
+        description: Name of the package to build (in the debian/control file there may be more than 1 package listed)
+        type: string
+        required: true
+      use_local_ppa:
+        description: 'Whether to use a local PPA for testing'
+        type: boolean
+        required: false
+        default: true
+      clear_ppa: # Assuming this might also be an input for the reusable workflow
+        description: 'Whether to clear the PPA'
+        type: boolean
+        required: false
+        default: false        
+    secrets:
+      ACTIONS_SSH_KEY:
+        required: true     
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  PPA_HTTP_DIRECTORY: /var/www/html/github-actions-ppa
+  PPA_HTTP_SERVER_PORT: 12345
+  PPA_HTTP_SERVER_SCREEN_NAME: github-actions-ppa-http-server
+
+  # This variable is set to true below if the ABI check is not able to find an initial
+  # version of the package in the PPA
+  INITIAL_UPLOAD_TO_PPA: false
+jobs:
+  qcom-build-debian-package:
+    runs-on: [self-hosted, Linux, ARM64]
+
+    steps:
+      - name: Clear PPA if requested
+        if: ${{ inputs.clear_ppa == 'true' }}
+        run: |
+          rm -rf ${{ env.PPA_HTTP_DIRECTORY }}/*
+          echo "Directory ${{ env.PPA_HTTP_DIRECTORY }} removed"
+
+      - name: Setup HTTP PPA server
+        run : |
+          echo "Check if PPA serving folder exists ${{ env.PPA_HTTP_DIRECTORY }}"
+          if [ -d "${{ env.PPA_HTTP_DIRECTORY }}" ]; then
+            echo "Directory exists"
+          else
+            echo "Directory does not exist"
+            mkdir ${{ env.PPA_HTTP_DIRECTORY }}
+          fi
+
+          echo "Check if PPA html server is running"
+      
+          if screen -list | grep -q "${{ env.PPA_HTTP_SERVER_SCREEN_NAME }}"; then
+            echo "Screen session ${{ env.PPA_HTTP_SERVER_SCREEN_NAME }} already exists. Skipping server start."
+          else
+            screen -dmS ${{ env.PPA_HTTP_SERVER_SCREEN_NAME }} bash -c 'python3 -m http.server ${{ env.PPA_HTTP_SERVER_PORT }} --directory ${{ env.PPA_HTTP_DIRECTORY }}'
+            echo "Started HTTP server in screen session ${{ env.PPA_HTTP_SERVER_SCREEN_NAME }}"
+          fi
+
+          echo "Check if PPA server works"
+          if curl --silent --output /dev/null --fail http://localhost:${{ env.PPA_HTTP_SERVER_PORT }}/; then
+            echo "HTTP server works"
+          else
+            echo "Error: HTTP server is not responding. Exiting"
+            exit 1
+          fi
+
+          echo "Check if PPA server is populated"
+          if [ -f "${{ env.PPA_HTTP_DIRECTORY }}/dists/noble/stable/main/binary-arm64/Packages.gz" ]; then
+            echo "PPA server is populated, listing the content of Packages:"
+            cat ${{ env.PPA_HTTP_DIRECTORY }}/dists/noble/stable/main/binary-arm64/Packages
+          else
+            echo "Error: PPA server is not populated. Populating"
+            mkdir -p ${{ env.PPA_HTTP_DIRECTORY }}/dists/noble/stable/main/binary-arm64/
+            dpkg-scanpackages ${{ env.PPA_HTTP_DIRECTORY }} > ${{ env.PPA_HTTP_DIRECTORY }}/dists/noble/stable/main/binary-arm64/Packages
+            gzip -9 < ${{ env.PPA_HTTP_DIRECTORY }}/dists/noble/stable/main/binary-arm64/Packages > ${{ env.PPA_HTTP_DIRECTORY }}/dists/noble/stable/main/binary-arm64/Packages.gz
+          fi
+
+      - name : Checkout Repository With Submodules
+        uses: actions/checkout@v4 # Using public GitHub action to checkout repo, see https://github.com/actions/checkout
+        with:
+          clean: true # Make sure the workspace is cleaned up from previous runs
+          submodules: 'recursive' # Make sure all submodules are recursively checked out
+          ssh-key: ${{ secrets.ACTIONS_SSH_KEY }} # Add SSH key for cloning private repos
+          fetch-depth: 1 # Speedup things since full history isn't needed
+
+      - name: Prepare Workspace Structure
+        # The build.py script expects a specific directory structure
+        # This step creates the required directories and links the example package sources to the expected location
+        # The build_deb script will go through the WORKSPACE/sources directory and find every "debian" folder and exctract the package names
+        # from the Control file and build a list of available packages to build. 
+        run: |
+            echo "Listing the content of what was checked out"; tree
+            mkdir WORKSPACE
+            mkdir WORKSPACE/sources
+            mkdir WORKSPACE/sources/${{ inputs.repo_name }}
+            cp -r debian/ WORKSPACE/sources/${{ inputs.repo_name }}
+            cp -r qcom-example-package-source WORKSPACE/sources/${{ inputs.repo_name }}
+
+      - name: Build Debian Package
+        run : ./qcom-distro-ubuntu/qcom-build-utils/ubuntu/build.py --workspace ./WORKSPACE --gen-debians --package ${{ inputs.package_name }} --no-abi-check
+
+      - name: ABI Check
+        run: |
+          set +e
+          ./qcom-distro-ubuntu/qcom-build-utils/ubuntu/deb_abi_checker.py \
+            --new-package-dir ./WORKSPACE/debian_packages/temp/${{ inputs.repo_name }} \
+            --apt-server-config "deb [arch=arm64 trusted=yes] http://localhost:${{ env.PPA_HTTP_SERVER_PORT }} noble/stable main"
+          RET=$?
+          set -e 
+          
+          echo "ABI check returned $RET"
+
+          #       (0):  RETURN_ABI_NO_DIFF
+          # Bit 0 (1):  RETURN_ABI_COMPATIBLE_DIFF
+          # Bit 1 (2):  RETURN_ABI_INCOMPATIBLE_DIFF
+          # Bit 2 (4):  RETURN_ABI_STRIPPED_PACKAGE
+          # Bit 3 (8):  RETURN_PPA_PACKAGE_NOT_FOUND
+          # Bit 4 (16): RETURN_PPA_ERROR
+
+          if (( RET == 0 )); then
+            echo "ABI check passed"
+          fi
+
+          if (( RET & 1 )); then
+            echo "ABI check returned COMPATIBLE DIFF"
+          fi
+
+          if (( RET & 2 )); then
+            echo "ABI check returned INCOMPATIBLE DIFF"
+          fi
+
+          if (( RET & 4 )); then
+            echo "ABI check returned STRIPPED PACKAGE"
+          fi
+
+          if (( RET & 8 )); then
+            echo "ABI check failed because the PPA did not contained an old version for the package."
+            echo "Assumption is that this is the first time the package was build."
+            echo "INITIAL_UPLOAD_TO_PPA=true" >> $GITHUB_ENV
+          fi
+
+          if (( RET & 16 )); then
+            echo "ABI check failed because there was an error on the PPA"
+          fi
+
+      - name: Upload Debian Package To PPA Server If First Build
+        if: ${{ env.INITIAL_UPLOAD_TO_PPA == 'true' }}
+        run: |
+          echo "Uploading Debian Package To PPA Server..."
+          cp -r ./WORKSPACE/debian_packages/oss/ ${{ env.PPA_HTTP_DIRECTORY }}
+          echo "Copied, here is the new tree of the PPA :"; tree ${{ env.PPA_HTTP_DIRECTORY }}
+
+          echo "Removing olf Packages/.gz files"
+
+          rm -f ${{ env.PPA_HTTP_DIRECTORY }}/dists/noble/stable/main/binary-arm64/Packages || true
+          rm -f ${{ env.PPA_HTTP_DIRECTORY }}/dists/noble/stable/main/binary-arm64/Packages.gz || true
+          
+          echo "Updating the Packages/.gz files"
+
+          touch ${{ env.PPA_HTTP_DIRECTORY }}/dists/noble/stable/main/binary-arm64/Packages
+
+          for dir in ${{ env.PPA_HTTP_DIRECTORY }}/oss/*/; do
+            echo "Updating packages for dir $dir"
+            dpkg-scanpackages "$dir" | sed 's|/var/www/html/github-actions-ppa/||'             >> "${{ env.PPA_HTTP_DIRECTORY }}/dists/noble/stable/main/binary-arm64/Packages"
+            dpkg-scanpackages --type ddeb "$dir" | sed 's|/var/www/html/github-actions-ppa/||' >> "${{ env.PPA_HTTP_DIRECTORY }}/dists/noble/stable/main/binary-arm64/Packages"
+          done
+
+          gzip -9 < "${{ env.PPA_HTTP_DIRECTORY }}/dists/noble/stable/main/binary-arm64/Packages" > "${{ env.PPA_HTTP_DIRECTORY }}/dists/noble/stable/main/binary-arm64/Packages.gz"
+
+          echo "Updated the packages.gz files"
+
+          echo "Updated the Packages files for suite: noble"
