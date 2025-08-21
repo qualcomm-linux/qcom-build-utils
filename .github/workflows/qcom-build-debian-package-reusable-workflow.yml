@@ -2,14 +2,6 @@ name: Qualcomm Build Debian Package Reusable Workflow
 on:
   workflow_call:
     inputs:
-      repo_name:
-        description: Name of the repo to build from
-        type: string
-        required: true
-      package_name:
-        description: Name of the package to build (in the debian/control file there may be more than 1 package listed)
-        type: string
-        required: true
       use_local_ppa:
         description: 'Whether to use a local PPA for testing'
         type: boolean
@@ -102,18 +94,18 @@ jobs:
             echo "Listing the content of what was checked out"; tree
             mkdir WORKSPACE
             mkdir WORKSPACE/sources
-            mkdir WORKSPACE/sources/${{ inputs.repo_name }}
-            cp -r debian/ WORKSPACE/sources/${{ inputs.repo_name }}
-            cp -r qcom-example-package-source WORKSPACE/sources/${{ inputs.repo_name }}
+            mkdir WORKSPACE/sources/${{ github.event.repository.name }}
+            cp -r debian/ WORKSPACE/sources/${{ github.event.repository.name }}
+            cp -r qcom-example-package-source WORKSPACE/sources/${{ github.event.repository.name }}
 
       - name: Build Debian Package
-        run : ./qcom-distro-ubuntu/qcom-build-utils/ubuntu/build.py --workspace ./WORKSPACE --gen-debians --package ${{ inputs.package_name }} --no-abi-check
+        run : ./qcom-distro-ubuntu/qcom-build-utils/ubuntu/build.py --workspace ./WORKSPACE --gen-debians --no-abi-check
 
       - name: ABI Check
         run: |
           set +e
           ./qcom-distro-ubuntu/qcom-build-utils/ubuntu/deb_abi_checker.py \
-            --new-package-dir ./WORKSPACE/debian_packages/temp/${{ inputs.repo_name }} \
+            --new-package-dir ./WORKSPACE/debian_packages/temp/${{ github.event.repository.name }} \
             --apt-server-config "deb [arch=arm64 trusted=yes] http://localhost:${{ env.PPA_HTTP_SERVER_PORT }} noble/stable main"
           RET=$?
           set -e 
