@@ -30,6 +30,7 @@ import glob
 from build_kernel import build_kernel, reorganize_kernel_debs
 from build_dtb import build_dtb
 from build_deb import PackageBuilder, PackageNotFoundError, PackageBuildError
+from release_debian_changelog_update import process_debian_trees
 from constants import *
 from datetime import date
 from helpers import create_new_directory, umount_dir, check_if_root, check_and_append_line_in_file, cleanup_file, cleanup_directory, change_folder_perm_read_write, print_build_logs, start_local_apt_server, build_deb_package_gz, pull_debs_wget
@@ -94,6 +95,9 @@ def parse_arguments():
                         help='Generate Debian binary (default: False)')
     parser.add_argument('--pack-image', action='store_true', default=False,
                         help='Pack system.img with generated debians (default: False)')
+    parser.add_argument('--release-prep-url', type=str, required=False,
+                        help='prepares workspace for release (default: False)',
+                        )
     parser.add_argument('--pack-variant', type=str, choices=['base', 'qcom'], default='qcom',
                         help='Pack variant (only base or qcom, default: qcom)')
     parser.add_argument('--packages-manifest-path', type=str, required=False,
@@ -177,6 +181,7 @@ DEBIAN_INSTALL_DIR = args.debians_path
 IF_BUILD_KERNEL = args.build_kernel
 IF_GEN_DEBIANS = args.gen_debians
 IF_PACK_IMAGE = args.pack_image
+IF_RELEASE_PREP_URL = args.release_prep_url
 IF_FLAT_META = args.flat_meta
 IS_CLEANUP_ENABLED = not args.nocleanup
 IS_PREPARE_SOURCE = args.prepare_sources
@@ -245,6 +250,26 @@ if IF_BUILD_KERNEL:
         if error_during_kernel_build:
             logger.critical("Kernel build failed. Exiting.")
             exit(1)
+
+if IF_RELEASE_PREP_URL:
+    logger.info("Running the release preparation phase")
+    try:
+        statuses = process_debian_trees(
+            input_root=SOURCES_DIR,
+            apt_source_line=IF_RELEASE_PREP_URL,
+            prefer_debian_changelog=False,
+            dry_run=False,
+        )
+    except Exception as e:
+        logger.error(f"[FATAL] {e}")
+        #return 1
+
+    logger.info("\nSUMMARY")
+    for debian_dir, st in statuses.items():
+        logger.info("-" * 80)
+        logger.info(f"debian dir: {debian_dir}")
+        logger.info(f"action: {st.get('action')}")
+        logger.info(f"details: {st.get('details')}")
 
 if IF_GEN_DEBIANS or IS_PREPARE_SOURCE :
     error_during_packages_build = False
