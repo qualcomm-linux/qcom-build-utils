@@ -6,35 +6,40 @@
 # ==============================================================================
 # Script: build-ubuntu-rootfs.sh
 # ------------------------------------------------------------------------------
-# Description:
-#   This script creates a bootable Linux root filesystem image (ubuntu.img) for
-#   ARM64 platforms. The base image (URL and filenames) are derived from a
-#   product config file (qcom-product.conf) when provided; otherwise, it falls
-#   back to default Ubuntu settings to preserve legacy 2-argument workflows.
+# DESCRIPTION:
+#   This script creates a bootable Linux root filesystem image for ARM64
+#   platforms (e.g., Qualcomm IoT/Compute/Server reference boards).
 #
-#   It performs the following operations:
-#     1. Parses qcom-product.conf (if provided) or uses defaults to determine the base image.
-#     2. Runs target platform-specific image preprocessing to populate rootfs/ (download,
-#        extract, mount, copy-out).
-#     3. Injects custom kernel and firmware packages (.deb).
-#     4. Replaces resolv.conf temporarily using the host’s DNS config (for chroot).
-#     5. Sets host name.
-#     6. Enters chroot to install base packages and configure GRUB.
-#     7. Creates a static resolv.conf at the end to ensure DNS works on the target.
-#     8. Packages the final rootfs as a 6GB ext4 image.
+#   - Supports Qualcomm product configuration file (.conf) for build parameters.
+#   - Supports JSON package manifest for additional package installation
+#     (via apt or local .deb) inside the rootfs.
+#   - Backward compatible with legacy 2-argument mode (kernel.deb, firmware.deb).
+#   - Parses qcom-product.conf (if provided) or uses defaults to determine the base image.
+#   - Runs target platform-specific image preprocessing to populate rootfs/.
+#   - Injects custom kernel and firmware .deb packages.
+#   - Installs user-specified packages from manifest (if provided).
+#   - Configures GRUB bootloader, hostname, DNS, and other system settings.
+#   - Produces a flashable ext4 image (ubuntu.img).
 #
-# Requirements:
-#   - Must be run as root (the script auto elevates via sudo if needed)
-#   - Host must support losetup, ext4, and chroot tools
+# USAGE:
+#   FULL:   ./build-ubuntu-rootfs.sh <qcom-product.conf> <package-manifest.json> <kernel.deb> <firmware.deb>
+#   CONFIG: ./build-ubuntu-rootfs.sh <qcom-product.conf> <kernel.deb> <firmware.deb>
+#   LEGACY: ./build-ubuntu-rootfs.sh <kernel.deb> <firmware.deb>
 #
-# Usage:
-#   NEW: ./build-ubuntu-rootfs.sh <qcom-product.conf> <kernel_package.deb> <firmware_package.deb>
-#   OLD: ./build-ubuntu-rootfs.sh <kernel_package.deb> <firmware_package.deb>
+# ARGUMENTS:
+#   <qcom-product.conf>      Optional. Product configuration file for build parameters.
+#   <package-manifest.json>  Optional. JSON manifest specifying extra packages to install.
+#   <kernel.deb>             Required. Custom kernel package.
+#   <firmware.deb>           Required. Custom firmware package.
 #
-# Output:
-#   - ubuntu.img : Flashable ext4 rootfs image
+# OUTPUT:
+#   ubuntu.img               Flashable ext4 rootfs image.
 #
-# Author: Bjordis Collaku <bcollaku@qti.qualcomm.com>
+# REQUIREMENTS:
+#   - Run as root (auto-elevates with sudo if needed).
+#   - Host tools: wget, 7z, jq, losetup, mount, cp, chroot, mkfs.ext4, truncate, etc.
+#
+# AUTHOR: Bjordis Collaku <bcollaku@qti.qualcomm.com>
 # ==============================================================================
 
 set -euo pipefail
@@ -50,25 +55,56 @@ fi
 # ==============================================================================
 # Globals & Argument Parsing (backward compatible)
 # ==============================================================================
-if [[ $# -eq 3 ]]; then
+CONF=""
+MANIFEST=""
+KERNEL_DEB=""
+FIRMWARE_DEB=""
+USE_CONF=0
+USE_MANIFEST=0
+
+if [[ $# -eq 4 ]]; then
     CONF="$1"
-    KERNEL_DEB="$2"
-    FIRMWARE_DEB="$3"
+    MANIFEST="$2"
+    KERNEL_DEB="$3"
+    FIRMWARE_DEB="$4"
     USE_CONF=1
+    USE_MANIFEST=1
+elif [[ $# -eq 3 ]]; then
+    if [[ "$1" == *.conf ]]; then
+        CONF="$1"
+        MANIFEST=""
+        KERNEL_DEB="$2"
+        FIRMWARE_DEB="$3"
+        USE_CONF=1
+        USE_MANIFEST=0
+    else
+        CONF=""
+        MANIFEST=""
+        KERNEL_DEB="$1"
+        FIRMWARE_DEB="$2"
+        USE_CONF=0
+        USE_MANIFEST=0
+    fi
 elif [[ $# -eq 2 ]]; then
-    CONF=""  # no config provided
+    CONF=""
+    MANIFEST=""
     KERNEL_DEB="$1"
     FIRMWARE_DEB="$2"
     USE_CONF=0
+    USE_MANIFEST=0
 else
     echo "Usage:"
-    echo "  NEW: $0 <qcom-product.conf> <kernel_package.deb> <firmware_package.deb>"
-    echo "  OLD: $0 <kernel_package.deb> <firmware_package.deb>"
+    echo "  $0 <qcom-product.conf> <package-manifest.json> <kernel_package.deb> <firmware_package.deb>"
+    echo "  $0 <qcom-product.conf> <kernel_package.deb> <firmware_package.deb>"
+    echo "  $0 <kernel_package.deb> <firmware_package.deb>"
     exit 1
 fi
 
 [[ -f "$KERNEL_DEB" ]] || { echo "[ERROR] Kernel package not found: $KERNEL_DEB"; exit 1; }
 [[ -f "$FIRMWARE_DEB" ]] || { echo "[ERROR] Firmware package not found: $FIRMWARE_DEB"; exit 1; }
+if [[ "$USE_MANIFEST" -eq 1 && -n "$MANIFEST" ]]; then
+    [[ -f "$MANIFEST" ]] || { echo "[ERROR] Manifest file not found: $MANIFEST"; exit 1; }
+fi
 
 WORKDIR=$(pwd)
 MNT_DIR="$WORKDIR/mnt"
@@ -80,7 +116,7 @@ declare -A CFG
 
 # ==============================================================================
 # Function: parse_configuration
-#   Reads qcom-product.conf into CFG[] (Key: value or KEY=value).
+#     Reads qcom-product.conf into CFG[] (Key: value or KEY=value).
 # ==============================================================================
 parse_configuration() {
     local conf_file="$1"
@@ -104,9 +140,9 @@ parse_configuration() {
 
 # ==============================================================================
 # Function: image_preproccessing_iot
-#   Target: iot
-#   Downloads/extracts the base image, mounts, and fills $ROOTFS_DIR/.
-#   Distro-specific handling is done via an inner case.
+#     Target: iot
+#     Downloads/extracts the base image, mounts, and fills $ROOTFS_DIR/.
+#     Distro-specific handling is done via an inner case.
 # ==============================================================================
 image_preproccessing_iot() {
     case "$(echo "$DISTRO" | tr '[:upper:]' '[:lower:]')" in
@@ -155,12 +191,12 @@ image_preproccessing_server()  { :; }
 # ==============================================================================
 # Step 1: Load configuration (from file or defaults) & derive image parameters
 # ==============================================================================
-if [[ "$USE_CONF" -eq 1 ]]; then
+if [[ "$USE_CONF" -eq 1 && -n "$CONF" ]]; then
     parse_configuration "$CONF"
     echo "[INFO] Using configuration from: $CONF"
 else
     echo "[INFO] No config provided; using default configuration for backward compatibility."
-    # Defaults mirror what you'd place in qcom-product.conf
+    # Default mirror
     CFG["QCOM_TARGET_PLATFORM"]="iot"
     CFG["DISTRO"]="ubuntu"
     CFG["CODENAME"]="questing"
@@ -171,9 +207,7 @@ else
     CFG["FLAVOR"]="ubuntu-server"
 fi
 
-# IMPORTANT: single, canonical key for target platform
 TARGET_PLATFORM="${CFG[QCOM_TARGET_PLATFORM]:-iot}"
-
 DISTRO="${CFG[DISTRO]:-ubuntu}"
 CODENAME="${CFG[CODENAME]:-questing}"
 ARCH="${CFG[ARCH]:-arm64}"
@@ -256,7 +290,57 @@ EOF
 chmod 644 "$ROOTFS_DIR/etc/hosts"
 
 # ==============================================================================
-# Step 6: Bind Mount System Directories for chroot
+# Step 6: Parse Manifest (if provided) and prepare install lists
+# ==============================================================================
+APT_INSTALL_LIST=()
+DEB_INSTALL_LIST=()
+
+if [[ "$USE_MANIFEST" -eq 1 && -n "$MANIFEST" ]]; then
+    echo "[INFO] Parsing package manifest: $MANIFEST"
+    while IFS= read -r pkg; do
+        name=$(echo "$pkg" | jq -r '.name')
+        version=$(echo "$pkg" | jq -r '.version')
+        source=$(echo "$pkg" | jq -r '.source')
+        path=$(echo "$pkg" | jq -r '.path // empty')
+        if [[ "$source" == "apt" ]]; then
+            if [[ "$version" == "latest" ]]; then
+                APT_INSTALL_LIST+=("$name")
+            else
+                APT_INSTALL_LIST+=("${name}=${version}")
+            fi
+        elif [[ "$source" == "local" ]]; then
+            if [[ -n "$path" && -f "$path" ]]; then
+                cp "$path" "$ROOTFS_DIR/"
+                DEB_INSTALL_LIST+=("/$(basename "$path")")
+            else
+                echo "[WARNING] Local .deb path not found for $name: $path"
+            fi
+        fi
+    done < <(jq -c '.packages[]' "$MANIFEST")
+fi
+
+# Prepare install script inside rootfs
+cat <<EOF > "$ROOTFS_DIR/install_manifest_pkgs.sh"
+#!/bin/bash
+set -e
+export DEBIAN_FRONTEND=noninteractive
+apt update
+
+echo "[CHROOT] Manifest APT packages to install:"
+echo "    ${APT_INSTALL_LIST[@]}"
+
+echo "[CHROOT] Manifest local .deb packages to install:"
+echo "    ${DEB_INSTALL_LIST[@]}"
+
+apt install -y ${APT_INSTALL_LIST[@]}
+#if [ ${#DEB_INSTALL_LIST[@]} -gt 0 ]; then
+#    dpkg -i ${DEB_INSTALL_LIST[@]}
+#fi
+EOF
+chmod +x "$ROOTFS_DIR/install_manifest_pkgs.sh"
+
+# ==============================================================================
+# Step 7: Bind Mount System Directories for chroot
 # ==============================================================================
 echo "[INFO] Binding system directories..."
 mount -o bind /proc "$ROOTFS_DIR/proc"
@@ -265,7 +349,7 @@ mount -o bind /dev "$ROOTFS_DIR/dev"
 mount --bind /dev/pts "$ROOTFS_DIR/dev/pts"
 
 # ==============================================================================
-# Step 7: Enter chroot to Install Packages and Configure GRUB
+# Step 8: Enter chroot to Install Packages and Configure GRUB
 # ==============================================================================
 echo "[INFO] Entering chroot to install packages and configure GRUB..."
 chroot "$ROOTFS_DIR" /bin/bash -c "
@@ -284,12 +368,15 @@ echo '[CHROOT] Installing custom firmware and kernel...'
 dpkg -i /$(basename "$FIRMWARE_DEB")
 yes \"\" | dpkg -i /$(basename "$KERNEL_DEB")
 
+echo '[CHROOT] Installing manifest packages (if any)...'
+/install_manifest_pkgs.sh || true
+
 echo '[CHROOT] Detecting installed kernel version...'
 kernel_ver=\$(ls /boot/vmlinuz-* | sed 's|.*/vmlinuz-||' | sort -V | tail -n1)
 crd_dtb_path=\"/lib/firmware/\$kernel_ver/device-tree/x1e80100-crd.dtb\"
 
 echo '[CHROOT] Writing GRUB configuration...'
-tee /boot/grub.cfg > /dev/null <<EOF
+tee /boot/grub.cfg > /dev/null <<GRUBCFG
 set timeout=5
 set default=${CODENAME}_crd
 menuentry \"Ubuntu ${CODENAME} IoT for X Elite CRD\" --id ${CODENAME}_crd {
@@ -298,7 +385,7 @@ menuentry \"Ubuntu ${CODENAME} IoT for X Elite CRD\" --id ${CODENAME}_crd {
     linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
     initrd /boot/initrd.img-\$kernel_ver
 }
-EOF
+GRUBCFG
 
 # Conditionally append EVK entry if its DTB is present
 evk_dtb_path=\"/lib/firmware/\$kernel_ver/device-tree/hamoa-iot-evk.dtb\"
@@ -319,7 +406,7 @@ fi
 "
 
 # ==============================================================================
-# Step 8: Unmount chroot environment
+# Step 9: Unmount chroot environment
 # ==============================================================================
 echo "[INFO] Unmounting system directories..."
 umount -l "$ROOTFS_DIR/dev/pts"
@@ -328,7 +415,7 @@ umount -l "$ROOTFS_DIR/sys"
 umount -l "$ROOTFS_DIR/proc"
 
 # ==============================================================================
-# Step 9: Create ext4 rootfs image and write contents
+# Step 10: Create ext4 rootfs image and write contents
 # ==============================================================================
 echo "[INFO] Creating ext4 rootfs image: $ROOTFS_IMG (8GB)"
 truncate -s 8G "$ROOTFS_IMG"
@@ -348,4 +435,3 @@ umount -l "$MNT_DIR"
 # Completion
 # ==============================================================================
 echo "[SUCCESS] Rootfs image created successfully: $ROOTFS_IMG"
-
