@@ -13,6 +13,7 @@
 #   - Supports Qualcomm product configuration file (.conf) for build parameters.
 #   - Supports JSON package manifest for additional package installation
 #     (via apt or local .deb) inside the rootfs.
+#   - Supports injecting custom apt sources from the package manifest.
 #   - Backward compatible with legacy 2-argument mode (kernel.deb, firmware.deb).
 #   - Parses qcom-product.conf (if provided) or uses defaults to determine the base image.
 #   - Runs target platform-specific image preprocessing to populate rootfs/.
@@ -264,6 +265,18 @@ case "$(echo "$TARGET_PLATFORM" | tr '[:upper:]' '[:lower:]')" in
     exit 1
     ;;
 esac
+
+# ==============================================================================
+# Step 3.5: Add custom apt sources from manifest (if provided)
+# ==============================================================================
+if [[ "$USE_MANIFEST" -eq 1 && -n "$MANIFEST" ]]; then
+    echo "[INFO] Adding custom apt sources from manifest..."
+    jq -c '.apt_sources[]?' "$MANIFEST" | while read -r row; do
+        NAME=$(echo "$row" | jq -r '.name // "customrepo"')
+        SRC_LINE=$(echo "$row" | jq -r '.source_line')
+        echo "$SRC_LINE" >> "$ROOTFS_DIR/etc/apt/sources.list.d/${NAME}.list"
+    done
+fi
 
 # ==============================================================================
 # Step 4: Inject Kernel, Firmware, and Working resolv.conf
