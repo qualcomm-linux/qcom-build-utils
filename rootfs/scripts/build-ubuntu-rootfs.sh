@@ -269,6 +269,14 @@ esac
 # ==============================================================================
 # Step 3.5: Add custom apt sources from manifest (if provided)
 # ==============================================================================
+
+# Ensure jq is installed before processing package-manifest.json
+if ! command -v jq &> /dev/null; then
+    echo "jq not found. Installing jq..."
+    apt-get update -qq
+    apt-get install -y -qq jq
+fi
+
 if [[ "$USE_MANIFEST" -eq 1 && -n "$MANIFEST" ]]; then
     echo "[INFO] Adding custom apt sources from manifest..."
     jq -c '.apt_sources[]?' "$MANIFEST" | while read -r row; do
