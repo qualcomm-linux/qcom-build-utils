@@ -9,6 +9,7 @@ ppa_interface.py
 
 Helper script to interface a PPA.
 All operations are performed without messing with the host configurations.
+This is done by creating a temp folder to store a apt cache
 
 This script can query or download a package for a latest version or a specific one.
 """
@@ -34,7 +35,15 @@ OPT = None
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="List or download a package from a PPA")
+
+    parser.add_argument("--operation",
+                        required=True,
+                        type=str,
+                        choices=['download', 'list-versions', 'contains-version'],
+                        help="Operation to perform. Options are [download, ...]")
+
     parser.add_argument("--apt-config",
+                        required=False,
                         default="deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main",
                         help="APT server configuration")
 
@@ -44,19 +53,12 @@ def parse_arguments():
 
     parser.add_argument("--version",
                         required=False,
-                        default="latest",
                         help="Specific version to download. If not set, use the latest available")
 
     parser.add_argument("--temp-dir",
                         required=False,
                         default="./apt_temp",
                         help="Temporary directory to store the apt cache")
-
-    parser.add_argument("--operation",
-                        required=True,
-                        type=str,
-                        choices=['download', 'list-versions'],
-                        help="Operation to perform. Options are [download, ...]")
 
     args = parser.parse_args()
 
@@ -106,7 +108,7 @@ def download_package() -> bool :
 
     logger.debug(f"[PPA_INTERFACE]/[DOWNLOAD]/{PACKAGE_NAME}: Downloading version = {PACKAGE_VERSION} ")
 
-    package = PACKAGE_NAME + ("" if PACKAGE_VERSION == "latest" else ("=" + PACKAGE_VERSION))
+    package = PACKAGE_NAME + ("" if PACKAGE_VERSION == None else ("=" + PACKAGE_VERSION))
 
     command = f"apt-get download {package}" + OPT
 
@@ -124,12 +126,43 @@ def download_package() -> bool :
     return True
 
 def list_versions() :
-    logger.debug(f"[PPA_INTERFACE]/[DOWNLOAD]/{PACKAGE_NAME}: Listing versions available to download")
+    logger.debug(f"[PPA_INTERFACE]/[LIST_VERSIONS]/{PACKAGE_NAME}: Listing versions available to download")
 
-    command = f"apt-cache policy {PACKAGE_NAME}" + OPT
+    command = f"apt-cache policy {PACKAGE_NAME} {OPT}"
 
-    apt_ret = subprocess.run(command, cwd=TEMP_DIR, shell=True, capture_output=False)
+    apt_ret = subprocess.run(command, cwd=TEMP_DIR, shell=True, capture_output=True)
 
+    if apt_ret.returncode != 0:
+        logger.debug("command failed")
+        logger.info(f"stdout :\n{apt_ret.stdout}")
+        logger.info(f"stderr :\n{apt_ret.stderr}")
+        sys.exit(1)
+
+    logger.info(f"stdout :\n{apt_ret.stdout.decode()}")
+
+
+def contains_version(version : str) -> bool :
+    logger.debug(f"[PPA_INTERFACE]/[CONTAINS_VERSION]/{PACKAGE_NAME}: Checking if PPA contains version : {version}")
+
+    command = f"apt-cache policy {PACKAGE_NAME} {OPT}"
+
+    apt_ret = subprocess.run(command, cwd=TEMP_DIR, shell=True, capture_output=True)
+
+    if apt_ret.returncode != 0:
+        logger.debug("command failed")
+        logger.info(f"stdout :\n{apt_ret.stdout}")
+        logger.info(f"stderr :\n{apt_ret.stderr}")
+        sys.exit(1)
+
+    for line in apt_ret.stdout.decode().splitlines():
+        if line.startswith("  Candidate:"):
+            versions = line.split("Candidate: ")[1]
+            if version in versions.split(" "):
+                logger.info(f"Found version : {version}")
+                sys.exit(0)
+
+    logger.warning(f"Did not find version : {version}")
+    sys.exit(0)
 
 def main():
 
@@ -155,13 +188,19 @@ def main():
 
     run_apt_update()
 
-
-
     match args.operation:
         case "download":
             download_package()
+
         case "list-versions":
             list_versions()
+
+        case "contains-version":
+            if not args.version:
+                logger.critical("Need to supply --version")
+                sys.exit(1)
+            contains_version(args.version)
+
         case _:
             sys.exit(1)
 
