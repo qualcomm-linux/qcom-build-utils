@@ -44,7 +44,7 @@ Into the PPA structure, like this example tree :
 
 This script will extract the 'canonical' package name (ie, without the major number in it, in this case its 1)
 and create a folder in the PPA structure for this package name, and copy over all the .deb/ddeb that correspondt to it.
- 
+
 This operation will be done for all the 'canonical' package names because again, there can be multiple of this example package
 alongside one another
 
@@ -81,7 +81,7 @@ def reorganize(build_dir : str, output_dir : str):
 
     # Create a list of all the packages (.deb, -dev.deb, -dbgsym.ddeb)
     files = os.listdir(build_dir)
-    
+
     dsc_files = [f for f in files if f.endswith('.dsc')                     ]
     deb_files = [f for f in files if f.endswith('.deb')  and "-dev" not in f]
     dev_files = [f for f in files if f.endswith('.deb')  and "-dev"     in f]
@@ -113,7 +113,7 @@ def reorganize(build_dir : str, output_dir : str):
     for package_name in package_names:
 
         output_dir = os.path.join(output_dir, package_name)
-        
+
         # Do not delete if the directory exists, it may very well contain the same package, but with older versions
         # We want to copy the newly built packages alongside the other versions
         create_new_directory(output_dir, delete_if_exists=False)

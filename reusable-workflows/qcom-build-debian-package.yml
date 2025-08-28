@@ -1,0 +1,26 @@
+# This is the TEMPLATE workflow that needs to be copied in the .github/workflows folder
+# of any new debian package repo.
+
+# If need be, adjust the branch/tag in the line that invokes the reusable workflow
+# Also change the ref: to also match it
+
+name: Build Debian Package
+
+on:
+  pull_request_target:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+ contents: read
+ security-events: write
+
+jobs:
+  build:
+    uses: qualcomm-linux/qcom-build-utils/reusable-workflows/build-debian-package-reusable-workflow.yml@main
+    with:
+      ref: main
+    secrets:
+      ACTIONS_SSH_KEY: ${{ secrets.ACTIONS_SSH_KEY }}

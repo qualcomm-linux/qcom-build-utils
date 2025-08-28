@@ -1,3 +1,5 @@
+# This is the reusable workflow that gets invoked in other package repositories
+
 name: Qualcomm Build Debian Package Reusable Workflow
 on:
   workflow_call:
