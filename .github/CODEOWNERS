@@ -3,5 +3,8 @@
 * @sjakki88 @vishwasudupa @bjordiscollaku @simonbeaudoin0935
 
 # Specific ownership for the ubuntu folder
-ubuntu/* @vkraleti @sbanerjee-quic @vishwasudupa @bjordiscollaku @simonbeaudoin0935
+scripts/*     @simonbeaudoin0935
+bootloader/*  @bjordiscollaku
+kernel/*      @bjordiscollaku
+rootfs/*      @bjordiscollaku
 
