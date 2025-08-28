@@ -1,0 +1,304 @@
+name: Qualcomm Build Debian Package Reusable Workflow
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The ref name that was used to invoke this reusable workflow
+        type: string
+        required: true
+    secrets:
+      ACTIONS_SSH_KEY:
+        required: true
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  PPA_URL: https://qualcomm-linux.github.io/qcom-oss-staging-ppa/
+
+  # This variable is set to true below if the ABI check is not able to find an initial
+  # version of the package in the PPA.
+  INITIAL_UPLOAD_TO_PPA: 'false'
+  ABI_CHECK_RETURN_VALUE: 0
+
+  PRODUCT_DISTRO: null
+  PRODUCT_CODENAME: null
+  PRODUCT_ARCH: null
+
+  PPA_PACKAGES_FILE_REPO_PATH: null
+
+jobs:
+  build-debian-package:
+
+    runs-on: [self-hosted, Linux, ARM64]
+
+    steps:
+
+      - name: Ensure Workspace Is Clean
+        run: rm -rf *
+
+      # This checkout is done so that any change in qcom-build-utils doesnt't need to be propagated up
+      # Simply relaunching a job that uses this reusable workflow for a given ref will automatically see the changes
+      - name: Checkout Tip of qcom-build-utils For The Specified Ref
+        uses: actions/checkout@v4
+        with:
+          repository: qualcomm-linux/qcom-build-utils
+          ref: ${{ inputs.ref }}
+          ssh-key: ${{ secrets.ACTIONS_SSH_KEY }}
+          path: ./qcom-build-utils
+          fetch-depth: 1
+
+      - name: Checkout Repository And Submodules Recursively
+        uses: actions/checkout@v4 # Using public GitHub action to checkout repo, see https://github.com/actions/checkout
+        with:
+          path: ./package-repo
+          ref: ${{ github.head_ref }}
+          clean: false # A rm -rf * was done first, don't clean otherwise this would delete qcom-build-utils cloned above
+          submodules: 'recursive' # Make sure all submodules are recursively checked out
+          ssh-key: ${{ secrets.ACTIONS_SSH_KEY }} # Add SSH key for cloning private repos
+          fetch-depth: 1 # Speedup things since full history isn't needed
+
+      - name: Exctract Product Configuration From qcom-product.conf
+        run: |
+          CONFIG_FILE="package-repo/qcom-distro-ubuntu/qcom-product.conf"
+
+          DISTRO=$(grep '^Distro:' "$CONFIG_FILE" | cut -d':' -f2 | xargs)
+          CODENAME=$(grep '^Codename:' "$CONFIG_FILE" | cut -d':' -f2 | xargs)
+          ARCH=$(grep '^Arch:' "$CONFIG_FILE" | cut -d':' -f2 | xargs)
+
+          echo "Distro: $DISTRO"
+          echo "Codename: $CODENAME"
+          echo "Arch: $ARCH"
+
+          echo "PRODUCT_DISTRO=${DISTRO}" >> $GITHUB_ENV
+          echo "PRODUCT_CODENAME=${CODENAME}" >> $GITHUB_ENV
+          echo "PRODUCT_ARCH=${ARCH}" >> $GITHUB_ENV
+
+          echo "PPA_PACKAGES_FILE_REPO_PATH=dists/$CODENAME/stable/main/binary-$ARCH" >> $GITHUB_ENV
+
+      # Based on the information extracted from qcom-product.conf, verify if the chroot {CODENAME}-{ARCH}-{DISTRO} exists,
+      # and if not, create it.
+      # TODO : if it doesnt exist, the script needs to be run as root to create it. Find how to use sudo from here.
+      - name: Validate Or Create Chroot Environment
+        run: |
+          ./qcom-build-utils/scripts/prep_chroot_env.py \
+            --arch        ${{ env.PRODUCT_ARCH }} \
+            --os-codename ${{ env.PRODUCT_CODENAME }} \
+            --suffix      ${{ env.PRODUCT_DISTRO }}
+
+      # Prepare the directory structures necessary depending on format is quilt or native
+      # TODO : This can be beautified a bit
+      # TODO : remove the hardcoding of fastrpc package names
+      - name: Prepare Workspace Structure For The Build
+        run: |
+            echo "Listing the content of what was checked out, exclusing .md files : "; tree -I '*.md|LICENSE.txt'
+
+            mkdir build
+
+            if grep -q 'quilt' ./package-repo/debian/source/format; then
+              echo "Source format is quilt"
+              
+              mkdir upstream-source
+              cp -r package-repo/qcom-*-source/* upstream-source/
+              cd upstream-source
+              tar -czf ../qcom-fastrpc1_1.0.0.orig.tar.gz .
+              cd ..
+              mkdir work
+              cp -r package-repo/debian work/
+              tar -xf qcom-fastrpc1_1.0.0.orig.tar.gz -C work
+
+            elif grep -q 'native' ./package-repo/debian/source/format; then
+              echo "Source format is native"
+
+              mkdir work
+              cp -r package-repo/* work/
+
+            else
+              echo "Source format is unknown or unsupported"
+
+              exit 1
+            fi
+
+      - name: Build .dsc
+        run: |
+          cd work
+          dpkg-source -b .
+          cd ..
+
+      # Run lintian to see if the package is well formatted
+      # TODO make it fail if there are errors, and perhaps add a -Werror kind of input
+      - name: Run lintian
+        run: |
+          set +e
+          lintian ./*.dsc
+          set -e
+
+      - name: Build Debian Packages
+        run: |
+          set +e
+          sbuild \
+            -A \
+            --arch=arm64 \
+            -d noble-arm64-ubuntu \
+            --no-run-lintian \
+            --build-dir ./build \
+            --build-dep-resolver=apt \
+            --extra-repository="deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main" \
+            ./*.dsc
+          RET=$?
+          set -e
+
+          if (( RET == 0 )); then
+            echo "✅ Successfully built package"
+          else
+            # Print the real .build log, not the symlink
+            tail -n 500 $(find ./build -maxdepth 1 -name "*.build" ! -type l)
+            echo "❌ Build failed, printed the last 500 lines of the build log file"
+            exit 1
+          fi
+
+      - name : List All The Versions Of The Built Packages Contained In The Staging PPA
+        run: |
+          set +e
+          ./qcom-build-utils/scripts/ppa_interface.py \
+            --operation list-versions \
+            --apt-config "deb [arch=${{ env.PRODUCT_ARCH }} trusted=yes] ${{ env.PPA_URL }} ${{ env.PRODUCT_CODENAME }}/stable main" \
+            --package-name libqcom-example1
+
+          RET=$?
+          set -e
+
+      # TODO : For now, this step is completely skipped over (if false below).
+      # Next step is to activate it and download the latest version.
+      # Then, modify the ABI checker script to remove the logic that downloads the newest version of the package
+      # in order to simplify the code.
+      - name : Download Latest Version Of The Built Package From PPA To Compare ABI Against
+        if: ${{ false }}
+        run: |
+          set +e
+          ./qcom-build-utils/scripts/ppa_interface.py \
+            --operation download \
+            --apt-config "deb [arch=${{ env.PRODUCT_ARCH }} trusted=yes] ${{ env.PPA_URL }} ${{ env.PRODUCT_CODENAME }}/stable main" \
+            --package-name libqcom-example1
+
+          RET=$?
+          set -e
+
+          if (( RET == 0 )); then
+            echo "✅ Successfully downloaded latest version"
+          fi
+
+          # TODO deal with other return values
+
+      - name: ABI Check
+        run: |
+          set +e
+
+          ./qcom-build-utils/scripts/deb_abi_checker.py \
+            --new-package-dir ./build \
+            --apt-server-config "deb [arch=${{ env.PRODUCT_ARCH }} trusted=yes] ${{ env.PPA_URL }} ${{ env.PRODUCT_CODENAME }}/stable main" \
+            --result-file ./results.txt
+
+          RET=$?
+          set -e
+
+          echo "ABI check returned $RET"
+
+          #       (0):  RETURN_ABI_NO_DIFF
+          # Bit 0 (1):  RETURN_ABI_COMPATIBLE_DIFF
+          # Bit 1 (2):  RETURN_ABI_INCOMPATIBLE_DIFF
+          # Bit 2 (4):  RETURN_ABI_STRIPPED_PACKAGE
+          # Bit 3 (8):  RETURN_PPA_PACKAGE_NOT_FOUND
+          # Bit 4 (16): RETURN_PPA_ERROR
+
+          if (( RET == 0 )); then
+            echo "✅ ABI check returned NO_DIFF"
+          fi
+
+          if (( RET & 1 )); then
+            echo "⚠️ ABI check returned COMPATIBLE DIFF"
+          fi
+
+          if (( RET & 2 )); then
+            echo "⚠️ ABI check returned INCOMPATIBLE DIFF"
+          fi
+
+          if (( RET & 4 )); then
+            echo "❌ ABI check returned STRIPPED PACKAGE"
+            exit 1
+          fi
+
+          if (( RET & 8 )); then
+            echo "⚠️ ABI check failed because the PPA did not contained an old version for the package."
+            echo "Assumption is that this is the first time the package was build."
+            echo "INITIAL_UPLOAD_TO_PPA=true" >> $GITHUB_ENV
+          fi
+
+          if (( RET & 16 )); then
+            echo "❌ ABI check failed because there was an error on the PPA"
+            exit 1
+          fi
+
+          echo "ABI_CHECK_RETURN_VALUE=${RET}" >> $GITHUB_ENV
+
+      - name: Package Version Increment Check
+        if: ${{ env.INITIAL_UPLOAD_TO_PPA == 'false' }}
+        run: |
+          echo "Run package version check here with ret value ${{ env.ABI_CHECK_RETURN_VALUE }}"
+          echo "Content of result file :"
+          cat ./results.txt          
+
+          if grep -qE '^\s*-\s*Version:\s*.*FAIL' ./results.txt; then
+            echo "❌ Test failed: At least one FAIL found in - Version: line"
+            exit 1
+          else
+            echo "✅ Test passed: All versions are PASS"
+          fi
+
+      # TODO Complete this in order to check if the version we just compiled exists in the PPA or not
+      # in order to know it we need to execute the upload steps below
+      # Use env.INITIAL_UPLOAD_TO_PPA in the logic also
+      - name: Check If Need To Upload To PPA
+        if: ${{ false }}
+        run: |
+          set +e
+          ./qcom-build-utils/scripts/ppa_interface.py \
+            --operation contains-version \
+            --apt-config "deb [arch=${{ env.PRODUCT_ARCH }} trusted=yes] ${{ env.PPA_URL }} ${{ env.PRODUCT_CODENAME }}/stable main" \
+            --package-name libqcom-example1
+            --version 1.1.0
+
+          RET=$?
+          set -e
+
+      - name: Checkout PPA staging repo
+        if: ${{ env.INITIAL_UPLOAD_TO_PPA == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: qualcomm-linux/qcom-oss-staging-ppa
+          ref: main
+          ssh-key: ${{ secrets.ACTIONS_SSH_KEY }}
+          path: ./qcom-oss-staging-ppa
+          fetch-depth: 1
+
+      # TODO Improve the commit messgae to include what are the packages that have been added
+      - name: Upload Debian Packages To PPA Server If First Build
+        if: ${{ env.INITIAL_UPLOAD_TO_PPA == 'true' }}
+        run: |
+          ./qcom-build-utils/scripts/ppa_organizer.py --build-dir ./build --output-dir ./qcom-oss-staging-ppa/pool/${{env.PRODUCT_CODENAME}}/stable/main
+
+          cd ./qcom-oss-staging-ppa
+
+          dpkg-scanpackages --multiversion pool/${{ env.PRODUCT_CODENAME }} > ${{ env.PPA_PACKAGES_FILE_REPO_PATH }}/Packages
+          dpkg-scanpackages --type ddeb --multiversion pool/${{ env.PRODUCT_CODENAME }} >> ${{ env.PPA_PACKAGES_FILE_REPO_PATH }}/Packages
+
+          gzip -k -f ${{ env.PPA_PACKAGES_FILE_REPO_PATH }}/Packages
+
+          cat ${{ env.PPA_PACKAGES_FILE_REPO_PATH }}/Packages
+
+          git add .
+          
+          git commit -s -m "Uploaded Packages"
+
+          git push
