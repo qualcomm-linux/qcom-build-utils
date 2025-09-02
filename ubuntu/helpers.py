@@ -23,6 +23,7 @@ from git import Repo
 from apt_server import AptServer
 from constants import TERMINAL, HOST_FS_MOUNT
 from color_logger import logger
+import tempfile
 
 def check_if_root() -> bool:
     """
@@ -65,6 +66,72 @@ def check_and_append_line_in_file(file_path, line_to_check, append_if_missing=Fa
         return True
 
     return False
+
+
+def extract_vmlinux(deb_dir, deb_file_regex, vmlinux_filename, out_dir):
+    """
+    Extracts the vmlinux file from a Debian package and places it in the output directory.
+
+    Args:
+    -----
+    - deb_dir (str): Directory containing the .deb files.
+    - deb_file_regex (str): Regex pattern to match the .deb file.
+    - vmlinux_filename (str): Name of the vmlinux file to extract.
+    - out_dir (str): Directory to copy the extracted vmlinux file to.
+
+    Raises:
+    -------
+    - SystemExit: If not run as root, if no matching .deb files found, or if errors occur.
+    """
+    if not check_if_root():
+        logger.error('Please run this script as root user.')
+        raise Exception('Root privileges required')
+
+    vmlinux_path = os.path.join(out_dir, vmlinux_filename)
+    if os.path.exists(vmlinux_path):
+        logger.info(f"Removing existing vmlinux at {vmlinux_path}")
+        os.remove(vmlinux_path)
+
+    # Step 0: Check if the .deb file exists
+    files = glob.glob(os.path.join(deb_dir, deb_file_regex))
+    if len(files) == 0:
+        logger.error(f"Error: No files matching {deb_file_regex} exist in {deb_dir}")
+        raise Exception(f"No files matching {deb_file_regex} found")
+
+    # Step 1: Extract the .deb package to a temporary directory
+    deb_file = files[0]  # Assuming only one file matches the regex
+    try:
+        temp_dir = tempfile.mkdtemp()
+        logger.debug(f'Temp path for vmlinux extraction: {temp_dir}')
+        subprocess.run(["dpkg-deb", '-x', deb_file, temp_dir], check=True)
+
+        # Step 2: Find the vmlinux file within the temporary directory
+        file_path = None
+        for root, _, files in os.walk(temp_dir):
+            if vmlinux_filename in files:
+                file_path = os.path.join(root, vmlinux_filename)
+                break
+
+        # Step 3: Copy the vmlinux file to the output directory
+        if file_path:
+            try:
+                shutil.copy(file_path, vmlinux_path)
+                os.chmod(vmlinux_path, 0o644)
+                logger.info(f"{vmlinux_filename} has been copied to {vmlinux_path}")
+            except Exception as e:
+                logger.error(f"Error copying file {file_path}")
+                logger.error(f"Resulted in error: {e}")
+        else:
+            logger.error(f"{vmlinux_filename} not found in {deb_file}")
+
+    except Exception as e:
+        logger.error(f"Error extracting vmlinux: {e}")
+        raise
+    finally:
+        # Step 4: Clean up the temporary directory
+        if temp_dir:
+            shutil.rmtree(temp_dir)
+            logger.info(f"Cleaned up temporary directory {temp_dir}")
 
 def parse_debs_manifest(manifest_path):
     """
@@ -431,7 +498,8 @@ def build_deb_package_gz(dir, start_server=True) -> str:
 
             raise Exception(result.stderr)
 
-        # Even with a successful exit code, dpkg-scanpackages still outputs the number of entries written to stderr        logger.debug(result.stderr.strip())
+        # Even with a successful exit code, dpkg-scanpackages still outputs the number of entries written to stderr
+        logger.debug(result.stderr.strip())
 
 
         cmd = f"gzip -k -f {packages_path}"
@@ -453,7 +521,6 @@ def build_deb_package_gz(dir, start_server=True) -> str:
     if start_server:
         return start_local_apt_server(dir)
     return None
-
 
 def pull_debs_wget(manifest_file_path, out_dir,DEBS_to_download_list,base_url):
     """
@@ -492,6 +559,18 @@ def pull_debs_wget(manifest_file_path, out_dir,DEBS_to_download_list,base_url):
 
     # Generate wget links and download
     os.makedirs(out_dir, exist_ok=True)
+    #logger.info(f"version map {version_map}...")
+
+    matches = {k: v for k, v in version_map.items() if 'linux-modules' in k}
+
+    # Get the first match (you can change this logic if needed)
+    first_match_value = next(iter(matches.values()))
+    first_match_key = next(iter(matches))
+    name_suffix = first_match_value.rsplit('.', 1)[0]
+
+    # Construct new key and update version_map
+    linux_qcom_tools_suffix = 'linux-qcom-tools-' + name_suffix
+    version_map[linux_qcom_tools_suffix] = version_map[first_match_key]
     for module in DEBS_to_download_list:
         for name, version in version_map.items():
             if name.startswith(module):
@@ -509,3 +588,5 @@ def pull_debs_wget(manifest_file_path, out_dir,DEBS_to_download_list,base_url):
                 except subprocess.CalledProcessError as e:
                     logger.error(f"error: Failed to download {url}: {e}")
                 break  # Stop after first match
+
+

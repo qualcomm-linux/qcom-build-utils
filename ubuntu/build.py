@@ -33,7 +33,7 @@ from build_deb import PackageBuilder, PackageNotFoundError, PackageBuildError
 from release_debian_changelog_update import process_debian_trees
 from constants import *
 from datetime import date
-from helpers import create_new_directory, umount_dir, check_if_root, check_and_append_line_in_file, cleanup_file, cleanup_directory, change_folder_perm_read_write, print_build_logs, start_local_apt_server, build_deb_package_gz, pull_debs_wget
+from helpers import create_new_directory, umount_dir, check_if_root, check_and_append_line_in_file, cleanup_file, cleanup_directory, change_folder_perm_read_write, print_build_logs, start_local_apt_server, build_deb_package_gz, pull_debs_wget, extract_vmlinux
 from deb_organize import generate_manifest_map
 from pack_deb import PackagePacker
 from flat_meta import create_flat_meta
@@ -240,6 +240,8 @@ if IF_BUILD_KERNEL:
         reorganize_kernel_debs(WORKSPACE_DIR, KERNEL_DEB_OUT_DIR)
 
         build_dtb(KERNEL_DEB_OUT_DIR, LINUX_MODULES_DEB, COMBINED_DTB_FILE, OUT_DIR)
+        logger.info("Building vmlinux as requested")
+        extract_vmlinux(DEB_OUT_DIR, LINUX_IMAGE_DBGSYM_DEB, VMLINUX_QCOM_FILE, OUT_DIR)
 
     except Exception as e:
         logger.critical(f"Exception during kernel build : {e}")
@@ -371,19 +373,22 @@ if IF_PACK_IMAGE:
             cleanup_directory(MOUNT_DIR)
 
         create_new_directory(MOUNT_DIR)
-
+        packer = PackagePacker(MOUNT_DIR, IMAGE_TYPE, PACK_VARIANT, OUT_DIR, OUT_SYSTEM_IMG, APT_SERVER_CONFIG, DEB_OUT_TEMP_DIR, DEB_OUT_DIR, DEBIAN_INSTALL_DIR, IS_CLEANUP_ENABLED, PACKAGES_MANIFEST_PATH,QC_FOLDER)
         files_check = glob.glob(os.path.join(KERNEL_DEB_OUT_DIR, LINUX_MODULES_DEB))
         if len(files_check) == 0:
             logger.warning(f"No files matching {LINUX_MODULES_DEB} exist in {KERNEL_DEB_OUT_DIR}. Pulling it from pkg.qualcomm.com")
-            cur_file = os.path.dirname(os.path.realpath(__file__))
-            manifest_file_path = os.path.join(cur_file, "packages", "base", f"{IMAGE_TYPE}.manifest")
+
+            #Get the merged manifest path
+            manifest_file_path = packer.get_merged_manifest()
+
             pull_debs_wget(manifest_file_path, KERNEL_DEB_OUT_DIR,KERNEL_DEBS,KERNEL_DEB_URL)
         else:
             logger.info("Linux modules found locally. Skipping pull from pkg.qualcomm.com")
 
         build_dtb(KERNEL_DEB_OUT_DIR, LINUX_MODULES_DEB, COMBINED_DTB_FILE, OUT_DIR)
-
-        packer = PackagePacker(MOUNT_DIR, IMAGE_TYPE, PACK_VARIANT, OUT_DIR, OUT_SYSTEM_IMG, APT_SERVER_CONFIG, DEB_OUT_TEMP_DIR, DEB_OUT_DIR, DEBIAN_INSTALL_DIR, IS_CLEANUP_ENABLED, PACKAGES_MANIFEST_PATH,QC_FOLDER)
+        if not IF_BUILD_KERNEL: #this is needed when user runs both build kernel and pack image extravtion dhouldnt run twice
+            logger.info("Building vmlinux as requested")
+            extract_vmlinux(DEB_OUT_DIR, LINUX_IMAGE_DBGSYM_DEB, VMLINUX_QCOM_FILE, OUT_DIR)
 
         packer.build_image()
 

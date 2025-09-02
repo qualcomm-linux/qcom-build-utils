@@ -4,6 +4,7 @@
 
 import os
 
+LINUX_IMAGE_DBGSYM_DEB = "oss/linux-qcom-tools*/linux-qcom-tools*_arm64.deb"
 LINUX_MODULES_DEB = "linux-modules-*-qcom/linux-modules-*_arm64.deb"
 <<<<<<< HEAD
 SNAP_SHOT_DATE = "2025-09-23"  #update date for snapshot date from https://ports-ubuntu.qualcomm.com/ports.ubuntu.com/
@@ -25,6 +26,7 @@ KERNEL_DEBS = [
 ]
 
 COMBINED_DTB_FILE  = "combined-dtb.dtb"
+VMLINUX_QCOM_FILE  = "vmlinux"
 IMAGE_NAME         = "system.img"
 
 IMAGE_SIZE_IN_G     = 8
