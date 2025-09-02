@@ -141,8 +141,6 @@ GRUB_DISABLE_RECOVERY="true"' >> {os.path.join(self.MOUNT_DIR, 'etc', 'default',
             logger.error(f"Failed to create or write to merged manifest file: {e}")
             return None
 
-
-
     def parse_manifests(self):
         """
         Parses the base and QCOM manifests to gather the list of packages to include in the image.
@@ -305,3 +303,40 @@ noble \
         else:
             logger.info(f"Manifest for {flavor} saved to {manifest_path}")
 
+
+    def get_merged_manifest(self):
+        if self.PACKAGES_MANIFEST_PATH:
+            logger.info(f"User provided manifest path: {self.PACKAGES_MANIFEST_PATH}")
+            return self.PACKAGES_MANIFEST_PATH
+
+        manifest_paths = []
+
+        # Always merge from qc_folder and packages
+        search_dirs = [
+            (self.qc_folder, "base"),
+            (os.path.join(self.cur_file, "packages"), "base")
+        ]
+
+        if self.VARIANT == "qcom":
+            search_dirs += [
+                (self.qc_folder, "qcom"),
+                (os.path.join(self.cur_file, "packages"), "qcom")
+            ]
+
+        for folder, subdir in search_dirs:
+            if folder and os.path.isdir(folder):
+                for root, _, files in os.walk(folder):
+                    # Only include manifests from subdirectories matching subdir
+                    if subdir in os.path.relpath(root, folder).split(os.sep):
+                        for file in files:
+                            if file == f"{self.IMAGE_TYPE}.manifest":
+                                manifest_paths.append(os.path.join(root, file))
+
+        # Merge all found manifest files into one
+        merged_manifest_path = os.path.join(self.TEMP_DIR, f"{self.IMAGE_TYPE}_merged.manifest")
+        with open(merged_manifest_path, 'w') as merged_file:
+            for manifest in manifest_paths:
+                with open(manifest, 'r') as f:
+                    merged_file.write(f.read())
+        logger.info(f"Final merged manifest saved to: {merged_manifest_path}")
+        return merged_manifest_path
