@@ -1,13 +1,30 @@
 name: Qualcomm Build Debian Package Reusable Workflow
+description: |
+  This reusable workflow is called by debian-packaging repos to offer a consistent build process.
+  Package repos will adhere to  a git-buildpackage structure and contain the small "build-debian-package.yml"
+  caller workflow in its .github/workflows folder.
+
 on:
   workflow_call:
     inputs:
-      ref:
+      qcom-build-utils-ref:
         description: The ref name that was used to invoke this reusable workflow
         type: string
         required: true
+
+      debian-ref:
+        description: The debian ref to build. For example "debian/latest", the ref would be "latest". Or for "debian/1.0.0-1" the ref would be "1.0.0-1 "
+        type: string
+        required: true
+        default: debian/latest
+
+      abi-checker:
+        description: Run the ABI checker or not
+        type: boolean
+        default: false
+
     secrets:
-      ACTIONS_SSH_KEY:
+      PAT:
         required: true
 
 permissions:
@@ -15,7 +32,7 @@ permissions:
   security-events: write
 
 env:
-  PPA_URL: https://qualcomm-linux.github.io/qcom-oss-staging-ppa/
+  PPA_URL: https://qualcomm-linux.github.io/pkg-oss-staging-repo/
 
   # This variable is set to true below if the ABI check is not able to find an initial
   # version of the package in the PPA.
@@ -32,40 +49,53 @@ jobs:
   build-debian-package:
 
     runs-on: [self-hosted, Linux, ARM64]
+#   runs-on: [self-hosted, lecore-stg-u2404-arm64-xlrg-od-ephem]
+
+#   container:
+#     image: ubuntu:noble
+#     options: --volume /srv/chroot:/srv/chroot
 
     steps:
+
+#     - name: Install dependencies
+#       run: |
+#         apt-get update
+#         apt-get install -y git git-buildpackage sbuild debootstrap tree
 
       - name: Ensure Workspace Is Clean
         run: rm -rf *
 
-      # This checkout is done so that any change in qcom-build-utils doesnt't need to be propagated up
-      # Simply relaunching a job that uses this reusable workflow for a given ref will automatically see the changes
-      - name: Checkout Tip of qcom-build-utils For The Specified Ref
+      - name: Checkout qcom-build-utils
         uses: actions/checkout@v4
         with:
           repository: qualcomm-linux/qcom-build-utils
-          ref: ${{ inputs.ref }}
-          ssh-key: ${{ secrets.ACTIONS_SSH_KEY }}
+          ref: ${{ inputs.qcom-build-utils-ref }}
+          token: ${{ secrets.PAT }}
           path: ./qcom-build-utils
           fetch-depth: 1
 
-      - name: Checkout Repository And Submodules Recursively
-        uses: actions/checkout@v4 # Using public GitHub action to checkout repo, see https://github.com/actions/checkout
+      - name: Checkout Repository
+        uses: actions/checkout@v4
         with:
-          path: ./package-repo
-          ref: ${{ github.head_ref }}
+          ref: ${{ inputs.debian-ref }}
           clean: false # A rm -rf * was done first, don't clean otherwise this would delete qcom-build-utils cloned above
-          submodules: 'recursive' # Make sure all submodules are recursively checked out
-          ssh-key: ${{ secrets.ACTIONS_SSH_KEY }} # Add SSH key for cloning private repos
-          fetch-depth: 1 # Speedup things since full history isn't needed
+          token: ${{ secrets.PAT }}
+          path: ./package-repo
+          fetch-depth: 1
+
+
+      - name: Fetch All Branches and Tags
+        run: |
+          cd ./package-repo
+          git fetch --depth=1 origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
 
       - name: Exctract Product Configuration From qcom-product.conf
         run: |
           CONFIG_FILE="package-repo/qcom-distro-ubuntu/qcom-product.conf"
 
-          DISTRO=$(grep '^Distro:' "$CONFIG_FILE" | cut -d':' -f2 | xargs)
-          CODENAME=$(grep '^Codename:' "$CONFIG_FILE" | cut -d':' -f2 | xargs)
-          ARCH=$(grep '^Arch:' "$CONFIG_FILE" | cut -d':' -f2 | xargs)
+          DISTRO=ubuntu #$(grep '^Distro:' "$CONFIG_FILE" | cut -d':' -f2 | xargs)
+          CODENAME=noble #$(grep '^Codename:' "$CONFIG_FILE" | cut -d':' -f2 | xargs)
+          ARCH=arm64 #$(grep '^Arch:' "$CONFIG_FILE" | cut -d':' -f2 | xargs)
 
           echo "Distro: $DISTRO"
           echo "Codename: $CODENAME"
@@ -77,9 +107,6 @@ jobs:
 
           echo "PPA_PACKAGES_FILE_REPO_PATH=dists/$CODENAME/stable/main/binary-$ARCH" >> $GITHUB_ENV
 
-      # Based on the information extracted from qcom-product.conf, verify if the chroot {CODENAME}-{ARCH}-{DISTRO} exists,
-      # and if not, create it.
-      # TODO : if it doesnt exist, the script needs to be run as root to create it. Find how to use sudo from here.
       - name: Validate Or Create Chroot Environment
         run: |
           ./qcom-build-utils/scripts/prep_chroot_env.py \
@@ -87,65 +114,42 @@ jobs:
             --os-codename ${{ env.PRODUCT_CODENAME }} \
             --suffix      ${{ env.PRODUCT_DISTRO }}
 
-      # Prepare the directory structures necessary depending on format is quilt or native
-      # TODO : This can be beautified a bit
-      # TODO : remove the hardcoding of fastrpc package names
       - name: Prepare Workspace Structure For The Build
         run: |
-            echo "Listing the content of what was checked out, exclusing .md files : "; tree -I '*.md|LICENSE.txt'
+            echo "Listing the content of the workspace :"; tree
 
             mkdir build
 
             if grep -q 'quilt' ./package-repo/debian/source/format; then
               echo "Source format is quilt"
-              
-              mkdir upstream-source
-              cp -r package-repo/qcom-*-source/* upstream-source/
-              cd upstream-source
-              tar -czf ../qcom-fastrpc1_1.0.0.orig.tar.gz .
-              cd ..
-              mkdir work
-              cp -r package-repo/debian work/
-              tar -xf qcom-fastrpc1_1.0.0.orig.tar.gz -C work
-
             elif grep -q 'native' ./package-repo/debian/source/format; then
               echo "Source format is native"
-
-              mkdir work
-              cp -r package-repo/* work/
-
             else
               echo "Source format is unknown or unsupported"
-
               exit 1
             fi
-
-      - name: Build .dsc
-        run: |
-          cd work
-          dpkg-source -b .
-          cd ..
 
       # Run lintian to see if the package is well formatted
       # TODO make it fail if there are errors, and perhaps add a -Werror kind of input
       - name: Run lintian
         run: |
           set +e
-          lintian ./*.dsc
+          cd package-repo
+          gbp buildpackage --git-builder="lintian"
           set -e
 
       - name: Build Debian Packages
         run: |
           set +e
-          sbuild \
-            -A \
-            --arch=arm64 \
-            -d noble-arm64-ubuntu \
-            --no-run-lintian \
-            --build-dir ./build \
-            --build-dep-resolver=apt \
-            --extra-repository="deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main" \
-            ./*.dsc
+          cd package-repo
+          gbp buildpackage --git-ignore-branch \
+                           --git-builder="sbuild --arch=arm64 \
+                                                 --dist=noble-arm64-ubuntu \
+                                                 --no-run-lintian \
+                                                 --build-dir ../build \
+                                                 --build-dep-resolver=apt \
+                                                 --extra-repository='deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main'"
+
           RET=$?
           set -e
 
@@ -153,7 +157,7 @@ jobs:
             echo "✅ Successfully built package"
           else
             # Print the real .build log, not the symlink
-            tail -n 500 $(find ./build -maxdepth 1 -name "*.build" ! -type l)
+            tail -n 500 $(find ../build -maxdepth 1 -name "*.build" ! -type l)
             echo "❌ Build failed, printed the last 500 lines of the build log file"
             exit 1
           fi
@@ -192,6 +196,7 @@ jobs:
           # TODO deal with other return values
 
       - name: ABI Check
+        if: ${{ inputs.abi-checker == true }}
         run: |
           set +e
 
@@ -243,11 +248,11 @@ jobs:
           echo "ABI_CHECK_RETURN_VALUE=${RET}" >> $GITHUB_ENV
 
       - name: Package Version Increment Check
-        if: ${{ env.INITIAL_UPLOAD_TO_PPA == 'false' }}
+        if: ${{ inputs.abi-checker == true && env.INITIAL_UPLOAD_TO_PPA == 'false' }}
         run: |
           echo "Run package version check here with ret value ${{ env.ABI_CHECK_RETURN_VALUE }}"
           echo "Content of result file :"
-          cat ./results.txt          
+          cat ./results.txt
 
           if grep -qE '^\s*-\s*Version:\s*.*FAIL' ./results.txt; then
             echo "❌ Test failed: At least one FAIL found in - Version: line"
@@ -260,7 +265,7 @@ jobs:
       # in order to know it we need to execute the upload steps below
       # Use env.INITIAL_UPLOAD_TO_PPA in the logic also
       - name: Check If Need To Upload To PPA
-        if: ${{ false }}
+        if: ${{ inputs.abi-checker == true && false }}
         run: |
           set +e
           ./qcom-build-utils/scripts/ppa_interface.py \
@@ -273,7 +278,7 @@ jobs:
           set -e
 
       - name: Checkout PPA staging repo
-        if: ${{ env.INITIAL_UPLOAD_TO_PPA == 'true' }}
+        if: ${{ inputs.abi-checker == true && env.INITIAL_UPLOAD_TO_PPA == 'true' }}
         uses: actions/checkout@v4
         with:
           repository: qualcomm-linux/qcom-oss-staging-ppa
@@ -284,7 +289,7 @@ jobs:
 
       # TODO Improve the commit messgae to include what are the packages that have been added
       - name: Upload Debian Packages To PPA Server If First Build
-        if: ${{ env.INITIAL_UPLOAD_TO_PPA == 'true' }}
+        if: ${{ inputs.abi-checker == true && env.INITIAL_UPLOAD_TO_PPA == 'true' }}
         run: |
           ./qcom-build-utils/scripts/ppa_organizer.py --build-dir ./build --output-dir ./qcom-oss-staging-ppa/pool/${{env.PRODUCT_CODENAME}}/stable/main
 
@@ -298,7 +303,7 @@ jobs:
           cat ${{ env.PPA_PACKAGES_FILE_REPO_PATH }}/Packages
 
           git add .
-          
+
           git commit -s -m "Uploaded Packages"
 
           git push

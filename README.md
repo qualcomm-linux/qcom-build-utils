@@ -59,7 +59,7 @@ Kernel Debian Package:
 ```
   -linux-kernel-<kversion>-arm64.deb
 ```
-Bootable images: 
+Bootable images:
 ```qcom-build-utils/```
 ```
     - efiesp.bin

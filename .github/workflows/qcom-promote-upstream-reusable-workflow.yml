@@ -1,0 +1,188 @@
+name: Qualcomm Upstream Version Promotion Reusable Workflow
+description: |
+  The purpose of this workflow is to take a given tag that exists in the upstream repository
+  that the package repo tracks, and then import it with git-buildpackage so that it makes its
+  way in the upstream and debian branch. It also takes care of increasing the version number
+  in the changelog file. The tracked upstream repo needs to be properly configured in the
+  debian/watch file.
+
+on:
+  workflow_call:
+    inputs:
+
+      qcom-build-utils-ref:
+        description: The ref name that was used to invoke this reusable workflow
+        type: string
+        required: true
+
+      upstream-tag:
+        description: The tag in the upstream repo to promote to.
+        type: string
+        required: true
+
+      upstream-repo:
+        description: The upstream git repo adress
+        type: string
+        required: true
+
+      promote-changelog:
+        description: Run the gbp dch command to promote changelog version
+        type: boolean
+        default: false
+
+      push-on-success:
+        description: If the upstream promotion is successful, push the new upstream/<version> tag, upstream/latest and debian/latest new revision branches
+        type: boolean
+        default: false
+
+    secrets:
+      PAT:
+        required: true
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  NORMALIZED_VERSION: ""
+  DISTRIBUTION: noble
+
+jobs:
+  promote-upstream-version:
+
+    runs-on: [self-hosted, Linux, ARM64]
+#   runs-on: [self-hosted, lecore-stg-u2404-arm64-xlrg-od-ephem]
+
+#   container:
+#     image: ubuntu:noble
+
+    steps:
+
+#     - name: Install dependencies
+#       run: |
+#         apt-get update
+#         apt-get install -y git git-buildpackage
+
+      - name: Ensure Workspace Is Clean
+        run: rm -rf *
+
+      # Normalizing a tag : (e.g ) v1.0.0 -> 1.0.0
+      - name: Normalize Tag Version
+        run: |
+          echo "ℹ️Input upstream-tag is : ${{ inputs.upstream-tag }}"
+
+          NORMALIZED_VERSION=$(echo "${{ inputs.upstream-tag }}" | sed 's/^v//')
+          echo "NORMALIZED_VERSION=$NORMALIZED_VERSION" >> $GITHUB_ENV
+
+          echo "ℹ️Normalized version : $NORMALIZED_VERSION"
+
+      - name: Checkout qcom-build-utils
+        uses: actions/checkout@v4
+        with:
+          repository: qualcomm-linux/qcom-build-utils
+          ref: ${{ inputs.qcom-build-utils-ref }}
+          token: ${{ secrets.PAT }}
+          path: ./qcom-build-utils
+          fetch-depth: 1
+
+      - name: Checkout Repository And Submodules Recursively
+        uses: actions/checkout@v4
+        with:
+          ref: debian/latest
+          clean: false # A rm -rf * was done first, don't clean otherwise this would delete qcom-build-utils cloned above
+          #submodules: 'recursive' # Make sure all submodules are recursively checked out
+          token: ${{ secrets.PAT }} # Add SSH key for cloning private repos
+          path: ./package-repo
+          fetch-depth: 1
+
+      - name: Fetch All Branches and Tags
+        run: |
+          cd ./package-repo
+          git fetch --depth=1 origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
+          echo "Listing all the current tags :"
+          git tag --list
+          git checkout upstream/latest # Checkout this branch just to make sure it exists locally after its been fetched as gbp will need it later
+          git checkout - # Then revert back to debian/latest branch as we will need to have it checked out for gbp later
+
+
+      - name: Make sure the upstream tag is not already part of the repo
+        run: |
+          cd ./package-repo
+
+          if (git tag --list | grep "${{ inputs.upstream-tag }}"); then
+            echo "❌ The supplied upstream tag is wrong as it pertains to this repo already."
+            exit 1
+          fi
+
+      - name: Determine If Requested Tag Already Exist In upstream/
+        run: |
+          cd ./package-repo
+
+          if (git tag --list | grep "upstream/${{ env.NORMALIZED_VERSION }}"); then
+            echo "❌ It appears like this repo has already integrated the upstream tag '${{ inputs.upstream-tag }}'" \
+                 " because a local tag 'upstream/$NORMALIZED_VERSION' already exists."
+            exit 1
+          else
+            echo "✅ TODO MAKE SURE WE ARE NOT REGRESSING"
+          fi
+
+      - name: Add Upstream Link As A Remote And Fetch Tags
+        run: |
+          cd ./package-repo
+          git remote add upstream-source git@github.com:${{ inputs.upstream-repo }}.git
+          git fetch upstream-source "+refs/tags/*:refs/tags/*"
+
+      - name: Clone Upstream Repo At Specified Tag
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.upstream-repo }}
+          ref: ${{ inputs.upstream-tag }}
+          ssh-key: ${{ secrets.ACTIONS_SSH_KEY }}
+          path: ./upstream-repo
+          fetch-depth: 1
+
+      - name: GBP Import Orig
+        run: |
+          cd ./package-repo
+
+          gbp import-orig --upstream-branch=upstream/latest \
+                          --debian-branch=debian/latest \
+                          --no-pristine-tar \
+                          --upstream-vcs-tag=${{ inputs.upstream-tag }} \
+                          --upstream-version=${{ env.NORMALIZED_VERSION }} \
+                          --upstream-tag="upstream/%(version)s" \
+                          --filter=.git \
+                          --filter=.github \
+                          --filter=debian \
+                          ../upstream-repo
+
+      # TODO : Export right EMAIL (get either user that triggered the workflow, or github bot)
+      # TODO : deal with the --distribution parameter in dch command. This is actually not right
+      - name: Promote Changelog
+        if: ${{ inputs.promote-changelog == true }}
+        run: |
+          cd ./package-repo
+
+          export DEBFULLNAME="Github Bot"
+          export DEBEMAIL=githubbot@qti.qualcomm.com
+
+          gbp dch --commit \
+                  --debian-branch=debian/latest \
+                  --distribution=${{ env.DISTRIBUTION }}
+                  #--new-version=${{ env.NORMALIZED_VERSION }}-1 \
+
+          echo "Show the changes in debian/changelog :"
+          git diff --cached debian/changelog
+          #git add debian/changelog
+          #git commit -m "Populate changelog"
+          git tag debian/${{ env.NORMALIZED_VERSION }}-1
+
+      - name: Push On Success
+        if: ${{ inputs.push-on-success == true }}
+        run: |
+          cd ./package-repo
+
+          git push origin upstream/${{ env.NORMALIZED_VERSION }}
+          git push origin debian/${{ env.NORMALIZED_VERSION }}-1
+          git push origin upstream/latest
+          git push origin debian/latest
