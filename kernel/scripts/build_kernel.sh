@@ -15,7 +15,9 @@ kpath=$BUILD_TOP/qcom-next/arch/arm64/boot
 CRD_DTB=$kpath/dts/qcom/x1e80100-crd.dtb
 EVK_DTB=$kpath/dts/qcom/hamoa-iot-evk.dtb
 QCS6490_DTB=$kpath/dts/qcom/qcs6490-rb3gen2.dtb
- 
+QCS8300_DTB=$kpath/dts/qcom/qcs8300-ride.dtb
+QCS9100_DTB=$kpath/dts/qcom/qcs9100-ride-r3.dtb
+
 # Clean previous build
 rm -rf $BUILD_TOP/out/*;
 
@@ -40,3 +42,5 @@ make ARCH=arm64 modules_install INSTALL_MOD_PATH=$BUILD_TOP/out/modules INSTALL_
 [ -f "$CRD_DTB" ] && cp "$CRD_DTB" "$BUILD_TOP/out/"
 [ -f "$EVK_DTB" ] && cp "$EVK_DTB" "$BUILD_TOP/out/"
 [ -f "$QCS6490_DTB" ] && cp "$QCS6490_DTB" "$BUILD_TOP/out/"
+[ -f "$QCS6490_DTB" ] && cp "$QCS8300_DTB" "$BUILD_TOP/out/"
+[ -f "$QCS6490_DTB" ] && cp "$QCS9100_DTB" "$BUILD_TOP/out/"
