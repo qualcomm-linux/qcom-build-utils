@@ -242,7 +242,12 @@ noble \
                 if config.strip():
                     bash_command += f" \"{config.strip()}\""
 
+<<<<<<< HEAD
         bash_command += f" \"deb [arch=arm64 trusted=yes] http://ports.ubuntu.com/ubuntu-ports noble main universe multiverse restricted\""
+=======
+        bash_command += f" \"deb [arch=arm64 trusted=yes] http://ports-ubuntu.qualcomm.com/ports.ubuntu.com/{SNAP_SHOT_DATE} noble main universe multiverse restricted\""
+        bash_command += f" \"deb [arch=arm64 trusted=yes] http://ports-ubuntu.qualcomm.com/ports.ubuntu.com/{SNAP_SHOT_DATE} noble-updates main universe multiverse restricted\""
+>>>>>>> 965bfda (Debian package:use a Qualcomm-specific Ubuntu mirror with a snapshot date.)
 
         out = run_command_for_result(bash_command)
         if out['returncode'] != 0:

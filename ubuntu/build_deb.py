@@ -62,9 +62,7 @@ class PackageBuilder:
         self.ARCH = ARCH
         self.CHROOT_SUFFIX = CHROOT_SUFFIX
         self.SOURCE_DIR = SOURCE_DIR
-        self.DEB_OUT_DIR = DEB_OUT_DIR
         self.APT_SERVER_CONFIG = APT_SERVER_CONFIG
-        self.CHROOT_NAME = CHROOT_NAME
         self.MANIFEST_MAP = MANIFEST_MAP
         self.DEB_OUT_TEMP_DIR = DEB_OUT_TEMP_DIR
         self.IS_CLEANUP_ENABLED = IS_CLEANUP_ENABLED
@@ -72,7 +70,7 @@ class PackageBuilder:
         self.DEB_OUT_DIR_APT = DEB_OUT_DIR_APT
         self.DEBIAN_INSTALL_DIR_APT = DEBIAN_INSTALL_DIR_APT
         self.IS_PREPARE_SOURCE = IS_PREPARE_SOURCE
-        self.DEBIAN_MIRROR  = "http://ports.ubuntu.com"
+        self.DEBIAN_MIRROR = f"http://ports-ubuntu.qualcomm.com/ports.ubuntu.com/{SNAP_SHOT_DATE}"
         self.packages = {}
 
         self.generate_schroot_config()
@@ -102,15 +100,17 @@ class PackageBuilder:
         # this command creates a chroot environment that will be named "{DIST}-{ARCH}-{SUFFIX}"
         # We supply our own suffix, otherwise sbuild will use 'sbuild'
         cmd = f"sbuild-createchroot --arch={self.ARCH}" \
+                                 f" --keyring="" " \
                                  f" --chroot-suffix=-{self.CHROOT_SUFFIX}" \
                                  f" --components=main,universe" \
                                  f" {self.DIST}" \
                                  f" {self.CHROOT_DIR}/{self.CHROOT_NAME}" \
                                  f" {self.DEBIAN_MIRROR}"
-
+        
         logger.debug(f"Creating schroot environment with command: {cmd}")
-
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+        subprocess.run(["chroot", f"{self.CHROOT_DIR}/{self.CHROOT_NAME}", "bash", "-c", f"sed -i 's|{self.DEBIAN_MIRROR}|[trusted=yes] {self.DEBIAN_MIRROR}|' /etc/apt/sources.list"]) 
 
         if result.returncode != 0:
             raise Exception(f"Error creating schroot environment: {result.stderr}")

@@ -5,7 +5,11 @@
 import os
 
 LINUX_MODULES_DEB = "linux-modules-*-qcom/linux-modules-*_arm64.deb"
+<<<<<<< HEAD
 SNAP_SHOT_DATE = "2025-09-23"  #update date for snapshot date from https://ports-ubuntu.qualcomm.com/ports.ubuntu.com/
+=======
+SNAP_SHOT_DATE = "2025-09-12"  #update date for snapshot date from https://ports-ubuntu.qualcomm.com/ports.ubuntu.com/
+>>>>>>> 965bfda (Debian package:use a Qualcomm-specific Ubuntu mirror with a snapshot date.)
 
 KERNEL_DEBS = [
     "linux-modules",
