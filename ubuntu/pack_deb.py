@@ -26,7 +26,7 @@ from deb_organize import search_manifest_map_for_path
 from color_logger import logger
 
 class PackagePacker:
-    def __init__(self, MOUNT_DIR, IMAGE_TYPE, VARIANT, OUT_DIR, OUT_SYSTEM_IMG, APT_SERVER_CONFIG, TEMP_DIR, DEB_OUT_DIR, DEBIAN_INSTALL_DIR, IS_CLEANUP_ENABLED, PACKAGES_MANIFEST_PATH=None,QC_FOLDER=None):
+    def __init__(self, MOUNT_DIR, IMAGE_TYPE, VARIANT, OUT_DIR, OUT_SYSTEM_IMG, APT_SERVER_CONFIG, TEMP_DIR, DEB_OUT_DIR, DEBIAN_INSTALL_DIR, IS_CLEANUP_ENABLED, PACKAGES_MANIFEST_PATH=None,QC_FOLDER=None,IF_RELEASE_ENABLED=False):
         """
         Initializes the PackagePacker instance.
 
@@ -61,6 +61,7 @@ class PackagePacker:
         self.OUT_SYSTEM_IMG = OUT_SYSTEM_IMG
         self.PACKAGES_MANIFEST_PATH = PACKAGES_MANIFEST_PATH
         self.qc_folder = QC_FOLDER
+        self.IS_RELEASE_ENABLED = IF_RELEASE_ENABLED
 
         self.EFI_BIN_PATH = os.path.join(self.OUT_DIR, "efi.bin")
         self.EFI_MOUNT_PATH = os.path.join(self.MOUNT_DIR, "boot", "efi")
@@ -184,7 +185,14 @@ GRUB_DISABLE_RECOVERY="true"' >> {os.path.join(self.MOUNT_DIR, 'etc', 'default',
                 qc_qcom_merged = self.merge_manifests_from_folder(self.qc_folder, self.IMAGE_TYPE, "qcom")
                 if qc_qcom_merged:
                     logger.info(f"Using qcom manifests from: {qc_qcom_merged}")
-                    self.DEBS.extend(parse_debs_manifest(qc_qcom_merged))
+                    manifest_debs = parse_debs_manifest(qc_qcom_merged)
+                    if self.IS_RELEASE_ENABLED:
+                        # Append +rel to everyone (no filtering)
+                        manifest_debs[:] = [{**d, "version": (d["version"] if d["version"].endswith("+rel") else d["version"] + "+rel")}
+                        for d in manifest_debs]
+                        logger.info("Assuming a release build, appending +rel to all packages.")
+                        logger.info(manifest_debs)
+                    self.DEBS.extend(manifest_debs)
             return
 
         # 3. No manifest found: print message and exit
