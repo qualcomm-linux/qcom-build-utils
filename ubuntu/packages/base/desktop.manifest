@@ -1155,6 +1155,7 @@ libyaml-0-2	0.2.5-1build1
 libyelp0	42.2-1ubuntu0.24.04.1
 libzstd1	1.5.5+dfsg2-2build1.1
 linux-base	4.5ubuntu9+24.04.1
+linux-firmware	20240318.git3b128b60-0ubuntu2.17
 linux-sound-base	1.0.25+dfsg-0ubuntu7
 locales	2.39-0ubuntu8.4
 login	1:4.13+dfsg1-4ubuntu3.2
