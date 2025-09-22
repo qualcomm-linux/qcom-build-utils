@@ -5,6 +5,7 @@
 import os
 
 LINUX_MODULES_DEB = "linux-modules-*-qcom/linux-modules-*_arm64.deb"
+SNAP_SHOT_DATE = "2025-09-23"  #update date for snapshot date from https://ports-ubuntu.qualcomm.com/ports.ubuntu.com/
 
 KERNEL_DEBS = [
     "linux-modules",
