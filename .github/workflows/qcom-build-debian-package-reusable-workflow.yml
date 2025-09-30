@@ -13,10 +13,15 @@ on:
         required: true
 
       debian-ref:
-        description: The debian ref to build. For example "debian/latest", the ref would be "latest". Or for "debian/1.0.0-1" the ref would be "1.0.0-1 "
+        description: The debian ref to build. For example branch "debian/latest" or tag "debian/1.0.0-1"
         type: string
         required: true
         default: debian/latest
+
+      ubuntu-codename:
+        description: The ubuntu codename to build for. Ex noble, jammy, etc
+        type: string
+        default: noble
 
       abi-checker:
         description: Run the ABI checker or not
@@ -39,9 +44,8 @@ env:
   INITIAL_UPLOAD_TO_PPA: 'false'
   ABI_CHECK_RETURN_VALUE: 0
 
-  PRODUCT_DISTRO: null
-  PRODUCT_CODENAME: null
-  PRODUCT_ARCH: null
+  PRODUCT_DISTRO: ubuntu
+  PRODUCT_ARCH: arm64
 
   PPA_PACKAGES_FILE_REPO_PATH: null
 
@@ -91,27 +95,13 @@ jobs:
 
       - name: Exctract Product Configuration From qcom-product.conf
         run: |
-          CONFIG_FILE="package-repo/qcom-distro-ubuntu/qcom-product.conf"
-
-          DISTRO=ubuntu #$(grep '^Distro:' "$CONFIG_FILE" | cut -d':' -f2 | xargs)
-          CODENAME=noble #$(grep '^Codename:' "$CONFIG_FILE" | cut -d':' -f2 | xargs)
-          ARCH=arm64 #$(grep '^Arch:' "$CONFIG_FILE" | cut -d':' -f2 | xargs)
-
-          echo "Distro: $DISTRO"
-          echo "Codename: $CODENAME"
-          echo "Arch: $ARCH"
-
-          echo "PRODUCT_DISTRO=${DISTRO}" >> $GITHUB_ENV
-          echo "PRODUCT_CODENAME=${CODENAME}" >> $GITHUB_ENV
-          echo "PRODUCT_ARCH=${ARCH}" >> $GITHUB_ENV
-
           echo "PPA_PACKAGES_FILE_REPO_PATH=dists/$CODENAME/stable/main/binary-$ARCH" >> $GITHUB_ENV
 
       - name: Validate Or Create Chroot Environment
         run: |
           ./qcom-build-utils/scripts/prep_chroot_env.py \
             --arch        ${{ env.PRODUCT_ARCH }} \
-            --os-codename ${{ env.PRODUCT_CODENAME }} \
+            --os-codename ${{ inputs.ubuntu-codename }} \
             --suffix      ${{ env.PRODUCT_DISTRO }}
 
       - name: Prepare Workspace Structure For The Build
@@ -167,7 +157,7 @@ jobs:
           set +e
           ./qcom-build-utils/scripts/ppa_interface.py \
             --operation list-versions \
-            --apt-config "deb [arch=${{ env.PRODUCT_ARCH }} trusted=yes] ${{ env.PPA_URL }} ${{ env.PRODUCT_CODENAME }}/stable main" \
+            --apt-config "deb [arch=${{ env.PRODUCT_ARCH }} trusted=yes] ${{ env.PPA_URL }} ${{ inputs.ubuntu-codename }}/stable main" \
             --package-name libqcom-example1
 
           RET=$?
@@ -183,7 +173,7 @@ jobs:
           set +e
           ./qcom-build-utils/scripts/ppa_interface.py \
             --operation download \
-            --apt-config "deb [arch=${{ env.PRODUCT_ARCH }} trusted=yes] ${{ env.PPA_URL }} ${{ env.PRODUCT_CODENAME }}/stable main" \
+            --apt-config "deb [arch=${{ env.PRODUCT_ARCH }} trusted=yes] ${{ env.PPA_URL }} ${{ inputs.ubuntu-codename }}/stable main" \
             --package-name libqcom-example1
 
           RET=$?
@@ -202,7 +192,7 @@ jobs:
 
           ./qcom-build-utils/scripts/deb_abi_checker.py \
             --new-package-dir ./build \
-            --apt-server-config "deb [arch=${{ env.PRODUCT_ARCH }} trusted=yes] ${{ env.PPA_URL }} ${{ env.PRODUCT_CODENAME }}/stable main" \
+            --apt-server-config "deb [arch=${{ env.PRODUCT_ARCH }} trusted=yes] ${{ env.PPA_URL }} ${{ inputs.ubuntu-codename }}/stable main" \
             --result-file ./results.txt
 
           RET=$?
@@ -270,7 +260,7 @@ jobs:
           set +e
           ./qcom-build-utils/scripts/ppa_interface.py \
             --operation contains-version \
-            --apt-config "deb [arch=${{ env.PRODUCT_ARCH }} trusted=yes] ${{ env.PPA_URL }} ${{ env.PRODUCT_CODENAME }}/stable main" \
+            --apt-config "deb [arch=${{ env.PRODUCT_ARCH }} trusted=yes] ${{ env.PPA_URL }} ${{ inputs.ubuntu-codename }}/stable main" \
             --package-name libqcom-example1
             --version 1.1.0
 
@@ -291,12 +281,12 @@ jobs:
       - name: Upload Debian Packages To PPA Server If First Build
         if: ${{ inputs.abi-checker == true && env.INITIAL_UPLOAD_TO_PPA == 'true' }}
         run: |
-          ./qcom-build-utils/scripts/ppa_organizer.py --build-dir ./build --output-dir ./qcom-oss-staging-ppa/pool/${{env.PRODUCT_CODENAME}}/stable/main
+          ./qcom-build-utils/scripts/ppa_organizer.py --build-dir ./build --output-dir ./qcom-oss-staging-ppa/pool/${{ inputs.ubuntu-codename }}/stable/main
 
           cd ./qcom-oss-staging-ppa
 
-          dpkg-scanpackages --multiversion pool/${{ env.PRODUCT_CODENAME }} > ${{ env.PPA_PACKAGES_FILE_REPO_PATH }}/Packages
-          dpkg-scanpackages --type ddeb --multiversion pool/${{ env.PRODUCT_CODENAME }} >> ${{ env.PPA_PACKAGES_FILE_REPO_PATH }}/Packages
+          dpkg-scanpackages --multiversion pool/${{ inputs.ubuntu-codename }} > ${{ env.PPA_PACKAGES_FILE_REPO_PATH }}/Packages
+          dpkg-scanpackages --type ddeb --multiversion pool/${{ inputs.ubuntu-codename }} >> ${{ env.PPA_PACKAGES_FILE_REPO_PATH }}/Packages
 
           gzip -k -f ${{ env.PPA_PACKAGES_FILE_REPO_PATH }}/Packages
 
