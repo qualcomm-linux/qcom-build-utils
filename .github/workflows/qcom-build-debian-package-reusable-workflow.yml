@@ -47,17 +47,11 @@ permissions:
   security-events: write
 
 env:
-  PPA_URL: https://qualcomm-linux.github.io/pkg-oss-staging-repo/
-
-  # This variable is set to true below if the ABI check is not able to find an initial
-  # version of the package in the PPA.
-  INITIAL_UPLOAD_TO_PPA: 'false'
-  ABI_CHECK_RETURN_VALUE: 0
-
+  REPO_URL: https://qualcomm-linux.github.io/pkg-oss-staging-repo/
+  UBUNTU_CODENAME: ${{inputs.ubuntu-codename}}
   DISTRO: ubuntu
   ARCH: arm64
-
-  PPA_PACKAGES_FILE_REPO_PATH: null
+  PACKAGE_NAME: libqcom-example1
 
 jobs:
   build-debian-package:
@@ -103,15 +97,11 @@ jobs:
           cd ./package-repo
           git fetch --depth=1 origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
 
-      - name: Exctract Product Configuration From qcom-product.conf
-        run: |
-          echo "PPA_PACKAGES_FILE_REPO_PATH=dists/$CODENAME/stable/main/binary-$ARCH" >> $GITHUB_ENV
-
       - name: Validate Or Create Chroot Environment
         run: |
           ./qcom-build-utils/scripts/prep_chroot_env.py \
             --arch        ${{env.ARCH}} \
-            --os-codename ${{inputs.ubuntu-codename}} \
+            --os-codename ${{env.UBUNTU_CODENAME}} \
             --suffix      ${{env.DISTRO}}
 
       - name: Prepare Workspace Structure For The Build
@@ -142,11 +132,11 @@ jobs:
 
           gbp buildpackage --git-ignore-branch \
                            --git-builder="sbuild --arch=${{env.ARCH}} \
-                                                 --dist=${{inputs.ubuntu-codename}}-${{env.ARCH}}-${{env.DISTRO}} \
+                                                 --dist=${{env.UBUNTU_CODENAME}}-${{env.ARCH}}-${{env.DISTRO}} \
                                                  $lintian_flag \
                                                  --build-dir ../build-area \
                                                  --build-dep-resolver=apt \
-                                                 --extra-repository='deb [arch=${{env.ARCH}} trusted=yes] http://pkg.qualcomm.com ${{inputs.ubuntu-codename}}/stable main'"
+                                                 --extra-repository='deb [arch=${{env.ARCH}} trusted=yes] http://pkg.qualcomm.com ${{env.UBUNTU_CODENAME}}/stable main'"
 
           RET=$?
           set -e
@@ -160,148 +150,12 @@ jobs:
             exit 1
           fi
 
-      - name : List All The Versions Of The Built Packages Contained In The Staging PPA
-        run: |
-          set +e
-          ./qcom-build-utils/scripts/ppa_interface.py \
-            --operation list-versions \
-            --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.PPA_URL}} ${{inputs.ubuntu-codename}}/stable main" \
-            --package-name libqcom-example1
-
-          RET=$?
-          set -e
-
-      # TODO : For now, this step is completely skipped over (if false below).
-      # Next step is to activate it and download the latest version.
-      # Then, modify the ABI checker script to remove the logic that downloads the newest version of the package
-      # in order to simplify the code.
-      - name : Download Latest Version Of The Built Package From PPA To Compare ABI Against
-        if: ${{false}}
-        run: |
-          set +e
-          ./qcom-build-utils/scripts/ppa_interface.py \
-            --operation download \
-            --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.PPA_URL}} ${{inputs.ubuntu-codename}}/stable main" \
-            --package-name libqcom-example1
-
-          RET=$?
-          set -e
-
-          if (( RET == 0 )); then
-            echo "✅ Successfully downloaded latest version"
-          fi
-
-          # TODO deal with other return values
-
-      - name: ABI Check
+      - name: Run ABI Check
         if: ${{inputs.abi-checker == true}}
-        run: |
-          set +e
+        uses: ./qcom-build-utils/.github/actions/abi_checker
 
-          ./qcom-build-utils/scripts/deb_abi_checker.py \
-            --new-package-dir ./build \
-            --apt-server-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.PPA_URL}} ${{inputs.ubuntu-codename}}/stable main" \
-            --result-file ./results.txt
-
-          RET=$?
-          set -e
-
-          echo "ABI check returned $RET"
-
-          #       (0):  RETURN_ABI_NO_DIFF
-          # Bit 0 (1):  RETURN_ABI_COMPATIBLE_DIFF
-          # Bit 1 (2):  RETURN_ABI_INCOMPATIBLE_DIFF
-          # Bit 2 (4):  RETURN_ABI_STRIPPED_PACKAGE
-          # Bit 3 (8):  RETURN_PPA_PACKAGE_NOT_FOUND
-          # Bit 4 (16): RETURN_PPA_ERROR
-
-          if (( RET == 0 )); then
-            echo "✅ ABI check returned NO_DIFF"
-          fi
-
-          if (( RET & 1 )); then
-            echo "⚠️ ABI check returned COMPATIBLE DIFF"
-          fi
-
-          if (( RET & 2 )); then
-            echo "⚠️ ABI check returned INCOMPATIBLE DIFF"
-          fi
-
-          if (( RET & 4 )); then
-            echo "❌ ABI check returned STRIPPED PACKAGE"
-            exit 1
-          fi
-
-          if (( RET & 8 )); then
-            echo "⚠️ ABI check failed because the PPA did not contained an old version for the package."
-            echo "Assumption is that this is the first time the package was build."
-            echo "INITIAL_UPLOAD_TO_PPA=true" >> $GITHUB_ENV
-          fi
-
-          if (( RET & 16 )); then
-            echo "❌ ABI check failed because there was an error on the PPA"
-            exit 1
-          fi
-
-          echo "ABI_CHECK_RETURN_VALUE=${RET}" >> $GITHUB_ENV
-
-      - name: Package Version Increment Check
-        if: ${{inputs.abi-checker == true && env.INITIAL_UPLOAD_TO_PPA == 'false'}}
-        run: |
-          echo "Run package version check here with ret value ${{env.ABI_CHECK_RETURN_VALUE}}"
-          echo "Content of result file :"
-          cat ./results.txt
-
-          if grep -qE '^\s*-\s*Version:\s*.*FAIL' ./results.txt; then
-            echo "❌ Test failed: At least one FAIL found in - Version: line"
-            exit 1
-          else
-            echo "✅ Test passed: All versions are PASS"
-          fi
-
-      # TODO Complete this in order to check if the version we just compiled exists in the PPA or not
-      # in order to know it we need to execute the upload steps below
-      # Use env.INITIAL_UPLOAD_TO_PPA in the logic also
-      - name: Check If Need To Upload To PPA
-        if: ${{inputs.push-to-repo}}
-        run: |
-          set +e
-          ./qcom-build-utils/scripts/ppa_interface.py \
-            --operation contains-version \
-            --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.PPA_URL}} ${{inputs.ubuntu-codename}}/stable main" \
-            --package-name libqcom-example1
-            --version 1.1.0
-
-          RET=$?
-          set -e
-
-      - name: Checkout PPA staging repo
-        if: ${{inputs.abi-checker == true && env.INITIAL_UPLOAD_TO_PPA == 'true'}}
-        uses: actions/checkout@v4
+      - name: Push package to repo
+        if: ${{inputs.push-to-repo == true}}
+        uses: ./qcom-build-utils/.github/actions/push_to_repo
         with:
-          repository: qualcomm-linux/qcom-oss-staging-ppa
-          ref: main
-          ssh-key: ${{secrets.ACTIONS_SSH_KEY}}
-          path: ./qcom-oss-staging-ppa
-          fetch-depth: 1
-
-      # TODO Improve the commit messgae to include what are the packages that have been added
-      - name: Upload Debian Packages To PPA Server If First Build
-        if: ${{inputs.abi-checker == true && env.INITIAL_UPLOAD_TO_PPA == 'true'}}
-        run: |
-          ./qcom-build-utils/scripts/ppa_organizer.py --build-dir ./build --output-dir ./qcom-oss-staging-ppa/pool/${{inputs.ubuntu-codename}}/stable/main
-
-          cd ./qcom-oss-staging-ppa
-
-          dpkg-scanpackages --multiversion pool/${{inputs.ubuntu-codename}} > ${{env.PPA_PACKAGES_FILE_REPO_PATH}}/Packages
-          dpkg-scanpackages --type ddeb --multiversion pool/${{inputs.ubuntu-codename}} >> ${{env.PPA_PACKAGES_FILE_REPO_PATH}}/Packages
-
-          gzip -k -f ${{env.PPA_PACKAGES_FILE_REPO_PATH}}/Packages
-
-          cat ${{env.PPA_PACKAGES_FILE_REPO_PATH}}/Packages
-
-          git add .
-
-          git commit -s -m "Uploaded Packages"
-
-          git push
+          token: ${{secrets.PAT}}

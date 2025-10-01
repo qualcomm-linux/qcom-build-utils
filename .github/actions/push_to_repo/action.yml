@@ -1,0 +1,67 @@
+name: Push Built Package To Repo
+description: |
+  This Github Actions pushes the newly built package to a repository
+
+inputs:
+  token:
+    description: PAT token
+    required: true
+
+env:
+  PPA_PACKAGES_FILE_REPO_PATH: null
+
+runs:
+  using: "composite"
+  
+  steps:
+
+    - name: Construct Package File Path
+      shell: bash
+      run: |
+        echo "PPA_PACKAGES_FILE_REPO_PATH=dists/${{env.UBUNTU_CODENAME}}/stable/main/binary-${{env.ARCH}}" >> $GITHUB_ENV
+
+    # TODO Complete this in order to check if the version we just compiled exists in the PPA or not
+    # in order to know it we need to execute the upload steps below
+    # Use env.INITIAL_UPLOAD_TO_PPA in the logic also
+    - name: Check If Need To Upload To PPA
+      shell: bash
+      run: |
+        set +e
+        ./qcom-build-utils/scripts/ppa_interface.py \
+          --operation contains-version \
+          --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_CODENAME}}/stable main" \
+          --package-name ${{env.PACKAGE_NAME}}
+          --version 1.1.0
+
+        RET=$?
+        set -e
+
+    - name: Checkout PPA staging repo
+      uses: actions/checkout@v4
+      with:
+        repository: qualcomm-linux/pkg-oss-staging-repo
+        ref: main
+        token: ${{inputs.token}}
+        path: ./pkg-oss-staging-repo
+        fetch-depth: 1
+
+    # TODO Improve the commit messgae to include what are the packages that have been added
+    - name: Upload Debian Packages To PPA Server If First Build
+      shell: bash
+      run: |
+        ./qcom-build-utils/scripts/ppa_organizer.py --build-dir ./build-area --output-dir ./pkg-oss-staging-repo/pool/${{env.UBUNTU_CODENAME}}/stable/main
+
+        cd ./pkg-oss-staging-repo
+
+        dpkg-scanpackages --multiversion pool/${{env.UBUNTU-CODENAME} > ${{env.PPA_PACKAGES_FILE_REPO_PATH}}/Packages
+        dpkg-scanpackages --type ddeb --multiversion pool/${{env.UBUNTU-CODENAME}} >> ${{env.PPA_PACKAGES_FILE_REPO_PATH}}/Packages
+
+        gzip -k -f ${{env.PPA_PACKAGES_FILE_REPO_PATH}}/Packages
+
+        cat ${{env.PPA_PACKAGES_FILE_REPO_PATH}}/Packages
+
+        git add .
+
+        git commit -s -m "Uploaded Packages"
+
+        git push

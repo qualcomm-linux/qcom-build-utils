@@ -1,0 +1,109 @@
+name: Check ABI Against Previous Package Version
+description: |
+  This Github Actions checks the ABI of a newly built package against the latest
+  [or possibly a fixed] version of that same package stored a repository.
+
+inputs:
+  version:
+    description: The specific version to run the ABI checker against. If not defined, defaults to latest
+    requred: false
+
+runs:
+  using: "composite"
+  
+  steps:
+    - name : List All The Versions Of The Built Packages Contained In The Staging PPA
+      shell: bash
+      run: |
+        set +e
+        ./qcom-build-utils/scripts/ppa_interface.py \
+          --operation list-versions \
+          --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_CODENAME}}/stable main" \
+          --package-name ${{env.PACKAGE_NAME}}
+
+        RET=$?
+        set -e
+
+    # TODO modify the ABI checker script to remove the logic that downloads the newest version of the package
+    # in order to simplify the code.
+    - name : Download Latest Version Of The Built Package From PPA To Compare ABI Against
+      shell: bash
+      run: |
+        set +e
+        ./qcom-build-utils/scripts/ppa_interface.py \
+          --operation download \
+          --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_CODENAME}}/stable main" \
+          --package-name ${{env.PACKAGE_NAME}}
+
+        RET=$?
+        set -e
+
+        if (( RET == 0 )); then
+          echo "✅ Successfully downloaded latest version"
+        fi
+
+        # TODO deal with other return values
+
+    - name: ABI Check
+      shell: bash
+      run: |
+        set +e
+
+        ./qcom-build-utils/scripts/deb_abi_checker.py \
+          --new-package-dir ./build-area \
+          --apt-server-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_CODENAME}}/stable main" \
+          --result-file ./results.txt
+
+        RET=$?
+        set -e
+
+        echo "ABI check returned $RET"
+
+        #       (0):  RETURN_ABI_NO_DIFF
+        # Bit 0 (1):  RETURN_ABI_COMPATIBLE_DIFF
+        # Bit 1 (2):  RETURN_ABI_INCOMPATIBLE_DIFF
+        # Bit 2 (4):  RETURN_ABI_STRIPPED_PACKAGE
+        # Bit 3 (8):  RETURN_PPA_PACKAGE_NOT_FOUND
+        # Bit 4 (16): RETURN_PPA_ERROR
+
+        if (( RET == 0 )); then
+          echo "✅ ABI check returned NO_DIFF"
+        fi
+
+        if (( RET & 1 )); then
+          echo "⚠️ ABI check returned COMPATIBLE DIFF"
+        fi
+
+        if (( RET & 2 )); then
+          echo "⚠️ ABI check returned INCOMPATIBLE DIFF"
+        fi
+
+        if (( RET & 4 )); then
+          echo "❌ ABI check returned STRIPPED PACKAGE"
+          exit 1
+        fi
+
+        if (( RET & 8 )); then
+          echo "⚠️ ABI check failed because the PPA did not contained an old version for the package."
+          echo "Assumption is that this is the first time the package was build."
+          echo "INITIAL_UPLOAD_TO_PPA=true" >> $GITHUB_ENV
+        fi
+
+        if (( RET & 16 )); then
+          echo "❌ ABI check failed because there was an error on the PPA"
+          exit 1
+        fi
+
+    - name: Package Version Increment Check
+      shell: bash
+      run: |
+        echo "Run package version check here with ret value"
+        echo "Content of result file :"
+        cat ./results.txt
+
+        if grep -qE '^\s*-\s*Version:\s*.*FAIL' ./results.txt; then
+          echo "❌ Test failed: At least one FAIL found in - Version: line"
+          exit 1
+        else
+          echo "✅ Test passed: All versions are PASS"
+        fi
