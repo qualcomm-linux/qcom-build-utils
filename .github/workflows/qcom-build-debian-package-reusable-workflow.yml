@@ -39,7 +39,7 @@ on:
         default: false
 
     secrets:
-      PAT:
+      TOKEN:
         required: true
 
 permissions:
@@ -48,10 +48,11 @@ permissions:
 
 env:
   REPO_URL: https://qualcomm-linux.github.io/pkg-oss-staging-repo/
+  REPO_NAME: qualcomm-linux/pkg-oss-staging-repo
+
   UBUNTU_CODENAME: ${{inputs.ubuntu-codename}}
   DISTRO: ubuntu
   ARCH: arm64
-  PACKAGE_NAME: libqcom-example1
 
 jobs:
   build-debian-package:
@@ -78,7 +79,7 @@ jobs:
         with:
           repository: qualcomm-linux/qcom-build-utils
           ref: ${{inputs.qcom-build-utils-ref}}
-          token: ${{secrets.PAT}}
+          token: ${{secrets.TOKEN}}
           path: ./qcom-build-utils
           fetch-depth: 1
 
@@ -87,7 +88,7 @@ jobs:
         with:
           ref: ${{inputs.debian-ref}}
           clean: false # A rm -rf * was done first, don't clean otherwise this would delete qcom-build-utils cloned above
-          token: ${{secrets.PAT}}
+          token: ${{secrets.TOKEN}}
           path: ./package-repo
           fetch-depth: 1
 
@@ -121,7 +122,6 @@ jobs:
 
       - name: Build Debian Packages
         run: |
-          set +e
           cd package-repo
           
           if [[ "${{inputs.run-lintian}}" == "true" ]]; then
@@ -129,14 +129,21 @@ jobs:
           else
             lintian_flag="--no-run-lintian"
           fi
-
+          
+          if curl -sfI "http://pkg.qualcomm.com/dists/${{env.UBUNTU_CODENAME}}/Release" > /dev/null; then
+            EXTRA_REPO="--extra-repository='deb [arch=${{env.ARCH}} trusted=yes] http://pkg.qualcomm.com ${{env.UBUNTU_CODENAME}}/stable main'"
+          else
+            EXTRA_REPO=""
+          fi
+          
+          set +e
           gbp buildpackage --git-ignore-branch \
                            --git-builder="sbuild --arch=${{env.ARCH}} \
                                                  --dist=${{env.UBUNTU_CODENAME}}-${{env.ARCH}}-${{env.DISTRO}} \
                                                  $lintian_flag \
                                                  --build-dir ../build-area \
                                                  --build-dep-resolver=apt \
-                                                 --extra-repository='deb [arch=${{env.ARCH}} trusted=yes] http://pkg.qualcomm.com ${{env.UBUNTU_CODENAME}}/stable main'"
+                                                 $EXTRA_REPO"
 
           RET=$?
           set -e
@@ -145,7 +152,7 @@ jobs:
             echo "✅ Successfully built package"
           else
             # Print the real .build log, not the symlink
-            tail -n 500 $(find ../build -maxdepth 1 -name "*.build" ! -type l)
+            tail -n 500 $(find ../build-area -maxdepth 1 -name "*.build" ! -type l)
             echo "❌ Build failed, printed the last 500 lines of the build log file"
             exit 1
           fi
@@ -158,4 +165,5 @@ jobs:
         if: ${{inputs.push-to-repo == true}}
         uses: ./qcom-build-utils/.github/actions/push_to_repo
         with:
-          token: ${{secrets.PAT}}
+          force-override: false
+          token: ${{secrets.TOKEN}}

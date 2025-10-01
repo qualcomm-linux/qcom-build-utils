@@ -19,7 +19,7 @@ runs:
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation list-versions \
           --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_CODENAME}}/stable main" \
-          --package-name ${{env.PACKAGE_NAME}}
+          --package-name ${{env.BUILT_PACKAGE_NAME}}
 
         RET=$?
         set -e
@@ -33,7 +33,7 @@ runs:
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation download \
           --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_CODENAME}}/stable main" \
-          --package-name ${{env.PACKAGE_NAME}}
+          --package-name ${{env.BUILT_PACKAGE_NAME}}
 
         RET=$?
         set -e

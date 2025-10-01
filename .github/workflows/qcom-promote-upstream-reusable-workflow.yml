@@ -36,7 +36,7 @@ on:
         default: false
 
     secrets:
-      PAT:
+      TOKEN:
         required: true
 
 permissions:
@@ -69,9 +69,9 @@ jobs:
       # Normalizing a tag : (e.g ) v1.0.0 -> 1.0.0
       - name: Normalize Tag Version
         run: |
-          echo "ℹ️Input upstream-tag is : ${{ inputs.upstream-tag }}"
+          echo "ℹ️Input upstream-tag is : ${{inputs.upstream-tag}}"
 
-          NORMALIZED_VERSION=$(echo "${{ inputs.upstream-tag }}" | sed 's/^v//')
+          NORMALIZED_VERSION=$(echo "${{inputs.upstream-tag}}" | sed 's/^v//')
           echo "NORMALIZED_VERSION=$NORMALIZED_VERSION" >> $GITHUB_ENV
 
           echo "ℹ️Normalized version : $NORMALIZED_VERSION"
@@ -80,8 +80,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: qualcomm-linux/qcom-build-utils
-          ref: ${{ inputs.qcom-build-utils-ref }}
-          token: ${{ secrets.PAT }}
+          ref: ${{inputs.qcom-build-utils-ref}}
+          token: ${{secrets.TOKEN}}
           path: ./qcom-build-utils
           fetch-depth: 1
 
@@ -91,7 +91,7 @@ jobs:
           ref: debian/latest
           clean: false # A rm -rf * was done first, don't clean otherwise this would delete qcom-build-utils cloned above
           #submodules: 'recursive' # Make sure all submodules are recursively checked out
-          token: ${{ secrets.PAT }} # Add SSH key for cloning private repos
+          token: ${{secrets.TOKEN}}
           path: ./package-repo
           fetch-depth: 1
 
@@ -109,7 +109,7 @@ jobs:
         run: |
           cd ./package-repo
 
-          if (git tag --list | grep "${{ inputs.upstream-tag }}"); then
+          if (git tag --list | grep "${{inputs.upstream-tag}}"); then
             echo "❌ The supplied upstream tag is wrong as it pertains to this repo already."
             exit 1
           fi
@@ -118,8 +118,8 @@ jobs:
         run: |
           cd ./package-repo
 
-          if (git tag --list | grep "upstream/${{ env.NORMALIZED_VERSION }}"); then
-            echo "❌ It appears like this repo has already integrated the upstream tag '${{ inputs.upstream-tag }}'" \
+          if (git tag --list | grep "upstream/${{env.NORMALIZED_VERSION}}"); then
+            echo "❌ It appears like this repo has already integrated the upstream tag '${{inputs.upstream-tag}}'" \
                  " because a local tag 'upstream/$NORMALIZED_VERSION' already exists."
             exit 1
           else
@@ -129,15 +129,15 @@ jobs:
       - name: Add Upstream Link As A Remote And Fetch Tags
         run: |
           cd ./package-repo
-          git remote add upstream-source git@github.com:${{ inputs.upstream-repo }}.git
+          git remote add upstream-source git@github.com:${{inputs.upstream-repo}}.git
           git fetch upstream-source "+refs/tags/*:refs/tags/*"
 
       - name: Clone Upstream Repo At Specified Tag
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.upstream-repo }}
-          ref: ${{ inputs.upstream-tag }}
-          ssh-key: ${{ secrets.ACTIONS_SSH_KEY }}
+          repository: ${{inputs.upstream-repo}}
+          ref: ${{inputs.upstream-tag}}
+          token: ${{secrets.TOKEN}}
           path: ./upstream-repo
           fetch-depth: 1
 
@@ -148,41 +148,43 @@ jobs:
           gbp import-orig --upstream-branch=upstream/latest \
                           --debian-branch=debian/latest \
                           --no-pristine-tar \
-                          --upstream-vcs-tag=${{ inputs.upstream-tag }} \
-                          --upstream-version=${{ env.NORMALIZED_VERSION }} \
+                          --upstream-vcs-tag=${{inputs.upstream-tag}} \
+                          --upstream-version=${{env.NORMALIZED_VERSION}} \
                           --upstream-tag="upstream/%(version)s" \
                           --filter=.git \
                           --filter=.github \
                           --filter=debian \
                           ../upstream-repo
 
-      # TODO : Export right EMAIL (get either user that triggered the workflow, or github bot)
-      # TODO : deal with the --distribution parameter in dch command. This is actually not right
+
+      #TODO : Think about how to promote the distro -1 version, and if we push the tag or not
       - name: Promote Changelog
-        if: ${{ inputs.promote-changelog == true }}
+        if: ${{inputs.promote-changelog == true}}
         run: |
           cd ./package-repo
 
-          export DEBFULLNAME="Github Bot"
-          export DEBEMAIL=githubbot@qti.qualcomm.com
+          export DEBFULLNAME="Github Service Bot"
+          export DEBEMAIL=githubservice@qti.qualcomm.com
 
           gbp dch --commit \
                   --debian-branch=debian/latest \
-                  --distribution=${{ env.DISTRIBUTION }}
-                  #--new-version=${{ env.NORMALIZED_VERSION }}-1 \
+                  --distribution=${{env.DISTRIBUTION}}
+                  #--new-version=${{env.NORMALIZED_VERSION}}-1 \
 
           echo "Show the changes in debian/changelog :"
           git diff --cached debian/changelog
           #git add debian/changelog
           #git commit -m "Populate changelog"
-          git tag debian/${{ env.NORMALIZED_VERSION }}-1
+          git tag debian/${{env.NORMALIZED_VERSION}}-1
 
       - name: Push On Success
-        if: ${{ inputs.push-on-success == true }}
+        if: ${{inputs.push-on-success == true}}
         run: |
           cd ./package-repo
 
-          git push origin upstream/${{ env.NORMALIZED_VERSION }}
-          git push origin debian/${{ env.NORMALIZED_VERSION }}-1
+          git push origin upstream/${{env.NORMALIZED_VERSION}}
+          if "${{inputs.promote-changelog}}" == "true"; then
+            git push origin debian/${{env.NORMALIZED_VERSION}}-1
+          fi
           git push origin upstream/latest
           git push origin debian/latest

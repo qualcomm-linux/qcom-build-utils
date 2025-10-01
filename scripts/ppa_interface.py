@@ -154,6 +154,8 @@ def contains_version(version : str) -> bool :
         logger.info(f"stderr :\n{apt_ret.stderr}")
         sys.exit(1)
 
+    logger.debug(f"apt-cache stdout:\n{apt_ret.stdout}")
+
     for line in apt_ret.stdout.decode().splitlines():
         if line.startswith("  Candidate:"):
             versions = line.split("Candidate: ")[1]
@@ -162,7 +164,7 @@ def contains_version(version : str) -> bool :
                 sys.exit(0)
 
     logger.warning(f"Did not find version : {version}")
-    sys.exit(0)
+    sys.exit(1)
 
 def main():
 

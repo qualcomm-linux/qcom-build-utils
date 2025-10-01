@@ -1,4 +1,4 @@
-name: Push Built Package To Repo
+name: Push Built Package To Repo If Need Be
 description: |
   This Github Actions pushes the newly built package to a repository
 
@@ -7,61 +7,108 @@ inputs:
     description: PAT token
     required: true
 
+  force-override:
+    description: If the version of the package already exists, override it.
+    default: false
+
 env:
-  PPA_PACKAGES_FILE_REPO_PATH: null
+  BUILT_PACKAGE_NAME: null
+  BUILT_PACKAGE_VERSION: null
 
 runs:
   using: "composite"
   
   steps:
 
-    - name: Construct Package File Path
+
+    - name: Extract built package name
       shell: bash
       run: |
-        echo "PPA_PACKAGES_FILE_REPO_PATH=dists/${{env.UBUNTU_CODENAME}}/stable/main/binary-${{env.ARCH}}" >> $GITHUB_ENV
+        changes_file=$(find ./build-area -maxdepth 1 -name '*.changes' | head -n 1)
+        
+        main_binary=$(grep '^Binary:' "$changes_file" | sed 's/^Binary: //' | tr ' ' '\n' | grep -v -- '-dev' | head -n 1)
+        version=$(grep '^Version:' "$changes_file" | sed 's/^Version: //')
+        
+        echo "BUILT_PACKAGE_NAME=$main_binary" >> $GITHUB_ENV
+        echo "BUILT_PACKAGE_VERSION=$version" >> $GITHUB_ENV
+        
+        echo "Built package name : $main_binary"
+        echo "Built package version : $version"
 
-    # TODO Complete this in order to check if the version we just compiled exists in the PPA or not
-    # in order to know it we need to execute the upload steps below
-    # Use env.INITIAL_UPLOAD_TO_PPA in the logic also
-    - name: Check If Need To Upload To PPA
+    - name : List All The Versions Of The Built Packages Contained In The Staging PPA
       shell: bash
       run: |
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
-          --operation contains-version \
+          --operation list-versions \
           --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_CODENAME}}/stable main" \
-          --package-name ${{env.PACKAGE_NAME}}
-          --version 1.1.0
+          --package-name ${{env.BUILT_PACKAGE_NAME}}
 
         RET=$?
         set -e
 
-    - name: Checkout PPA staging repo
+    - name: Check If Need To Upload To Repo
+      id: check-version
+      shell: bash
+      run: |
+        echo "Checking if the repo already contains the built version"
+
+        set +e
+        ./qcom-build-utils/scripts/ppa_interface.py \
+          --operation contains-version \
+          --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_CODENAME}}/stable main" \
+          --package-name ${{env.BUILT_PACKAGE_NAME}} \
+          --version ${{env.BUILT_PACKAGE_VERSION}}
+
+        RET=$?
+        set -e
+
+        echo "do_upload=true" >> $GITHUB_OUTPUT
+
+        if [[ "$RET" == "0" && "${{inputs.force-override}}" == "false" ]]; then
+          echo "Package version already exists in the repo and force-override is set to false. We are therefore done here."
+          echo "do_upload=false" >> $GITHUB_OUTPUT
+        elif [[ "$RET" == "0" && "${{inputs.force-override}}" == "true" ]]; then
+          echo "Package version already exists in the repo, but force-override is set to true. Proceeding to override the package"
+        else
+          echo "The package version does not exist in the repo. Proceeding to uploat it."
+        fi
+
+    - name: Checkout Staging Repo
+      if: steps.check-version.outputs.do_upload == 'true'
       uses: actions/checkout@v4
       with:
-        repository: qualcomm-linux/pkg-oss-staging-repo
+        repository: ${{env.REPO_NAME}}
         ref: main
         token: ${{inputs.token}}
         path: ./pkg-oss-staging-repo
         fetch-depth: 1
 
     # TODO Improve the commit messgae to include what are the packages that have been added
-    - name: Upload Debian Packages To PPA Server If First Build
+    - name: Upload Debian Packages To Staging Repo
+      if: steps.check-version.outputs.do_upload == 'true'
       shell: bash
       run: |
         ./qcom-build-utils/scripts/ppa_organizer.py --build-dir ./build-area --output-dir ./pkg-oss-staging-repo/pool/${{env.UBUNTU_CODENAME}}/stable/main
 
         cd ./pkg-oss-staging-repo
 
-        dpkg-scanpackages --multiversion pool/${{env.UBUNTU-CODENAME} > ${{env.PPA_PACKAGES_FILE_REPO_PATH}}/Packages
-        dpkg-scanpackages --type ddeb --multiversion pool/${{env.UBUNTU-CODENAME}} >> ${{env.PPA_PACKAGES_FILE_REPO_PATH}}/Packages
+        PPA_PACKAGES_FILE_REPO_PATH=dists/${{env.UBUNTU_CODENAME}}/stable/main/binary-${{env.ARCH}}
+        
+        dpkg-scanpackages --multiversion pool/${{env.UBUNTU_CODENAME}} > $PPA_PACKAGES_FILE_REPO_PATH/Packages
+        dpkg-scanpackages --type ddeb --multiversion pool/${{env.UBUNTU_CODENAME}} >> $PPA_PACKAGES_FILE_REPO_PATH/Packages
 
-        gzip -k -f ${{env.PPA_PACKAGES_FILE_REPO_PATH}}/Packages
+        gzip -k -f $PPA_PACKAGES_FILE_REPO_PATH/Packages
 
-        cat ${{env.PPA_PACKAGES_FILE_REPO_PATH}}/Packages
+        cat $PPA_PACKAGES_FILE_REPO_PATH/Packages
 
         git add .
 
-        git commit -s -m "Uploaded Packages"
+        git config user.name "Github Service Bot"
+        git config user.email "githubservice@qti.qualcomm.com"
 
-        git push
+        git commit -s -m "Uploaded Package ${{env.BUILT_PACKAGE_NAME}} at version ${{env.BUILT_PACKAGE_VERSION}} for distro ${{env.UBUNTU_CODENAME}}"
+
+        git remote set-url origin https://x-access-token:${{inputs.token}}@github.com/${{env.REPO_NAME}}.git
+
+        git push origin

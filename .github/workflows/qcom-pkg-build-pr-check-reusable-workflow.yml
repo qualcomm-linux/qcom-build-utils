@@ -1,0 +1,61 @@
+name: Package Build PR Check Reusable Workflow
+description: |
+  This reusable workflow is called by an upstream repo PR to verify that what
+  is attempted to be merged won't break the package
+
+on:
+  workflow_call:
+    inputs:
+      qcom-build-utils-ref:
+        description: The ref name that was used to invoke this reusable workflow
+        type: string
+        required: true
+
+      upstream-repo:
+        description: The upstream github repository name that triggered this workflow
+        type: string
+        required: true
+
+      upstream-repo-ref:
+        description: The upstream github ref that triggered the build
+        type: string
+        required: true
+
+      pkg-repo:
+        description: The upstream package repo against which to try the build
+        type: string
+        required: true
+
+    secrets:
+      TOKEN:
+        required: true
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  pkg-build-pr-check:
+
+    runs-on: [self-hosted, Linux, ARM64]
+#   runs-on: [self-hosted, lecore-stg-u2404-arm64-xlrg-od-ephem]
+
+#   container:
+#     image: ubuntu:noble
+#     options: --volume /srv/chroot:/srv/chroot
+
+    steps:
+
+#     - name: Install dependencies
+#       run: |
+#         apt-get update
+#         apt-get install -y git git-buildpackage sbuild debootstrap tree
+
+      - name: Ensure Workspace Is Clean
+        run: rm -rf *
+
+      - name: Print caller info
+        run: |
+          echo "upstream-repo : ${{inputs.upstream-repo}}"
+          echo "upstream-repo-ref : ${{inputs.upstream-repo-ref}}"
+          echo "pkg-repo : ${{inputs.pkg-repo}}"
