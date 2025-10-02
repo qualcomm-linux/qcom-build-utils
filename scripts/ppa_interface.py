@@ -144,7 +144,7 @@ def list_versions() :
 def contains_version(version : str) -> bool :
     logger.debug(f"[PPA_INTERFACE]/[CONTAINS_VERSION]/{PACKAGE_NAME}: Checking if PPA contains version : {version}")
 
-    command = f"apt-cache policy {PACKAGE_NAME} {OPT}"
+    command = f"apt list -a {PACKAGE_NAME} {OPT}"
 
     apt_ret = subprocess.run(command, cwd=TEMP_DIR, shell=True, capture_output=True)
 
@@ -154,14 +154,11 @@ def contains_version(version : str) -> bool :
         logger.info(f"stderr :\n{apt_ret.stderr}")
         sys.exit(1)
 
-    logger.debug(f"apt-cache stdout:\n{apt_ret.stdout}")
+    logger.debug(f"apt list stdout:\n{apt_ret.stdout.decode()}")
 
-    for line in apt_ret.stdout.decode().splitlines():
-        if line.startswith("  Candidate:"):
-            versions = line.split("Candidate: ")[1]
-            if version in versions.split(" "):
-                logger.info(f"Found version : {version}")
-                sys.exit(0)
+    if version in apt_ret.stdout.decode():
+        logger.info(f"Found version : {version}")
+        sys.exit(0)
 
     logger.warning(f"Did not find version : {version}")
     sys.exit(1)
