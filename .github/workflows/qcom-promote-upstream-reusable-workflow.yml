@@ -104,8 +104,10 @@ jobs:
           git fetch --depth=1 origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
           echo "Listing all the current tags :"
           git tag --list
-          git checkout upstream/latest # Checkout this branch just to make sure it exists locally after its been fetched as gbp will need it later
-          git checkout - # Then revert back to debian/latest branch as we will need to have it checked out for gbp later
+          if git ls-remote --exit-code --heads origin upstream/latest; then
+            git checkout upstream/latest # Checkout this branch just to make sure it exists locally after its been fetched as gbp will need it later
+            git checkout - # Then revert back to debian/latest branch as we will need to have it checked out for gbp later
+          fi
 
 
       - name: Make sure the upstream tag is not already part of the repo
@@ -144,6 +146,22 @@ jobs:
           path: ./upstream-repo
           fetch-depth: 1
 
+      - name: Pre-populate the upstream/latest branch if first promotion
+        run: |
+          cd ./package-repo
+
+          if ! git ls-remote --exit-code --heads origin upstream/latest; then
+            git checkout --orphan upstream/latest
+
+            git rm -r --cached .github *
+
+            rm -r .github *
+
+            git reset --hard ${{inputs.upstream-tag}}
+
+            git checkout debian/latest
+          fi
+
       - name: GBP Import Orig
         run: |
           cd ./package-repo
@@ -153,16 +171,18 @@ jobs:
 
           git checkout -b debian/pr/${{env.NORMALIZED_VERSION}}-1
 
-          gbp import-orig --upstream-branch=upstream/latest \
-                          --debian-branch=debian/pr/${{env.NORMALIZED_VERSION}}-1 \
-                          --no-pristine-tar \
-                          --upstream-vcs-tag=${{inputs.upstream-tag}} \
-                          --upstream-version=${{env.NORMALIZED_VERSION}} \
-                          --upstream-tag="upstream/%(version)s" \
-                          --filter=.git \
-                          --filter=.github \
-                          --filter=debian \
-                          ../upstream-repo
+          gbp import-orig \
+            --upstream-branch=upstream/latest \
+            --debian-branch=debian/pr/${{env.NORMALIZED_VERSION}}-1 \
+            --no-pristine-tar \
+            --upstream-vcs-tag=${{inputs.upstream-tag}} \
+            --upstream-version=${{env.NORMALIZED_VERSION}} \
+            --upstream-tag="upstream/%(version)s" \
+            --import-msg=$'Merge commit after import of upstream %(version)s.\nFiltered out upstream .git/, .github/ and debian/ folders' \
+            --filter=.git \
+            --filter=.github \
+            --filter=debian \
+            ../upstream-repo
 
       #TODO : Think about how to promote the distro -1 version, and if we push the tag or not
       - name: Promote Changelog
@@ -172,16 +192,13 @@ jobs:
           export DEBFULLNAME="Github Service Bot"
           export DEBEMAIL=githubservice@qti.qualcomm.com
 
+          # use ignore branch because we are not on default debian branch
           gbp dch \
-            --commit \
-            --debian-branch=debian/latest \
-            --distribution=${{env.DISTRIBUTION}}
-            --new-version=${{env.NORMALIZED_VERSION}}-1 \
+            --ignore-branch \
+            --distribution=${{env.DISTRIBUTION}} \
+            --new-version=${{env.NORMALIZED_VERSION}}-1
 
-          echo "Show the changes in debian/changelog :"
-          git diff --cached debian/changelog
-          git add debian/changelog
-          git commit -m "Populate changelog for ${{env.NORMALIZED_VERSION}}-1"
+          git commit -a -s -m "Update changelog for ${{env.NORMALIZED_VERSION}}-1 release"
 
       - name: Push Upstream/latest and debian PR Branch
         run: |
