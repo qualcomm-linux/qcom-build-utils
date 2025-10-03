@@ -30,22 +30,19 @@ on:
         type: boolean
         default: false
 
-      push-on-success:
-        description: If the upstream promotion is successful, push the new upstream/<version> tag, upstream/latest and debian/latest new revision branches
-        type: boolean
-        default: false
-
     secrets:
       TOKEN:
         required: true
 
 permissions:
-  contents: read
-  security-events: write
+  contents: write
 
 env:
   NORMALIZED_VERSION: ""
   DISTRIBUTION: noble
+
+  #TODOOOOOOO : Check if a PR branch already exist. This wwould mean that someone or something triggered the 
+  # promotion more than once before it was merged
 
 jobs:
   promote-upstream-version:
@@ -62,6 +59,12 @@ jobs:
 #       run: |
 #         apt-get update
 #         apt-get install -y git git-buildpackage
+
+      - name: Check Dependencies
+        run: |
+          git --version
+          gbp --version
+          gh --version
 
       - name: Ensure Workspace Is Clean
         run: rm -rf *
@@ -85,7 +88,7 @@ jobs:
           path: ./qcom-build-utils
           fetch-depth: 1
 
-      - name: Checkout Repository And Submodules Recursively
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           ref: debian/latest
@@ -148,8 +151,10 @@ jobs:
           git config user.name "Github Service Bot"
           git config user.email "githubservice@qti.qualcomm.com"
 
+          git checkout -b debian/pr/${{env.NORMALIZED_VERSION}}-1
+
           gbp import-orig --upstream-branch=upstream/latest \
-                          --debian-branch=debian/latest \
+                          --debian-branch=debian/pr/${{env.NORMALIZED_VERSION}}-1 \
                           --no-pristine-tar \
                           --upstream-vcs-tag=${{inputs.upstream-tag}} \
                           --upstream-version=${{env.NORMALIZED_VERSION}} \
@@ -158,7 +163,6 @@ jobs:
                           --filter=.github \
                           --filter=debian \
                           ../upstream-repo
-
 
       #TODO : Think about how to promote the distro -1 version, and if we push the tag or not
       - name: Promote Changelog
@@ -176,18 +180,28 @@ jobs:
 
           echo "Show the changes in debian/changelog :"
           git diff --cached debian/changelog
-          #git add debian/changelog
-          #git commit -m "Populate changelog"
-          git tag debian/${{env.NORMALIZED_VERSION}}-1
-
-      - name: Push On Success
-        if: ${{inputs.push-on-success == true}}
+          git add debian/changelog
+          git commit -m "Populate changelog"
+          
+      - name: Push Upstream/latest and debian PR Branch
         run: |
           cd ./package-repo
 
-          git push origin upstream/${{env.NORMALIZED_VERSION}}
-          if "${{inputs.promote-changelog}}" == "true"; then
-            git push origin debian/${{env.NORMALIZED_VERSION}}-1
-          fi
+          # Push upstream/latest branch promoted to the tag
           git push origin upstream/latest
-          git push origin debian/latest
+          # Push that new tag
+          git push origin upstream/${{env.NORMALIZED_VERSION}}
+
+          git push origin debian/pr/${{env.NORMALIZED_VERSION}}-1
+
+      - name: Open Promotion PR
+        run: |
+          cd ./package-repo
+
+          gh auth login --with-token <<< "${{secrets.TOKEN}}"
+          
+          gh pr create \
+            --title "Promote upstream version ${{env.NORMALIZED_VERSION}}" \
+            --body "Automated PR to test upstream version promotion.\nCheckout this branch locally and push additional commits to make the build pass if need be." \
+            --base debian/latest \
+            --head debian/pr/${{env.NORMALIZED_VERSION}}-1
