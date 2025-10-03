@@ -112,11 +112,11 @@ def reorganize(build_dir : str, output_dir : str):
 
     for package_name in package_names:
 
-        output_dir = os.path.join(output_dir, package_name)
+        output_dir_pkg = os.path.join(output_dir, package_name)
         
         # Do not delete if the directory exists, it may very well contain the same package, but with older versions
         # We want to copy the newly built packages alongside the other versions
-        create_new_directory(output_dir, delete_if_exists=False)
+        create_new_directory(output_dir_pkg, delete_if_exists=False)
 
         logger.debug(f"Re-organizing outputs of package: {package_name}")
 
@@ -126,30 +126,30 @@ def reorganize(build_dir : str, output_dir : str):
         dbg_package = next((file for file in dbg_files if package_name in file), None)
 
         if dsc_package is not None:
-            shutil.copy(os.path.join(build_dir, dsc_package), os.path.join(output_dir, dsc_package))
-            logger.info(f'Copied {dsc_package} to {output_dir}')
+            shutil.copy(os.path.join(build_dir, dsc_package), os.path.join(output_dir_pkg, dsc_package))
+            logger.info(f'Copied {dsc_package} to {output_dir_pkg}')
             dsc_files.remove(deb_package)
         else:
             logger.debug(f"No .dsc package found for {package_name}")
 
 
         if deb_package is not None:
-            shutil.copy(os.path.join(build_dir, deb_package), os.path.join(output_dir, deb_package))
-            logger.info(f'Copied {deb_package} to {output_dir}')
+            shutil.copy(os.path.join(build_dir, deb_package), os.path.join(output_dir_pkg, deb_package))
+            logger.info(f'Copied {deb_package} to {output_dir_pkg}')
             deb_files.remove(deb_package)
         else:
             logger.debug(f"No .deb package found for {package_name}")
 
         if dev_package is not None:
-            shutil.copy(os.path.join(build_dir, dev_package), os.path.join(output_dir, dev_package))
-            logger.info(f'Copied {dev_package} to {output_dir}')
+            shutil.copy(os.path.join(build_dir, dev_package), os.path.join(output_dir_pkg, dev_package))
+            logger.info(f'Copied {dev_package} to {output_dir_pkg}')
             dev_files.remove(dev_package)
         else:
             logger.debug(f"No -dev.deb package found for {package_name}")
 
         if dbg_package is not None:
-            shutil.copy(os.path.join(build_dir, dbg_package), os.path.join(output_dir, dbg_package))
-            logger.info(f'Copied {dbg_package} to {output_dir}')
+            shutil.copy(os.path.join(build_dir, dbg_package), os.path.join(output_dir_pkg, dbg_package))
+            logger.info(f'Copied {dbg_package} to {output_dir_pkg}')
             dbg_files.remove(dbg_package)
         else:
             logger.debug(f"No -dbgsym.ddeb package found for {package_name}")
