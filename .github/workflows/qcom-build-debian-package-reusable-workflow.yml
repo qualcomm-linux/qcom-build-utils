@@ -28,13 +28,18 @@ on:
         type: boolean
         default: false
 
-      abi-checker:
+      run-abi-checker:
         description: Run the ABI checker or not
         type: boolean
         default: false
 
       push-to-repo:
         description: Whether or not to push the built package to the repository if the compiled version is not already in it
+        type: boolean
+        default: false
+
+      is-post-merge:
+        description: true if this build has been triggered by a merge into debian/latest. Will ensure PR branch is deleted
         type: boolean
         default: false
 
@@ -159,7 +164,7 @@ jobs:
           fi
 
       - name: Run ABI Check
-        if: ${{inputs.abi-checker == true}}
+        if: ${{inputs.run-abi-checker == true}}
         uses: ./qcom-build-utils/.github/actions/abi_checker
 
       - name: Push package to repo

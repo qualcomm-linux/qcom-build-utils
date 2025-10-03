@@ -96,7 +96,7 @@ jobs:
           #submodules: 'recursive' # Make sure all submodules are recursively checked out
           token: ${{secrets.TOKEN}}
           path: ./package-repo
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Fetch All Branches and Tags
         run: |
@@ -171,18 +171,32 @@ jobs:
 
           git checkout -b debian/pr/${{env.NORMALIZED_VERSION}}-1
 
+          # Run gbp with --no-merge, this is because we do not want gbp to perform the final merging of upstream/latest into debian/latest
+          # This because in upstream/latest, the top commit is the one of the filtering of git, github and debian folder. gbp will complain
+          # the merge is unseccessful because we want to merge with debian/latest, which has a workflow in .github, resulting in a merge conflict
+          # where in one branch we deleted .github folder, and the other we add files. We will therefore take the matter in our own hands manually after.
+
           gbp import-orig \
+            --verbose \
             --upstream-branch=upstream/latest \
             --debian-branch=debian/pr/${{env.NORMALIZED_VERSION}}-1 \
             --no-pristine-tar \
             --upstream-vcs-tag=${{inputs.upstream-tag}} \
             --upstream-version=${{env.NORMALIZED_VERSION}} \
             --upstream-tag="upstream/%(version)s" \
-            --import-msg=$'Merge commit after import of upstream %(version)s.\nFiltered out upstream .git/, .github/ and debian/ folders' \
+            --import-msg=$'Merge commit after import of upstream %(version)s.\nFiltered out upstream .git/, .github/ and debian/ folders\nSigned-off-by: Github Service Bot <githubservice@qti.qualcomm.com>' \
             --filter=.git \
             --filter=.github \
             --filter=debian \
+            --no-merge \
             ../upstream-repo
+
+            git merge \
+              --allow-unrelated-histories \
+              --signoff \
+              -m "Merge upstream/1.0.0 into debian/latest" \
+              -m "Filtered out .git, .github and debian from upstram, and preserved .github debian/latest" \
+              upstream/latest
 
       #TODO : Think about how to promote the distro -1 version, and if we push the tag or not
       - name: Promote Changelog
