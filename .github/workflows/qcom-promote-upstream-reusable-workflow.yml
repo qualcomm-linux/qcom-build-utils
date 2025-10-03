@@ -41,7 +41,7 @@ env:
   NORMALIZED_VERSION: ""
   DISTRIBUTION: noble
 
-  #TODOOOOOOO : Check if a PR branch already exist. This wwould mean that someone or something triggered the 
+  #TODOOOOOOO : Check if a PR branch already exist. This wwould mean that someone or something triggered the
   # promotion more than once before it was merged
 
 jobs:
@@ -166,23 +166,23 @@ jobs:
 
       #TODO : Think about how to promote the distro -1 version, and if we push the tag or not
       - name: Promote Changelog
-        if: ${{inputs.promote-changelog == true}}
         run: |
           cd ./package-repo
 
           export DEBFULLNAME="Github Service Bot"
           export DEBEMAIL=githubservice@qti.qualcomm.com
 
-          gbp dch --commit \
-                  --debian-branch=debian/latest \
-                  --distribution=${{env.DISTRIBUTION}}
-                  #--new-version=${{env.NORMALIZED_VERSION}}-1 \
+          gbp dch \
+            --commit \
+            --debian-branch=debian/latest \
+            --distribution=${{env.DISTRIBUTION}}
+            --new-version=${{env.NORMALIZED_VERSION}}-1 \
 
           echo "Show the changes in debian/changelog :"
           git diff --cached debian/changelog
           git add debian/changelog
-          git commit -m "Populate changelog"
-          
+          git commit -m "Populate changelog for ${{env.NORMALIZED_VERSION}}-1"
+
       - name: Push Upstream/latest and debian PR Branch
         run: |
           cd ./package-repo
@@ -199,7 +199,7 @@ jobs:
           cd ./package-repo
 
           gh auth login --with-token <<< "${{secrets.TOKEN}}"
-          
+
           gh pr create \
             --title "Promote upstream version ${{env.NORMALIZED_VERSION}}" \
             --body "Automated PR to test upstream version promotion.\nCheckout this branch locally and push additional commits to make the build pass if need be." \
