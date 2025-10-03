@@ -145,6 +145,9 @@ jobs:
         run: |
           cd ./package-repo
 
+          git config user.name "Github Service Bot"
+          git config user.email "githubservice@qti.qualcomm.com"
+
           gbp import-orig --upstream-branch=upstream/latest \
                           --debian-branch=debian/latest \
                           --no-pristine-tar \
