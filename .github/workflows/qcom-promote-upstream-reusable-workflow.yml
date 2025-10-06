@@ -101,7 +101,7 @@ jobs:
       - name: Fetch All Branches and Tags
         run: |
           cd ./package-repo
-          git fetch --depth=1 origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
+          git fetch origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
           echo "Listing all the current tags :"
           git tag --list
           if git ls-remote --exit-code --heads origin upstream/latest; then
