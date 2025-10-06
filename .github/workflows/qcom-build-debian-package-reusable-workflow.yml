@@ -126,43 +126,12 @@ jobs:
             fi
 
       - name: Build Debian Packages
-        run: |
-          cd package-repo
-
-          if [[ "${{inputs.run-lintian}}" == "true" ]]; then
-            lintian_flag="--run-lintian"
-          else
-            lintian_flag="--no-run-lintian"
-          fi
-
-          if curl -sfI "http://pkg.qualcomm.com/dists/${{env.UBUNTU_CODENAME}}/Release" > /dev/null; then
-            EXTRA_REPO="--extra-repository='deb [arch=${{env.ARCH}} trusted=yes] http://pkg.qualcomm.com ${{env.UBUNTU_CODENAME}}/stable main'"
-          else
-            EXTRA_REPO=""
-          fi
-
-          set +e
-          gbp buildpackage \
-            --git-ignore-branch \
-            --git-builder="sbuild --arch=${{env.ARCH}} \
-                                  --dist=${{env.UBUNTU_CODENAME}}-${{env.ARCH}}-${{env.DISTRO}} \
-                                  $lintian_flag \
-                                  --build-dir ../build-area \
-                                  --build-dep-resolver=apt \
-                                  $EXTRA_REPO"
-
-          RET=$?
-          set -e
-
-          if (( RET == 0 )); then
-            echo "✅ Successfully built package"
-          else
-            # Print the real .build log, not the symlink
-            tail -n 500 $(find ../build-area -maxdepth 1 -name "*.build" ! -type l)
-            echo "❌ Build failed, printed the last 500 lines of the build log file"
-            exit 1
-          fi
-
+        uses: ./qcom-build-utils/.github/actions/build_package
+        with:
+          pkg-dir: package-repo
+          build-dir: build-area
+          run-lintian: ${{inputs.run-lintian}}
+          
       - name: Run ABI Check
         if: ${{inputs.run-abi-checker == true}}
         uses: ./qcom-build-utils/.github/actions/abi_checker
