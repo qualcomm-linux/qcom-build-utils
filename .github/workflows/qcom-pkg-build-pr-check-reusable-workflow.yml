@@ -34,6 +34,11 @@ permissions:
   contents: read
   security-events: write
 
+env:
+  UBUNTU_CODENAME: noble #TODO change this to a param
+  DISTRO: ubuntu
+  ARCH: arm64
+
 jobs:
   pkg-build-pr-check:
 
@@ -59,3 +64,39 @@ jobs:
           echo "upstream-repo : ${{inputs.upstream-repo}}"
           echo "upstream-repo-ref : ${{inputs.upstream-repo-ref}}"
           echo "pkg-repo : ${{inputs.pkg-repo}}"
+
+      - name: Checkout qcom-build-utils
+        uses: actions/checkout@v4
+        with:
+          repository: qualcomm-linux/qcom-build-utils
+          ref: ${{inputs.qcom-build-utils-ref}}
+          token: ${{secrets.TOKEN}}
+          path: ./qcom-build-utils
+          fetch-depth: 1
+
+      - name: Checkout Packaging Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{inputs.pkg-repo}}
+          ref: debian/latest
+          clean: false
+          token: ${{secrets.TOKEN}}
+          path: ./package-repo
+          fetch-depth: 1
+
+      - name: Checkout Packaging Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{inputs.upstream-repo}}
+          ref: ${{inputs.upstream-repo-ref}}
+          clean: false
+          token: ${{secrets.TOKEN}}
+          path: ./upstream-repo
+          fetch-depth: 1
+
+      - name: Build Debian Packages
+        uses: ./qcom-build-utils/.github/actions/build_package
+        with:
+          pkg-dir: package-repo
+          build-dir: build-area
+          run-lintian: false
