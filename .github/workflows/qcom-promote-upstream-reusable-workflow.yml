@@ -150,6 +150,9 @@ jobs:
         run: |
           cd ./package-repo
 
+          # If the upstream/latest branch does not exist yet, create it and give it
+          # the history of upstream directly, instead of creating an --allow-empty commit
+          # which will be dragged along.
           if ! git ls-remote --exit-code --heads origin upstream/latest; then
             git checkout --orphan upstream/latest
 
