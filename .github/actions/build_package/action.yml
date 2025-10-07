@@ -45,13 +45,18 @@ runs:
                                 $EXTRA_REPO"
 
         RET=$?
-        set -e
 
         if (( RET == 0 )); then
           echo "✅ Successfully built package"
         else
-          # Print the real .build log, not the symlink
-          tail -n 500 $(find ../build-area -maxdepth 1 -name "*.build" ! -type l)
-          echo "❌ Build failed, printed the last 500 lines of the build log file"
+          BUILD_LOG=$(find ../build-area -maxdepth 1 -name "*.build" ! -type l)
+
+          if [[ -n "$BUILD_LOG" ]]; then
+            tail -n 500 "$BUILD_LOG"
+            echo "❌ Build failed, printed the last 500 lines of the build log file"
+          else
+            echo "❌ Build failed, but no .build log file was found to print"
+          fi
+
           exit 1
         fi
