@@ -17,7 +17,30 @@ runs:
   using: "composite"
   
   steps:
-    - name : List All The Versions Of The Built Packages Contained In The Staging PPA
+
+    - name: Fetch All Branches and Tags
+      shell: bash
+      run: |
+        cd ./package-repo
+        git fetch --depth=1 origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
+
+    - name: Prepare Workspace Structure For The Build
+      shell: bash
+      run: |
+        echo "Listing the content of the workspace :"; tree
+
+        mkdir ${{inputs.build-dir}}
+
+        if grep -q 'quilt' ./package-repo/debian/source/format; then
+          echo "Source format is quilt"
+        elif grep -q 'native' ./package-repo/debian/source/format; then
+          echo "Source format is native"
+        else
+          echo "Source format is unknown or unsupported"
+          exit 1
+        fi
+
+    - name : Build Package
       shell: bash
       run: |
         cd ${{inputs.pkg-dir}}
@@ -40,7 +63,7 @@ runs:
           --git-builder="sbuild --arch=${{env.ARCH}} \
                                 --dist=${{env.UBUNTU_CODENAME}}-${{env.ARCH}}-${{env.DISTRO}} \
                                 $lintian_flag \
-                                --build-dir ../build-area \
+                                --build-dir ../${{inputs.build-dir}} \
                                 --build-dep-resolver=apt \
                                 $EXTRA_REPO"
 
@@ -49,7 +72,7 @@ runs:
         if (( RET == 0 )); then
           echo "✅ Successfully built package"
         else
-          BUILD_LOG=$(find ../build-area -maxdepth 1 -name "*.build" ! -type l)
+          BUILD_LOG=$(find ../${{inputs.build-dir}} -maxdepth 1 -name "*.build" ! -type l)
 
           if [[ -n "$BUILD_LOG" ]]; then
             tail -n 500 "$BUILD_LOG"

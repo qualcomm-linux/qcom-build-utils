@@ -97,33 +97,12 @@ jobs:
           path: ./package-repo
           fetch-depth: 1
 
-
-      - name: Fetch All Branches and Tags
-        run: |
-          cd ./package-repo
-          git fetch --depth=1 origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
-
       - name: Validate Or Create Chroot Environment
         run: |
           ./qcom-build-utils/scripts/prep_chroot_env.py \
             --arch        ${{env.ARCH}} \
             --os-codename ${{env.UBUNTU_CODENAME}} \
             --suffix      ${{env.DISTRO}}
-
-      - name: Prepare Workspace Structure For The Build
-        run: |
-            echo "Listing the content of the workspace :"; tree
-
-            mkdir build-area
-
-            if grep -q 'quilt' ./package-repo/debian/source/format; then
-              echo "Source format is quilt"
-            elif grep -q 'native' ./package-repo/debian/source/format; then
-              echo "Source format is native"
-            else
-              echo "Source format is unknown or unsupported"
-              exit 1
-            fi
 
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package
