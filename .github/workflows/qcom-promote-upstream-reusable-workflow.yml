@@ -187,7 +187,7 @@ jobs:
             --upstream-vcs-tag=${{inputs.upstream-tag}} \
             --upstream-version=${{env.NORMALIZED_VERSION}} \
             --upstream-tag="upstream/%(version)s" \
-            --import-msg=$'Merge commit after import of upstream %(version)s.\nFiltered out upstream .git/, .github/ and debian/ folders\nSigned-off-by: Github Service Bot <githubservice@qti.qualcomm.com>' \
+            --import-msg=$'Merge commit after import of upstream %(version)s.\n\nFiltered out upstream .git/, .github/ and debian/ folders\n\nSigned-off-by: Github Service Bot <githubservice@qti.qualcomm.com>' \
             --filter=.git \
             --filter=.github \
             --filter=debian \

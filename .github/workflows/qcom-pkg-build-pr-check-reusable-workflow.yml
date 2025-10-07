@@ -26,6 +26,10 @@ on:
         type: string
         required: true
 
+      pr-number:
+        type: number
+        required: true
+
     secrets:
       TOKEN:
         required: true
@@ -38,6 +42,8 @@ env:
   UBUNTU_CODENAME: noble #TODO change this to a param
   DISTRO: ubuntu
   ARCH: arm64
+
+  version: ""
 
 jobs:
   pkg-build-pr-check:
@@ -74,7 +80,7 @@ jobs:
           path: ./qcom-build-utils
           fetch-depth: 1
 
-      - name: Checkout Packaging Repository
+      - name: Checkout Packaging Repo
         uses: actions/checkout@v4
         with:
           repository: ${{inputs.pkg-repo}}
@@ -82,9 +88,18 @@ jobs:
           clean: false
           token: ${{secrets.TOKEN}}
           path: ./package-repo
-          fetch-depth: 1
+          #fetch-depth: 1
 
-      - name: Checkout Packaging Repository
+      - name: Fetch All Branches and Tags of Packaging Repo
+        shell: bash
+        run: |
+          cd ./package-repo
+          git fetch origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
+          git checkout upstream/latest #Make sure that upstream/latest is available for the gbp import-orig step below
+          git checkout - # Go back to debian/latest
+          git fetch --unshallow
+
+      - name: Checkout Upstream PR Branch
         uses: actions/checkout@v4
         with:
           repository: ${{inputs.upstream-repo}}
@@ -92,7 +107,76 @@ jobs:
           clean: false
           token: ${{secrets.TOKEN}}
           path: ./upstream-repo
-          fetch-depth: 1
+          #fetch-depth: 1
+
+      - name: Tag Upstream PR Branch
+        run: |
+          cd ./upstream-repo
+
+          git fetch --unshallow
+          git tag upstream/pr
+
+      - name: Add Upstream Link As A Remote And Fetch Tags
+        run: |
+          cd ./package-repo
+          git remote add upstream-source ../upstream-repo
+          git fetch upstream-source "+refs/tags/*:refs/tags/*"
+
+      - name: Merge Upstream PR Changes to Packaging Repo on top of debian/latest
+        run: |
+          cd ./package-repo
+
+          git config user.name "Github Service Bot"
+          git config user.email "githubservice@qti.qualcomm.com"
+
+          git checkout -b debian/upstream-pr
+
+          
+          version=$(dpkg-parsechangelog --show-field Version)
+          echo "Actual latest version from debian/changelog file : $version"
+          echo "version=$version" >> $GITHUB_ENV
+
+          # Run gbp with --no-merge, this is because we do not want gbp to perform the final merging of upstream/latest into debian/latest
+          # This because in upstream/latest, the top commit is the one of the filtering of git, github and debian folder. gbp will complain
+          # the merge is unseccessful because we want to merge with debian/latest, which has a workflow in .github, resulting in a merge conflict
+          # where in one branch we deleted .github folder, and the other we add files. We will therefore take the matter in our own hands manually after.
+
+          gbp import-orig \
+            --verbose \
+            --upstream-branch=upstream/latest \
+            --debian-branch=debian/upstream-pr \
+            --no-pristine-tar \
+            --upstream-vcs-tag=upstream/pr \
+            --upstream-version=${version}pr${{inputs.pr-number}} \
+            --upstream-tag="upstream/%(version)s" \
+            --import-msg=$'Merge commit after import of upstream %(version)s.\n\nFiltered out upstream .git/, .github/ and debian/ folders\n\nSigned-off-by: Github Service Bot <githubservice@qti.qualcomm.com>' \
+            --filter=.git \
+            --filter=.github \
+            --filter=debian \
+            --no-merge \
+            ../upstream-repo
+
+            git merge \
+              --allow-unrelated-histories \
+              --signoff \
+              -m "Merge upstream/pr into debian/latest" \
+              -m "Filtered out .git, .github and debian from upstram, and preserved .github debian/latest" \
+              upstream/latest
+
+      - name: Promote Changelog
+        run: |
+          cd ./package-repo
+
+          export DEBFULLNAME="Github Service Bot"
+          export DEBEMAIL=githubservice@qti.qualcomm.com
+
+          # use ignore branch because we are not on default debian branch
+          gbp dch \
+            --ignore-branch \
+            --distribution=${{env.UBUNTU_CODENAME}} \
+            --new-version=${{env.version}}pr${{inputs.pr-number}}
+
+          git commit -a -s -m "Update changelog for ${{env.version}}pr${{inputs.pr-number}} Pull Request dry run"
 
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package
@@ -100,3 +184,7 @@ jobs:
           pkg-dir: package-repo
           build-dir: build-area
           run-lintian: false
+
+      - name: Run ABI Check
+        if: true
+        uses: ./qcom-build-utils/.github/actions/abi_checker

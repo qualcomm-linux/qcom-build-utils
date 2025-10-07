@@ -111,7 +111,7 @@ jobs:
           build-dir: build-area
           run-lintian: ${{inputs.run-lintian}}
           
-      - name: Run ABI Check
+      - name: Run ABI (Application Binary Interface) Check
         if: ${{inputs.run-abi-checker == true}}
         uses: ./qcom-build-utils/.github/actions/abi_checker
 
