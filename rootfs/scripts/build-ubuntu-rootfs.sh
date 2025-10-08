@@ -19,7 +19,9 @@
 #   - Runs target platform-specific image preprocessing to populate rootfs/.
 #   - Injects custom kernel and firmware .deb packages.
 #   - Installs user-specified packages from manifest (if provided).
+#   - Dynamically deduces and generates base and custom package manifests
 #   - Configures GRUB bootloader, hostname, DNS, and other system settings.
+#   - Deploy package manifest output files
 #   - Produces a flashable ext4 image (ubuntu.img).
 #
 # USAGE:
@@ -385,12 +387,33 @@ echo '[CHROOT] Disabling unnecessary services...'
 ln -sf /dev/null /etc/systemd/system/systemd-networkd-wait-online.service
 ln -sf /dev/null /etc/systemd/system/dev-disk-by\\\\x2dlabel-UEFI.device
 
+# Get codename
+CODENAME=\$(lsb_release -sc)
+
+echo '[CHROOT] Capturing base package list...'
+dpkg-query -W -f='\${Package} \${Version}\n' > /tmp/\${CODENAME}_base.manifest
+
 echo '[CHROOT] Installing custom firmware and kernel...'
 dpkg -i /$(basename "$FIRMWARE_DEB")
 yes \"\" | dpkg -i /$(basename "$KERNEL_DEB")
 
 echo '[CHROOT] Installing manifest packages (if any)...'
 /install_manifest_pkgs.sh || true
+
+echo '[CHROOT] Capturing post-install package list...'
+dpkg-query -W -f='\${Package} \${Version}\n' > /tmp/\${CODENAME}_post.manifest
+
+echo '[CHROOT] Sorting and computing package delta...'
+sort /tmp/\${CODENAME}_base.manifest > /tmp/sorted_base.manifest
+sort /tmp/\${CODENAME}_post.manifest > /tmp/sorted_post.manifest
+DATE=\$(date +%Y-%m-%d)
+comm -13 /tmp/sorted_base.manifest /tmp/sorted_post.manifest > /tmp/packages_\${DATE}.manifest
+
+echo '[CHROOT] Cleaning up intermediate files...'
+rm -f /tmp/\${CODENAME}_post.manifest /tmp/sorted_base.manifest /tmp/sorted_post.manifest
+
+echo '[CHROOT] Base package list preserved as /tmp/\${CODENAME}_base.manifest'
+echo '[CHROOT] Custom installed packages saved to /tmp/packages_\${DATE}.manifest'
 
 echo '[CHROOT] Detecting installed kernel version...'
 kernel_ver=\$(ls /boot/vmlinuz-* | sed 's|.*/vmlinuz-||' | sort -V | tail -n1)
@@ -451,6 +474,12 @@ rm -f "$MNT_DIR/etc/resolv.conf"
 echo -e 'nameserver 1.1.1.1\nnameserver 8.8.8.8' > "$MNT_DIR/etc/resolv.conf"
 
 umount -l "$MNT_DIR"
+
+# ==============================================================================
+# Step 11: Deploy package manifest
+# ==============================================================================
+echo "[INFO] Deploying base and custom package manifest files"
+cp $ROOTFS_DIR/tmp/*.manifest .
 
 # ==============================================================================
 # Completion
