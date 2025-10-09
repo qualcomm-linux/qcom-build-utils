@@ -6,7 +6,7 @@ description: |
 inputs:
   version:
     description: The specific version to run the ABI checker against. If not defined, defaults to latest
-    requred: false
+    required: false
 
 runs:
   using: "composite"

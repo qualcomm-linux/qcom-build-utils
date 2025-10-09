@@ -39,11 +39,15 @@ permissions:
   security-events: write
 
 env:
+  # For ABI checker
+  REPO_URL: https://qualcomm-linux.github.io/pkg-oss-staging-repo/
+
   UBUNTU_CODENAME: noble #TODO change this to a param
   DISTRO: ubuntu
   ARCH: arm64
 
-  version: ""
+  upstream_version: ""
+  distro_revision: ""
 
 jobs:
   pkg-build-pr-check:
@@ -88,7 +92,7 @@ jobs:
           clean: false
           token: ${{secrets.TOKEN}}
           path: ./package-repo
-          #fetch-depth: 1
+          fetch-depth: 0
 
       - name: Fetch All Branches and Tags of Packaging Repo
         shell: bash
@@ -97,7 +101,6 @@ jobs:
           git fetch origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
           git checkout upstream/latest #Make sure that upstream/latest is available for the gbp import-orig step below
           git checkout - # Go back to debian/latest
-          git fetch --unshallow
 
       - name: Checkout Upstream PR Branch
         uses: actions/checkout@v4
@@ -107,13 +110,12 @@ jobs:
           clean: false
           token: ${{secrets.TOKEN}}
           path: ./upstream-repo
-          #fetch-depth: 1
+          fetch-depth: 0
 
       - name: Tag Upstream PR Branch
         run: |
           cd ./upstream-repo
 
-          git fetch --unshallow
           git tag upstream/pr
 
       - name: Add Upstream Link As A Remote And Fetch Tags
@@ -131,10 +133,17 @@ jobs:
 
           git checkout -b debian/upstream-pr
 
-          
           version=$(dpkg-parsechangelog --show-field Version)
-          echo "Actual latest version from debian/changelog file : $version"
-          echo "version=$version" >> $GITHUB_ENV
+          
+          # Split into upstream and distro revision
+          upstream_version="${version%%-*}"      # Everything before the first dash
+          distro_revision="${version#*-}"        # Everything after the first dash
+
+          echo "Upstream version: $upstream_version"
+          echo "Debian revision: $distro_revision"
+
+          echo "upstream_version=$upstream_version" >> $GITHUB_ENV
+          echo "distro_revision=$distro_revision" >> $GITHUB_ENV
 
           # Run gbp with --no-merge, this is because we do not want gbp to perform the final merging of upstream/latest into debian/latest
           # This because in upstream/latest, the top commit is the one of the filtering of git, github and debian folder. gbp will complain
@@ -147,7 +156,7 @@ jobs:
             --debian-branch=debian/upstream-pr \
             --no-pristine-tar \
             --upstream-vcs-tag=upstream/pr \
-            --upstream-version=${version}pr${{inputs.pr-number}} \
+            --upstream-version=${upstream_version}~pr${{inputs.pr-number}} \
             --upstream-tag="upstream/%(version)s" \
             --import-msg=$'Merge commit after import of upstream %(version)s.\n\nFiltered out upstream .git/, .github/ and debian/ folders\n\nSigned-off-by: Github Service Bot <githubservice@qti.qualcomm.com>' \
             --filter=.git \
@@ -155,28 +164,32 @@ jobs:
             --filter=debian \
             --no-merge \
             ../upstream-repo
-
-            git merge \
-              --allow-unrelated-histories \
-              --signoff \
-              -m "Merge upstream/pr into debian/latest" \
-              -m "Filtered out .git, .github and debian from upstram, and preserved .github debian/latest" \
-              upstream/latest
+            
+          git merge \
+            --allow-unrelated-histories \
+            --signoff \
+            -m "Merge upstream/pr into debian/latest" \
+            -m "Filtered out .git, .github and debian from upstram, and preserved .github debian/latest" \
+            upstream/latest
 
       - name: Promote Changelog
         run: |
+          echo "Listing the content of the workspace :"; tree
+
           cd ./package-repo
 
           export DEBFULLNAME="Github Service Bot"
           export DEBEMAIL=githubservice@qti.qualcomm.com
 
           # use ignore branch because we are not on default debian branch
+          # use -b to ignore new version is less than current version. This happens because of the ~pr#
           gbp dch \
             --ignore-branch \
             --distribution=${{env.UBUNTU_CODENAME}} \
-            --new-version=${{env.version}}pr${{inputs.pr-number}}
+            --new-version=${{env.upstream_version}}~pr${{inputs.pr-number}}-${{env.distro_revision}} \
+            --dch-opt="-b"
 
-          git commit -a -s -m "Update changelog for ${{env.version}}pr${{inputs.pr-number}} Pull Request dry run"
+          git commit -a -s -m "Update changelog for ${{env.upstream_version}}~pr${{inputs.pr-number}}-${{env.distro_revision}} Pull Request dry run"
 
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package

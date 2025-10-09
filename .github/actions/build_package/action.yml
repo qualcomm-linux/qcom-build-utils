@@ -22,7 +22,7 @@ runs:
       shell: bash
       run: |
         cd ./package-repo
-        git fetch --depth=1 origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
+        git fetch origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
 
     - name: Prepare Workspace Structure For The Build
       shell: bash
