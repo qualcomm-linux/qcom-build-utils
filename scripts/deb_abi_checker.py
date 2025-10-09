@@ -698,12 +698,26 @@ def version_bumped(old_version, new_version, index):
     else:
         return False
 
+
+def extract_upstream_version(version):
+    match = re.match(r'^(\d+\.\d+\.\d+)', version)
+    return match.group(1) if match else version
+
+
 def analyze_abi_diff_result(old_version, new_version, abidiff_result) -> str:
     import re
 
-    # Keep the first part of the version, before the first '-' or '+'
-    old_version = re.split('[+-]', old_version)[0]
-    new_version = re.split('[+-]', new_version)[0]
+    logger.debug(f"old_version: {old_version}")
+    logger.debug(f"new_version: {new_version}")
+
+    # Keep the first part of the version, before the first '-', '+' or '~'
+
+    old_version = extract_upstream_version(old_version)
+    new_version = extract_upstream_version(new_version)
+
+
+    logger.debug(f"old_version: {old_version}")
+    logger.debug(f"new_version: {new_version}")
 
     # Define a regular expression pattern for a major-minor-patch version
     version_pattern = r"^\d+\.\d+\.\d+(-\d+)?$"

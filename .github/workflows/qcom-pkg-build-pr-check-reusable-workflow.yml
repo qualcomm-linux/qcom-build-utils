@@ -174,8 +174,6 @@ jobs:
 
       - name: Promote Changelog
         run: |
-          echo "Listing the content of the workspace :"; tree
-
           cd ./package-repo
 
           export DEBFULLNAME="Github Service Bot"
