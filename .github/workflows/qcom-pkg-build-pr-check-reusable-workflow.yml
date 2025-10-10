@@ -83,6 +83,9 @@ jobs:
           token: ${{secrets.TOKEN}}
           path: ./qcom-build-utils
           fetch-depth: 1
+          sparse-checkout: |
+            .github
+            scripts
 
       - name: Checkout Packaging Repo
         uses: actions/checkout@v4

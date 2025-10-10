@@ -87,13 +87,15 @@ jobs:
           token: ${{secrets.TOKEN}}
           path: ./qcom-build-utils
           fetch-depth: 1
+          sparse-checkout: |
+            .github
+            scripts
 
+      # Fetch all history for all tags and branches
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          ref: debian/latest
           clean: false # A rm -rf * was done first, don't clean otherwise this would delete qcom-build-utils cloned above
-          #submodules: 'recursive' # Make sure all submodules are recursively checked out
           token: ${{secrets.TOKEN}}
           path: ./package-repo
           fetch-depth: 0
@@ -101,7 +103,10 @@ jobs:
       - name: Fetch All Branches and Tags
         run: |
           cd ./package-repo
-          git fetch origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
+
+          git branch
+          git tag
+          git checkout debian/latest
           echo "Listing all the current tags :"
           git tag --list
           if git ls-remote --exit-code --heads origin upstream/latest; then
