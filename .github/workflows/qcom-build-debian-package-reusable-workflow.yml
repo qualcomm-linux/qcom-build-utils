@@ -53,6 +53,7 @@ permissions:
 
 env:
   REPO_URL: https://qualcomm-linux.github.io/pkg-oss-staging-repo/
+  REPO_NAME: qualcomm-linux/pkg-oss-staging-repo
 
   UBUNTU_CODENAME: ${{inputs.ubuntu-codename}}
   DISTRO: ubuntu

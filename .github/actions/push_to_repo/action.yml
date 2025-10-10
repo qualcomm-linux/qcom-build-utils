@@ -12,8 +12,6 @@ inputs:
     default: false
 
 env:
-  REPO_NAME: qualcomm-linux/pkg-oss-staging-repo
-
   BUILT_PACKAGE_NAME: null
   BUILT_PACKAGE_VERSION: null
 
