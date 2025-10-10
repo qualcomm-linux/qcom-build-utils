@@ -95,17 +95,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{inputs.debian-ref}}
-          clean: false # A rm -rf * was done first, don't clean otherwise this would delete qcom-build-utils cloned above
           token: ${{secrets.TOKEN}}
           path: ./package-repo
           fetch-depth: 1
-
-      - name: Validate Or Create Chroot Environment
-        run: |
-          ./qcom-build-utils/scripts/prep_chroot_env.py \
-            --arch        ${{env.ARCH}} \
-            --os-codename ${{env.UBUNTU_CODENAME}} \
-            --suffix      ${{env.DISTRO}}
 
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package

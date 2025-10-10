@@ -18,11 +18,22 @@ runs:
   
   steps:
 
-    - name: Fetch All Branches and Tags
+    - name: Validate Or Create Chroot Environment
+      shell: bash
+      run: |
+        ./qcom-build-utils/scripts/prep_chroot_env.py \
+          --arch        ${{env.ARCH}} \
+          --os-codename ${{env.UBUNTU_CODENAME}} \
+          --suffix      ${{env.DISTRO}}
+
+    # Having the upstream/* tags on hand is necessary for building with quilt.
+    # This is because the builder will check the changelog version of the debian branch/tag we are building,
+    # extracting the upstream version, and will search for a upstream/<upstream-version> tag to create the orig.tar.gz
+    - name: Fetch upstream/* tags only
       shell: bash
       run: |
         cd ./package-repo
-        git fetch origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
+        git fetch origin "refs/tags/upstream/*:refs/tags/upstream/*"
 
     - name: Prepare Workspace Structure For The Build
       shell: bash
@@ -58,6 +69,8 @@ runs:
         fi
 
         set +e
+
+        # ℹ️ --git-ignore-branch is necessary because the debian branch actually checked out can be any (ex, debian/1.0.0) because we can build any previous tag 
         gbp buildpackage \
           --git-ignore-branch \
           --git-builder="sbuild --arch=${{env.ARCH}} \
