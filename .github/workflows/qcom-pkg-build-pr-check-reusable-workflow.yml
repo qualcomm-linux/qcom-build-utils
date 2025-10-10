@@ -30,6 +30,10 @@ on:
         type: number
         required: true
 
+      run-lintian:
+        type: boolean
+        default: false
+
     secrets:
       TOKEN:
         required: true
@@ -91,19 +95,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{inputs.pkg-repo}}
-          ref: debian/latest
           clean: false
           token: ${{secrets.TOKEN}}
           path: ./package-repo
           fetch-depth: 0
-
-      - name: Fetch All Branches and Tags of Packaging Repo
-        shell: bash
-        run: |
-          cd ./package-repo
-          git fetch origin "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/*:refs/tags/*"
-          git checkout upstream/latest #Make sure that upstream/latest is available for the gbp import-orig step below
-          git checkout - # Go back to debian/latest
+          fetch-tags: true
 
       - name: Checkout Upstream PR Branch
         uses: actions/checkout@v4
@@ -115,15 +111,14 @@ jobs:
           path: ./upstream-repo
           fetch-depth: 0
 
-      - name: Tag Upstream PR Branch
+      - name: Tag Upstream PR And Add It As A Remote
         run: |
           cd ./upstream-repo
 
           git tag upstream/pr
 
-      - name: Add Upstream Link As A Remote And Fetch Tags
-        run: |
-          cd ./package-repo
+          cd ../package-repo
+
           git remote add upstream-source ../upstream-repo
           git fetch upstream-source "+refs/tags/*:refs/tags/*"
 
@@ -134,6 +129,8 @@ jobs:
           git config user.name "Github Service Bot"
           git config user.email "githubservice@qti.qualcomm.com"
 
+          git checkout upstream/latest
+          git checkout debian/latest
           git checkout -b debian/upstream-pr
 
           version=$(dpkg-parsechangelog --show-field Version)
@@ -197,7 +194,7 @@ jobs:
         with:
           pkg-dir: package-repo
           build-dir: build-area
-          run-lintian: false
+          run-lintian: ${{inputs.run-lintian}}
 
       - name: Run ABI Check
         if: true
