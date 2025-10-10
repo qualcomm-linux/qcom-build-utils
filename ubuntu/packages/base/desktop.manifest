@@ -400,9 +400,9 @@ libbsd0	0.12.1-1build1.1
 libbytesize-common	2.10-1ubuntu2
 libbytesize1	2.10-1ubuntu2
 libbz2-1.0	1.0.8-5.1
-libc-bin	2.39-0ubuntu8.4
-libc6	2.39-0ubuntu8.4
-libc6-dbg	2.39-0ubuntu8.4
+libc-bin	2.39-0ubuntu8.6
+libc6	2.39-0ubuntu8.6
+libc6-dbg	2.39-0ubuntu8.6
 libcaca0	0.99.beta20-4build2
 libcairo-gobject-perl	1.005-4build3
 libcairo-gobject2	1.18.0-3build1
