@@ -26,15 +26,6 @@ runs:
           --os-codename ${{env.UBUNTU_CODENAME}} \
           --suffix      ${{env.DISTRO}}
 
-    # Having the upstream/* tags on hand is necessary for building with quilt.
-    # This is because the builder will check the changelog version of the debian branch/tag we are building,
-    # extracting the upstream version, and will search for a upstream/<upstream-version> tag to create the orig.tar.gz
-    - name: Fetch upstream/* tags only
-      shell: bash
-      run: |
-        cd ./package-repo
-        git fetch origin "refs/tags/upstream/*:refs/tags/upstream/*"
-
     - name: Prepare Workspace Structure For The Build
       shell: bash
       run: |

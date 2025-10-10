@@ -96,7 +96,8 @@ jobs:
           ref: ${{inputs.debian-ref}}
           token: ${{secrets.TOKEN}}
           path: ./package-repo
-          fetch-depth: 1
+          fetch-depth: 0 # <- Important for the tags fetching to work
+          fetch-tags: true # <- Important
 
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package

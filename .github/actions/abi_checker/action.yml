@@ -86,7 +86,6 @@ runs:
         if (( RET & 8 )); then
           echo "⚠️ ABI check failed because the PPA did not contained an old version for the package."
           echo "Assumption is that this is the first time the package was build."
-          echo "INITIAL_UPLOAD_TO_PPA=true" >> $GITHUB_ENV
         fi
 
         if (( RET & 16 )); then
