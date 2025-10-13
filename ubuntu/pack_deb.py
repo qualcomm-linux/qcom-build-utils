@@ -26,7 +26,7 @@ from deb_organize import search_manifest_map_for_path
 from color_logger import logger
 
 class PackagePacker:
-    def __init__(self, MOUNT_DIR, IMAGE_TYPE, VARIANT, OUT_DIR, OUT_SYSTEM_IMG, APT_SERVER_CONFIG, TEMP_DIR, DEB_OUT_DIR, DEBIAN_INSTALL_DIR, IS_CLEANUP_ENABLED, PACKAGES_MANIFEST_PATH=None,QC_FOLDER=None):
+    def __init__(self, MOUNT_DIR, IMAGE_TYPE, VARIANT, OUT_DIR, OUT_SYSTEM_IMG, APT_SERVER_CONFIG, TEMP_DIR, DEB_OUT_DIR, DEBIAN_INSTALL_DIR, IS_CLEANUP_ENABLED, PACKAGES_MANIFEST_PATH=None,QC_FOLDER=None,IF_RELEASE_ENABLED=False):
         """
         Initializes the PackagePacker instance.
 
@@ -61,6 +61,7 @@ class PackagePacker:
         self.OUT_SYSTEM_IMG = OUT_SYSTEM_IMG
         self.PACKAGES_MANIFEST_PATH = PACKAGES_MANIFEST_PATH
         self.qc_folder = QC_FOLDER
+        self.IS_RELEASE_ENABLED = IF_RELEASE_ENABLED
 
         self.EFI_BIN_PATH = os.path.join(self.OUT_DIR, "efi.bin")
         self.EFI_MOUNT_PATH = os.path.join(self.MOUNT_DIR, "boot", "efi")
@@ -140,8 +141,6 @@ GRUB_DISABLE_RECOVERY="true"' >> {os.path.join(self.MOUNT_DIR, 'etc', 'default',
             logger.error(f"Failed to create or write to merged manifest file: {e}")
             return None
 
-
-
     def parse_manifests(self):
         """
         Parses the base and QCOM manifests to gather the list of packages to include in the image.
@@ -184,7 +183,14 @@ GRUB_DISABLE_RECOVERY="true"' >> {os.path.join(self.MOUNT_DIR, 'etc', 'default',
                 qc_qcom_merged = self.merge_manifests_from_folder(self.qc_folder, self.IMAGE_TYPE, "qcom")
                 if qc_qcom_merged:
                     logger.info(f"Using qcom manifests from: {qc_qcom_merged}")
-                    self.DEBS.extend(parse_debs_manifest(qc_qcom_merged))
+                    manifest_debs = parse_debs_manifest(qc_qcom_merged)
+                    if self.IS_RELEASE_ENABLED:
+                        # Append +rel to everyone (no filtering)
+                        manifest_debs[:] = [{**d, "version": (d["version"] if d["version"].endswith("+rel") else d["version"] + "+rel")}
+                        for d in manifest_debs]
+                        logger.info("Assuming a release build, appending +rel to all packages.")
+                        logger.info(manifest_debs)
+                    self.DEBS.extend(manifest_debs)
             return
 
         # 3. No manifest found: print message and exit
@@ -220,7 +226,7 @@ GRUB_DISABLE_RECOVERY="true"' >> {os.path.join(self.MOUNT_DIR, 'etc', 'default',
         bash_command = f"""
 sudo mmdebstrap --verbose --logfile={log_file} \
 --customize-hook='echo root:password | chroot "$1" chpasswd' \
---customize-hook='cp {self.cur_file}/99-network-manager.cfg "$1/etc/cloud/cloud.cfg.d/99-network-manager.cfg"' \
+--customize-hook='cp {self.cur_file}/01-end0.yaml "$1/etc/netplan/01-end0.yaml"' \
 --customize-hook='echo "PermitRootLogin yes" >> "$1/etc/ssh/sshd_config"' \
 --setup-hook='echo /dev/disk/by-partlabel/system / ext4 defaults 0 1 > "$1/etc/fstab"' \
 --arch=arm64 \
@@ -242,7 +248,8 @@ noble \
                 if config.strip():
                     bash_command += f" \"{config.strip()}\""
 
-        bash_command += f" \"deb [arch=arm64 trusted=yes] http://ports.ubuntu.com/ubuntu-ports noble main universe multiverse restricted\""
+        bash_command += f" \"deb [arch=arm64 trusted=yes] http://ports.ubuntu.com noble main universe multiverse restricted\""
+        bash_command += f" \"deb [arch=arm64 trusted=yes] https://ports-ubuntu.qualcomm.com/x04_initial_release noble main\""
 
         out = run_command_for_result(bash_command)
         if out['returncode'] != 0:
@@ -296,3 +303,40 @@ noble \
         else:
             logger.info(f"Manifest for {flavor} saved to {manifest_path}")
 
+
+    def get_merged_manifest(self):
+        if self.PACKAGES_MANIFEST_PATH:
+            logger.info(f"User provided manifest path: {self.PACKAGES_MANIFEST_PATH}")
+            return self.PACKAGES_MANIFEST_PATH
+
+        manifest_paths = []
+
+        # Always merge from qc_folder and packages
+        search_dirs = [
+            (self.qc_folder, "base"),
+            (os.path.join(self.cur_file, "packages"), "base")
+        ]
+
+        if self.VARIANT == "qcom":
+            search_dirs += [
+                (self.qc_folder, "qcom"),
+                (os.path.join(self.cur_file, "packages"), "qcom")
+            ]
+
+        for folder, subdir in search_dirs:
+            if folder and os.path.isdir(folder):
+                for root, _, files in os.walk(folder):
+                    # Only include manifests from subdirectories matching subdir
+                    if subdir in os.path.relpath(root, folder).split(os.sep):
+                        for file in files:
+                            if file == f"{self.IMAGE_TYPE}.manifest":
+                                manifest_paths.append(os.path.join(root, file))
+
+        # Merge all found manifest files into one
+        merged_manifest_path = os.path.join(self.TEMP_DIR, f"{self.IMAGE_TYPE}_merged.manifest")
+        with open(merged_manifest_path, 'w') as merged_file:
+            for manifest in manifest_paths:
+                with open(manifest, 'r') as f:
+                    merged_file.write(f.read())
+        logger.info(f"Final merged manifest saved to: {merged_manifest_path}")
+        return merged_manifest_path

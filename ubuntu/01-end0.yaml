@@ -1,4 +1,6 @@
-#cloud-config
 network:
   version: 2
   renderer: NetworkManager
+  ethernets:
+    end0:
+      dhcp4: true
