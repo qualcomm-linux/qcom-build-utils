@@ -23,7 +23,7 @@ rm -rf $BUILD_TOP/out/*;
 
 # Make config
 cd $BUILD_TOP/qcom-next/
-make ARCH=arm64 defconfig
+make ARCH=arm64 defconfig qcom.config
 # Deploy boot config to out/
 cp $BUILD_TOP/qcom-next/.config $BUILD_TOP/out/
 
