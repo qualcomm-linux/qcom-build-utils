@@ -216,14 +216,6 @@ echo "Linux kernel package version \$kernel_version installed successfully."
 
 # Suggest rebooting the system
 echo "To apply the new kernel, a system reboot is required."
-echo "Would you like to reboot now? (yes/no)"
-read answer
-if [ "\$answer" = "yes" ]; then
-    echo "Rebooting the system..."
-    reboot
-else
-    echo "Please remember to reboot your system later to apply the new kernel."
-fi
 EOF
 
 # Make postinst script executable
