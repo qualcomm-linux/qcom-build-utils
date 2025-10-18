@@ -18,14 +18,6 @@ runs:
   
   steps:
 
-    - name: Validate Or Create Chroot Environment
-      shell: bash
-      run: |
-        ./qcom-build-utils/scripts/prep_chroot_env.py \
-          --arch        ${{env.ARCH}} \
-          --os-codename ${{env.UBUNTU_CODENAME}} \
-          --suffix      ${{env.DISTRO}}
-
     - name: Prepare Workspace Structure For The Build
       shell: bash
       run: |
