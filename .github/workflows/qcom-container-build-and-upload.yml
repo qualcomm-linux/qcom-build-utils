@@ -1,35 +1,68 @@
 name: Container Build And Upload
 description: |
-  Builds and uploads to GHCR (GitHub Container Registry) the container used to build the packages
-  
+  Builds and uploads to GHCR (GitHub Container Registry) the container used to build the Qualcomm debian packages.
+  This workflow will assumes the build architecture is amd64 (x86_64) since the github's 'ubuntu-latest' runs-on tag
+  is used. Using docker's buildx, the Dockerfile in this repo's docker/ folder will be built for amd64 and cross-compiled
+  for arm64.
+
 on:
   workflow_dispatch:
     inputs:
-      test:
-        description: no description
-        type: boolean
-        default: false
+      version:
+        description: The version name to be appended to the image name, default is 'latest'
+        type: string
+        default: latest
 
 permissions:
   contents: read
   security-events: write
 
 env:
-  GITHUB_SERVICE_BOT_USERNAME: "qcom-service-bot"
-
   QCOM_ORG_NAME: "qualcomm-linux"
 
   IMAGE_NAME: "pkg-builder"
 
 jobs:
-  container-build-and-upload:
+  build-image-amd64:
 
     runs-on: ubuntu-latest
 
     steps:
 
+      - name: Checkout Dockerfile
+        uses: actions/checkout@v4
+        with:
+          ref: ${{github.head_ref}}
+          sparse-checkout: docker/Dockerfile.amd64
+          sparse-checkout-cone-mode: false # single file -> false
+
       - name: Authenticate to GHCR
-        run: echo ${{ secrets.DEB_PKG_BOT_CI_TOKEN }} | docker login ghcr.io -u ${{env.GITHUB_SERVICE_BOT_USERNAME}} --password-stdin
+        run: echo ${{ secrets.DEB_PKG_BOT_CI_TOKEN }} | docker login ghcr.io -u ${{ vars.DEB_PKG_BOT_CI_USERNAME }} --password-stdin
 
       - name: Build and Tag the Image
-        run: docker build -t ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:latest .
+        run: docker build -f docker/Dockerfile.amd64 -t ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:amd64-${{inputs.version}} ./docker
+
+      - name: Push
+        run: docker push ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:amd64-${{inputs.version}}
+
+  build-image-arm64:
+
+    runs-on: ["self-hosted", "lecore-prd-u2404-arm64-xlrg-od-ephem"]
+
+    steps:
+
+      - name: Checkout Dockerfile
+        uses: actions/checkout@v4
+        with:
+          ref: ${{github.head_ref}}
+          sparse-checkout: docker/Dockerfile.arm64
+          sparse-checkout-cone-mode: false # single file -> false
+
+      - name: Authenticate to GHCR
+        run: echo ${{ secrets.DEB_PKG_BOT_CI_TOKEN }} | docker login ghcr.io -u ${{ vars.DEB_PKG_BOT_CI_USERNAME }} --password-stdin
+
+      - name: Build and Tag the Image
+        run: docker build -f docker/Dockerfile.arm64 -t ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:arm64-${{inputs.version}} ./docker
+
+      - name: Push
+        run: docker push ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:arm64-${{inputs.version}}
