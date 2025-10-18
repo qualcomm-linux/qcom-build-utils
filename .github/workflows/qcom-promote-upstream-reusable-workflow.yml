@@ -139,7 +139,7 @@ jobs:
       - name: Add Upstream Link As A Remote And Fetch Tags
         run: |
           cd ./package-repo
-          git remote add upstream-source git@github.com:${{inputs.upstream-repo}}.git
+          git remote add upstream-source https://x-access-token:${{secrets.TOKEN}}@github.com/${{inputs.upstream-repo}}.git
           git fetch upstream-source "+refs/tags/*:refs/tags/*"
 
       - name: Clone Upstream Repo At Specified Tag
