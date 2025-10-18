@@ -54,9 +54,11 @@ runs:
         set +e
 
         # ℹ️ --git-ignore-branch is necessary because the debian branch actually checked out can be any (ex, debian/1.0.0) because we can build any previous tag 
+        # ℹ️ chroot mode unshare is important to bypass privilege issues with the mounting
         gbp buildpackage \
           --git-ignore-branch \
-          --git-builder="sbuild --host=${{env.HOST_ARCH}} \
+          --git-builder="sbuild --chroot-mode=unshare \
+                                --host=${{env.HOST_ARCH}} \
                                 --build=${{env.BUILD_ARCH}} \
                                 --dist=${{env.UBUNTU_DISTRUBUTION}} \
                                 $lintian_flag \
