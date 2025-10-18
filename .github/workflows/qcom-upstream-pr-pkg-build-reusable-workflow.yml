@@ -46,9 +46,14 @@ env:
   # For ABI checker
   REPO_URL: https://qualcomm-linux.github.io/pkg-oss-staging-repo/
 
-  UBUNTU_CODENAME: noble #TODO change this to a param
-  DISTRO: ubuntu
-  ARCH: arm64
+  UBUNTU_DISTRIBUTION: noble #TODO change this to a param
+
+  # Build Architecture: The architecture of the machine performing the build (arm64 when native or amd64 when cross compiling).
+  # This depends on the runner executing the build
+  BUILD_ARCH: arm64
+
+  # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
+  HOST_ARCH: arm64
 
   upstream_version: ""
   distro_revision: ""

@@ -18,8 +18,8 @@ on:
         required: true
         default: debian/latest
 
-      ubuntu-codename:
-        description: The ubuntu codename to build for. Ex noble, jammy, etc
+      ubuntu-distribution:
+        description: The ubuntu distribution to build for. Ex noble, jammy, etc
         type: string
         default: noble
 
@@ -55,9 +55,14 @@ env:
   REPO_URL: https://qualcomm-linux.github.io/pkg-oss-staging-repo/
   REPO_NAME: qualcomm-linux/pkg-oss-staging-repo
 
-  UBUNTU_CODENAME: ${{inputs.ubuntu-codename}}
-  DISTRO: ubuntu
-  ARCH: arm64
+  UBUNTU_DISTRIBUTION: ${{inputs.ubuntu-distribution}}
+
+  # Build Architecture: The architecture of the machine performing the build (arm64 when native or amd64 when cross compiling).
+  # This depends on the runner executing the build
+  BUILD_ARCH: arm64
+
+  # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
+  HOST_ARCH: arm64
 
 jobs:
   build-debian-package:
@@ -106,7 +111,7 @@ jobs:
           pkg-dir: package-repo
           build-dir: build-area
           run-lintian: ${{inputs.run-lintian}}
-          
+
       - name: Run ABI (Application Binary Interface) Check
         if: ${{inputs.run-abi-checker == true}}
         uses: ./qcom-build-utils/.github/actions/abi_checker
