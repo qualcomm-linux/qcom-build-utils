@@ -67,19 +67,20 @@ env:
 jobs:
   build-debian-package:
 
-    runs-on: [self-hosted, Linux, ARM64]
-#   runs-on: [self-hosted, lecore-stg-u2404-arm64-xlrg-od-ephem]
+    #runs-on: ubuntu-latest
+    runs-on: ["self-hosted", "lecore-prd-u2404-arm64-xlrg-od-ephem"]
 
-#   container:
-#     image: ubuntu:noble
-#     options: --volume /srv/chroot:/srv/chroot
+    defaults:
+      run:
+        shell: bash
+
+    container:
+      image: ghcr.io/qualcomm-linux/pkg-builder:arm64-latest
+      credentials:
+        username: ${{vars.DEB_PKG_BOT_CI_USERNAME}}
+        password: ${{secrets.TOKEN}}
 
     steps:
-
-#     - name: Install dependencies
-#       run: |
-#         apt-get update
-#         apt-get install -y git git-buildpackage sbuild debootstrap tree
 
       - name: Ensure Workspace Is Clean
         run: rm -rf *

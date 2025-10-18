@@ -41,30 +41,25 @@ env:
   NORMALIZED_VERSION: ""
   DISTRIBUTION: noble
 
-  #TODOOOOOOO : Check if a PR branch already exist. This wwould mean that someone or something triggered the
+  #TODO : Check if a PR branch already exist. This would mean that someone or something triggered the
   # promotion more than once before it was merged
 
 jobs:
   promote-upstream-version:
 
-    runs-on: [self-hosted, Linux, ARM64]
-#   runs-on: [self-hosted, lecore-stg-u2404-arm64-xlrg-od-ephem]
+    runs-on: ubuntu-latest
 
-#   container:
-#     image: ubuntu:noble
+    defaults:
+      run:
+        shell: bash
+
+    container:
+      image: ghcr.io/qualcomm-linux/pkg-builder:amd64-latest
+      credentials:
+        username: ${{ vars.DEB_PKG_BOT_CI_USERNAME }}
+        password: ${{ secrets.TOKEN }}
 
     steps:
-
-#     - name: Install dependencies
-#       run: |
-#         apt-get update
-#         apt-get install -y git git-buildpackage
-
-      - name: Check Dependencies
-        run: |
-          git --version
-          gbp --version
-          gh --version
 
       - name: Ensure Workspace Is Clean
         run: rm -rf *
@@ -100,7 +95,7 @@ jobs:
           path: ./package-repo
           fetch-depth: 0
 
-      - name: Fetch All Branches and Tags
+      - name: Show branches/tags and checkout debian/upstream latest
         run: |
           cd ./package-repo
 
