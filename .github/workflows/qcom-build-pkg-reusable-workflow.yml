@@ -80,7 +80,7 @@ jobs:
 
     container:
       image: ghcr.io/qualcomm-linux/pkg-builder:${{inputs.runner == 'ubuntu-latest' && 'amd64' || 'arm64'}}-latest
-      options: --user root
+      options: --privileged
       credentials:
         username: ${{vars.DEB_PKG_BOT_CI_USERNAME}}
         password: ${{secrets.TOKEN}}
