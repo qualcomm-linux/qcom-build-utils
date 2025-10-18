@@ -76,14 +76,12 @@ jobs:
 
     container:
       image: ghcr.io/qualcomm-linux/pkg-builder:arm64-latest
+      options: --user root
       credentials:
         username: ${{vars.DEB_PKG_BOT_CI_USERNAME}}
         password: ${{secrets.TOKEN}}
 
     steps:
-
-      - name: Ensure Workspace Is Clean
-        run: rm -rf *
 
       - name: Checkout qcom-build-utils
         uses: actions/checkout@v4
