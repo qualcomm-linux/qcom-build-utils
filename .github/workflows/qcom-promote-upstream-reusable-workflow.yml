@@ -174,8 +174,8 @@ jobs:
         run: |
           cd ./package-repo
 
-          git config user.name "Github Service Bot"
-          git config user.email "githubservice@qti.qualcomm.com"
+          git config user.name "${{vars.DEB_PKG_BOT_CI_NAME}}"
+          git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
 
           git checkout -b debian/pr/${{env.NORMALIZED_VERSION}}-1
 
@@ -206,13 +206,12 @@ jobs:
               -m "Filtered out .git, .github and debian from upstram, and preserved .github debian/latest" \
               upstream/latest
 
-      #TODO : Think about how to promote the distro -1 version, and if we push the tag or not
       - name: Promote Changelog
         run: |
           cd ./package-repo
 
-          export DEBFULLNAME="Github Service Bot"
-          export DEBEMAIL=githubservice@qti.qualcomm.com
+          export DEBFULLNAME="${{vars.DEB_PKG_BOT_CI_NAME}}"
+          export DEBEMAIL="${{vars.DEB_PKG_BOT_CI_EMAIL}}"
 
           # use ignore branch because we are not on default debian branch
           gbp dch \

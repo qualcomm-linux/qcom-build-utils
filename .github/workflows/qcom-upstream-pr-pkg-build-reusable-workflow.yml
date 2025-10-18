@@ -126,15 +126,15 @@ jobs:
         run: |
           cd ./package-repo
 
-          git config user.name "Github Service Bot"
-          git config user.email "githubservice@qti.qualcomm.com"
+          git config user.name "${{vars.DEB_PKG_BOT_CI_NAME}}"
+          git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
 
           git checkout upstream/latest
           git checkout debian/latest
           git checkout -b debian/upstream-pr
 
           version=$(dpkg-parsechangelog --show-field Version)
-          
+
           # Split into upstream and distro revision
           upstream_version="${version%%-*}"      # Everything before the first dash
           distro_revision="${version#*-}"        # Everything after the first dash
@@ -164,7 +164,7 @@ jobs:
             --filter=debian \
             --no-merge \
             ../upstream-repo
-            
+
           git merge \
             --allow-unrelated-histories \
             --signoff \
@@ -176,8 +176,8 @@ jobs:
         run: |
           cd ./package-repo
 
-          export DEBFULLNAME="Github Service Bot"
-          export DEBEMAIL=githubservice@qti.qualcomm.com
+          export DEBFULLNAME="${{vars.DEB_PKG_BOT_CI_NAME}}"
+          export DEBEMAIL="${{vars.DEB_PKG_BOT_CI_EMAIL}}"
 
           # use ignore branch because we are not on default debian branch
           # use -b to ignore new version is less than current version. This happens because of the ~pr#

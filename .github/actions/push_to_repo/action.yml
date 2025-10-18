@@ -103,8 +103,8 @@ runs:
 
         git add .
 
-        git config user.name "Github Service Bot"
-        git config user.email "githubservice@qti.qualcomm.com"
+        git config user.name "${{vars.DEB_PKG_BOT_CI_NAME}}"
+        git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
 
         git commit -s -m "Uploaded Package ${{env.BUILT_PACKAGE_NAME}} at version ${{env.BUILT_PACKAGE_VERSION}} for distro ${{env.UBUNTU_CODENAME}}"
 
