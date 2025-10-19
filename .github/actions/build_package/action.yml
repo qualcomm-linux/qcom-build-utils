@@ -18,6 +18,21 @@ runs:
   
   steps:
 
+    # Normalize the name of the architecture
+    # Build Architecture: The architecture of the machine performing the build (arm64 when native or amd64 when cross compiling).
+    # This depends on the runner executing the build
+    - name: Set Builder Arch variable
+      shell: bash
+      run: |
+        if [ "${{ runner.arch }}" = "X64" ]; then
+          echo "BUILD_ARCH=amd64" >> $GITHUB_ENV
+        elif [ "${{ runner.arch }}" = "ARM64" ]; then
+          echo "BUILD_ARCH=arm64" >> $GITHUB_ENV
+        else
+          echo "Unsupported architecture: ${{ runner.arch }}"
+          exit 1
+        fi
+
     - name: Prepare Workspace Structure For The Build
       shell: bash
       run: |
@@ -46,7 +61,7 @@ runs:
         fi
 
         if curl -sfI "http://pkg.qualcomm.com/dists/${{env.UBUNTU_DISTRIBUTION}}/Release" > /dev/null; then
-          EXTRA_REPO="--extra-repository='deb [arch=${{env.HOST_ARCH}} trusted=yes] http://pkg.qualcomm.com ${{env.UBUNTU_DISTRIBUTION}}/stable main'"
+          EXTRA_REPO="--extra-repository='deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com ${{env.UBUNTU_DISTRIBUTION}}/stable main'"
         else
           EXTRA_REPO=""
         fi
@@ -55,9 +70,11 @@ runs:
 
         # ℹ️ --git-ignore-branch is necessary because the debian branch actually checked out can be any (ex, debian/1.0.0) because we can build any previous tag 
         # ℹ️ chroot mode unshare is important to bypass privilege issues with the mounting
+        # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
+
         gbp buildpackage \
           --git-ignore-branch \
-          --git-builder="sbuild --host=${{env.HOST_ARCH}} \
+          --git-builder="sbuild --host=arm64 \
                                 --build=${{env.BUILD_ARCH}} \
                                 --dist=${{env.UBUNTU_DISTRUBUTION}} \
                                 $lintian_flag \

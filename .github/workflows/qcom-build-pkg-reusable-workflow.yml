@@ -62,13 +62,6 @@ env:
 
   UBUNTU_DISTRIBUTION: ${{inputs.ubuntu-distribution}}
 
-  # Build Architecture: The architecture of the machine performing the build (arm64 when native or amd64 when cross compiling).
-  # This depends on the runner executing the build
-  BUILD_ARCH: ""
-
-  # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
-  HOST_ARCH: arm64
-
 jobs:
   build-debian-package:
 
@@ -86,18 +79,6 @@ jobs:
         password: ${{secrets.TOKEN}}
 
     steps:
-
-      # Normalize the name of the architecture
-      - name: Set Builder Arch variable
-        run: |
-          if [ "${{ runner.arch }}" = "X64" ]; then
-            echo "BUILD_ARCH=amd64" >> $GITHUB_ENV
-          elif [ "${{ runner.arch }}" = "ARM64" ]; then
-            echo "BUILD_ARCH=arm64" >> $GITHUB_ENV
-          else
-            echo "Unsupported architecture: ${{ runner.arch }}"
-            exit 1
-          fi
 
       - name: Checkout qcom-build-utils
         uses: actions/checkout@v4

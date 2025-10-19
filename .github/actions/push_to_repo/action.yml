@@ -40,7 +40,7 @@ runs:
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation list-versions \
-          --apt-config "deb [arch=${{env.HOST_ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
+          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
           --package-name ${{env.BUILT_PACKAGE_NAME}}
 
         RET=$?
@@ -55,7 +55,7 @@ runs:
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation contains-version \
-          --apt-config "deb [arch=${{env.HOST_ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
+          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
           --package-name ${{env.BUILT_PACKAGE_NAME}} \
           --version ${{env.BUILT_PACKAGE_VERSION}}
 
@@ -92,7 +92,7 @@ runs:
 
         cd ./pkg-oss-staging-repo
 
-        PPA_PACKAGES_FILE_REPO_PATH=dists/${{env.UBUNTU_DISTRIBUTION}}/stable/main/binary-${{env.HOST_ARCH}}
+        PPA_PACKAGES_FILE_REPO_PATH=dists/${{env.UBUNTU_DISTRIBUTION}}/stable/main/binary-arm64
         
         dpkg-scanpackages --multiversion pool/${{env.UBUNTU_DISTRIBUTION}} > $PPA_PACKAGES_FILE_REPO_PATH/Packages
         dpkg-scanpackages --type ddeb --multiversion pool/${{env.UBUNTU_DISTRIBUTION}} >> $PPA_PACKAGES_FILE_REPO_PATH/Packages

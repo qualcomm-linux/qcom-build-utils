@@ -34,6 +34,11 @@ on:
         type: boolean
         default: false
 
+      runner:
+        description: The runner to use for the build
+        type: string
+        default: ubuntu-latest
+
     secrets:
       TOKEN:
         required: true
@@ -48,36 +53,26 @@ env:
 
   UBUNTU_DISTRIBUTION: noble #TODO change this to a param
 
-  # Build Architecture: The architecture of the machine performing the build (arm64 when native or amd64 when cross compiling).
-  # This depends on the runner executing the build
-  BUILD_ARCH: arm64
-
-  # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
-  HOST_ARCH: arm64
-
   upstream_version: ""
   distro_revision: ""
 
 jobs:
   pkg-build-pr-check:
 
-    #runs-on: ubuntu-latest
-    runs-on: ["self-hosted", "lecore-prd-u2404-arm64-xlrg-od-ephem"]
+    runs-on: ${{inputs.runner}}
 
     defaults:
       run:
         shell: bash
 
     container:
-      image: ghcr.io/qualcomm-linux/pkg-builder:arm64-latest
+      image: ghcr.io/qualcomm-linux/pkg-builder:${{inputs.runner == 'ubuntu-latest' && 'amd64' || 'arm64'}}-latest
+      options: --privileged
       credentials:
         username: ${{vars.DEB_PKG_BOT_CI_USERNAME}}
         password: ${{secrets.TOKEN}}
 
     steps:
-
-      - name: Ensure Workspace Is Clean
-        run: rm -rf *
 
       - name: Print caller info
         run: |
@@ -189,7 +184,7 @@ jobs:
           # use -b to ignore new version is less than current version. This happens because of the ~pr#
           gbp dch \
             --ignore-branch \
-            --distribution=${{env.UBUNTU_CODENAME}} \
+            --distribution=${{env.UBUNTU_DISTRIBUTION}} \
             --new-version=${{env.upstream_version}}~pr${{inputs.pr-number}}-${{env.distro_revision}} \
             --dch-opt="-b"
 
