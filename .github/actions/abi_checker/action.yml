@@ -18,7 +18,7 @@ runs:
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation list-versions \
-          --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_CODENAME}}/stable main" \
+          --apt-config "deb [arch=${{env.HOST_ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
           --package-name ${{env.BUILT_PACKAGE_NAME}}
 
         RET=$?
@@ -32,7 +32,7 @@ runs:
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation download \
-          --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_CODENAME}}/stable main" \
+          --apt-config "deb [arch=${{env.HOST_ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
           --package-name ${{env.BUILT_PACKAGE_NAME}}
 
         RET=$?
@@ -51,7 +51,7 @@ runs:
 
         ./qcom-build-utils/scripts/deb_abi_checker.py \
           --new-package-dir ./build-area \
-          --apt-server-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_CODENAME}}/stable main" \
+          --apt-server-config "deb [arch=${{env.HOST_ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
           --result-file ./results.txt
 
         RET=$?
