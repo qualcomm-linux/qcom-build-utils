@@ -40,7 +40,7 @@ runs:
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation list-versions \
-          --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_CODENAME}}/stable main" \
+          --apt-config "deb [arch=${{env.HOST_ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
           --package-name ${{env.BUILT_PACKAGE_NAME}}
 
         RET=$?
@@ -55,7 +55,7 @@ runs:
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation contains-version \
-          --apt-config "deb [arch=${{env.ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_CODENAME}}/stable main" \
+          --apt-config "deb [arch=${{env.HOST_ARCH}} trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
           --package-name ${{env.BUILT_PACKAGE_NAME}} \
           --version ${{env.BUILT_PACKAGE_VERSION}}
 
@@ -88,14 +88,14 @@ runs:
       if: steps.check-version.outputs.do_upload == 'true'
       shell: bash
       run: |
-        ./qcom-build-utils/scripts/ppa_organizer.py --build-dir ./build-area --output-dir ./pkg-oss-staging-repo/pool/${{env.UBUNTU_CODENAME}}/stable/main
+        ./qcom-build-utils/scripts/ppa_organizer.py --build-dir ./build-area --output-dir ./pkg-oss-staging-repo/pool/${{env.UBUNTU_DISTRIBUTION}}/stable/main
 
         cd ./pkg-oss-staging-repo
 
-        PPA_PACKAGES_FILE_REPO_PATH=dists/${{env.UBUNTU_CODENAME}}/stable/main/binary-${{env.ARCH}}
+        PPA_PACKAGES_FILE_REPO_PATH=dists/${{env.UBUNTU_DISTRIBUTION}}/stable/main/binary-${{env.HOST_ARCH}}
         
-        dpkg-scanpackages --multiversion pool/${{env.UBUNTU_CODENAME}} > $PPA_PACKAGES_FILE_REPO_PATH/Packages
-        dpkg-scanpackages --type ddeb --multiversion pool/${{env.UBUNTU_CODENAME}} >> $PPA_PACKAGES_FILE_REPO_PATH/Packages
+        dpkg-scanpackages --multiversion pool/${{env.UBUNTU_DISTRIBUTION}} > $PPA_PACKAGES_FILE_REPO_PATH/Packages
+        dpkg-scanpackages --type ddeb --multiversion pool/${{env.UBUNTU_DISTRIBUTION}} >> $PPA_PACKAGES_FILE_REPO_PATH/Packages
 
         gzip -k -f $PPA_PACKAGES_FILE_REPO_PATH/Packages
 
@@ -106,7 +106,7 @@ runs:
         git config user.name "${{vars.DEB_PKG_BOT_CI_NAME}}"
         git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
 
-        git commit -s -m "Uploaded Package ${{env.BUILT_PACKAGE_NAME}} at version ${{env.BUILT_PACKAGE_VERSION}} for distro ${{env.UBUNTU_CODENAME}}"
+        git commit -s -m "Uploaded Package ${{env.BUILT_PACKAGE_NAME}} at version ${{env.BUILT_PACKAGE_VERSION}} for distro ${{env.UBUNTU_DISTRIBUTION}}"
 
         git remote set-url origin https://x-access-token:${{inputs.token}}@github.com/${{env.REPO_NAME}}.git
 
