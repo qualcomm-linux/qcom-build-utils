@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y \
     tree \
     build-essential \
     debhelper \
+    abigail-tools \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
