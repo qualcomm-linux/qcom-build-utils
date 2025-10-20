@@ -6,6 +6,22 @@
 cd qcom-build-utils
 ```
 
+# Build debian package locally
+```
+./scripts/docker_deb_build.py --source-dir ./some-pkg-repo --output-dir ./some-pkg-build-dir
+```
+
+The script docker_deb_build.py is a unified solution to build a debian package.
+It works both on a arm64 or x86_64 build host; it builds natively for arm64 on arm64, and cross compiles on x86
+
+The docker image from docker/Dockerfile.{arch} is used for building. The first time the script is ran, the image will be built.
+
+pro-tip : Clone this repo somewhere and add the script as some alias in ~/.bashrc :
+
+```
+alias debbuild="<loc>/scripts/docker_deb_build.py --source-dir ."
+```
+
 # Sync and build qcom-next
 ```
 cd kernel && export BUILD_TOP=`pwd`
