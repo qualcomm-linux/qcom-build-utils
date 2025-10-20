@@ -166,12 +166,16 @@ image_preproccessing_iot() {
         }
       fi
 
-      # Check unsquashfs (required). Keep explicit to avoid unexpected installs.
+      # --- Silent ensure of unsquashfs (squashfs-tools) ---
       if ! command -v unsquashfs >/dev/null 2>&1; then
-        echo "[ERROR] 'unsquashfs' not found. Please install 'squashfs-tools'."
-        echo "        e.g., apt-get install -y squashfs-tools"
-        exit 1
-      fi
+        echo "[INFO][iot][ubuntu] 'unsquashfs' not found. Installing squashfs-tools silently..."
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get -qq update >/dev/null 2>&1 || true
+        apt-get -qq install -y squashfs-tools >/dev/null 2>&1 || {
+          echo "[ERROR] Failed to install 'squashfs-tools' required for unsquashfs."
+          exit 1
+        }
+      fi    
 
       echo "[INFO][iot][ubuntu] Downloading ISO..."
 
