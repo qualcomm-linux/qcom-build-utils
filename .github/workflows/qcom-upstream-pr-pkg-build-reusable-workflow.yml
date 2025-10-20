@@ -204,3 +204,5 @@ jobs:
       - name: Run ABI Check
         if: true
         uses: ./qcom-build-utils/.github/actions/abi_checker
+        with:
+          distro-codename: ${{inputs.distro-codename}}

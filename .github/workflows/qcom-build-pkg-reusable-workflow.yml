@@ -110,11 +110,14 @@ jobs:
       - name: Run ABI (Application Binary Interface) Check
         if: ${{inputs.run-abi-checker == true}}
         uses: ./qcom-build-utils/.github/actions/abi_checker
+        with:
+          distro-codename: ${{inputs.distro-codename}}
 
       - name: Push package to repo
         if: ${{inputs.push-to-repo == true}}
         uses: ./qcom-build-utils/.github/actions/push_to_repo
         with:
+          distro-codename: ${{inputs.distro-codename}}
           force-override: false
           token: ${{secrets.TOKEN}}
 

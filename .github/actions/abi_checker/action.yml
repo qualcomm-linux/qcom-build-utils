@@ -4,21 +4,23 @@ description: |
   [or possibly a fixed] version of that same package stored a repository.
 
 inputs:
-  version:
-    description: The specific version to run the ABI checker against. If not defined, defaults to latest
-    required: false
+
+  distro-codename:
+    description: The distribution codename to build for. Ex noble, jammy, etc
+    required: true
 
 runs:
   using: "composite"
   
   steps:
     - name : List All The Versions Of The Built Packages Contained In The Staging PPA
+      if: false # Disable for now
       shell: bash
       run: |
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation list-versions \
-          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
+          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{inputs.distro-codename}}/stable main" \
           --package-name ${{env.BUILT_PACKAGE_NAME}}
 
         RET=$?
@@ -27,12 +29,13 @@ runs:
     # TODO modify the ABI checker script to remove the logic that downloads the newest version of the package
     # in order to simplify the code.
     - name : Download Latest Version Of The Built Package From PPA To Compare ABI Against
+      if: false # Disable for now
       shell: bash
       run: |
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation download \
-          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
+          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{inputs.distro-codename}}/stable main" \
           --package-name ${{env.BUILT_PACKAGE_NAME}}
 
         RET=$?
@@ -51,7 +54,7 @@ runs:
 
         ./qcom-build-utils/scripts/deb_abi_checker.py \
           --new-package-dir ./build-area \
-          --apt-server-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
+          --apt-server-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{inputs.distro-codename}}/stable main" \
           --result-file ./results.txt
 
         RET=$?

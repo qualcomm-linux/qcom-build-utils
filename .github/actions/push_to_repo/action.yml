@@ -3,6 +3,11 @@ description: |
   This Github Actions pushes the newly built package to a repository
 
 inputs:
+
+  distro-codename:
+    description: The distribution codename to build for. Ex noble, jammy, etc
+    required: true
+
   token:
     description: PAT token
     required: true
@@ -20,6 +25,7 @@ runs:
   
   steps:
 
+    # TODO deal with the case where multiple packages are built
     - name: Extract built package name
       shell: bash
       run: |
@@ -40,7 +46,7 @@ runs:
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation list-versions \
-          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
+          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{inputs.distro-codename}}/stable main" \
           --package-name ${{env.BUILT_PACKAGE_NAME}}
 
         RET=$?
@@ -55,7 +61,7 @@ runs:
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation contains-version \
-          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{env.UBUNTU_DISTRIBUTION}}/stable main" \
+          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{inputs.distro-codename}}/stable main" \
           --package-name ${{env.BUILT_PACKAGE_NAME}} \
           --version ${{env.BUILT_PACKAGE_VERSION}}
 
@@ -83,19 +89,18 @@ runs:
         path: ./pkg-oss-staging-repo
         fetch-depth: 1
 
-    # TODO Improve the commit messgae to include what are the packages that have been added
     - name: Upload Debian Packages To Staging Repo
       if: steps.check-version.outputs.do_upload == 'true'
       shell: bash
       run: |
-        ./qcom-build-utils/scripts/ppa_organizer.py --build-dir ./build-area --output-dir ./pkg-oss-staging-repo/pool/${{env.UBUNTU_DISTRIBUTION}}/stable/main
+        ./qcom-build-utils/scripts/ppa_organizer.py --build-dir ./build-area --output-dir ./pkg-oss-staging-repo/pool/${{inputs.distro-codename}}/stable/main
 
         cd ./pkg-oss-staging-repo
 
-        PPA_PACKAGES_FILE_REPO_PATH=dists/${{env.UBUNTU_DISTRIBUTION}}/stable/main/binary-arm64
-        
-        dpkg-scanpackages --multiversion pool/${{env.UBUNTU_DISTRIBUTION}} > $PPA_PACKAGES_FILE_REPO_PATH/Packages
-        dpkg-scanpackages --type ddeb --multiversion pool/${{env.UBUNTU_DISTRIBUTION}} >> $PPA_PACKAGES_FILE_REPO_PATH/Packages
+        PPA_PACKAGES_FILE_REPO_PATH=dists/${{inputs.distro-codename}}/stable/main/binary-arm64
+
+        dpkg-scanpackages --multiversion pool/${{inputs.distro-codename}} > $PPA_PACKAGES_FILE_REPO_PATH/Packages
+        dpkg-scanpackages --type ddeb --multiversion pool/${{inputs.distro-codename}} >> $PPA_PACKAGES_FILE_REPO_PATH/Packages
 
         gzip -k -f $PPA_PACKAGES_FILE_REPO_PATH/Packages
 
@@ -106,7 +111,7 @@ runs:
         git config user.name "GitHub Service Bot"
         git config user.email "githubservice@qti.qualcomm.com"
 
-        git commit -s -m "Uploaded Package ${{env.BUILT_PACKAGE_NAME}} at version ${{env.BUILT_PACKAGE_VERSION}} for distro ${{env.UBUNTU_DISTRIBUTION}}"
+        git commit -s -m "Uploaded Package ${{env.BUILT_PACKAGE_NAME}} at version ${{env.BUILT_PACKAGE_VERSION}} for distro ${{inputs.distro-codename}}"
 
         git remote set-url origin https://x-access-token:${{inputs.token}}@github.com/${{env.REPO_NAME}}.git
 
