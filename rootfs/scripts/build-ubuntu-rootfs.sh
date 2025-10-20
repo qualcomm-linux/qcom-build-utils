@@ -150,43 +150,98 @@ parse_configuration() {
 #     Distro-specific handling is done via an inner case.
 # ==============================================================================
 image_preproccessing_iot() {
-    case "$(echo "$DISTRO" | tr '[:upper:]' '[:lower:]')" in
-      ubuntu|ubuntu-server)
-        local LOOP_DEV PART_DEV
-        echo "[INFO][iot][ubuntu] Downloading base image..."
-        if ! wget -c "$IMG_URL" -O "$IMG_XZ_NAME"; then
-            echo "[ERROR] Failed to download image from: $IMG_URL"
-            exit 1
-        fi
+  case "$(echo "$DISTRO" | tr '[:upper:]' '[:lower:]')" in
+    ubuntu|ubuntu-server)
+      echo "[INFO][iot][ubuntu] Preparing environment..."
 
-        echo "[INFO][iot][ubuntu] Extracting preinstalled image..."
-        7z x "$IMG_XZ_NAME"
+      # --- Silent ensure of 7z (p7zip-full) ---
+      if ! command -v 7z >/dev/null 2>&1; then
+        echo "[INFO][iot][ubuntu] '7z' not found. Installing p7zip-full silently..."
+        export DEBIAN_FRONTEND=noninteractive
+        # Use -qq for quiet and redirect all output to /dev/null
+        apt-get -qq update >/dev/null 2>&1 || true
+        apt-get -qq install -y p7zip-full >/dev/null 2>&1 || {
+          echo "[ERROR] Failed to install 'p7zip-full' required for 7z."
+          exit 1
+        }
+      fi
 
-        echo "[INFO][iot][ubuntu] Setting up loop device..."
-        LOOP_DEV=$(losetup --show --partscan --find "$IMG_NAME")
-        PART_DEV="${LOOP_DEV}p1"
-
-        if [[ ! -b "$PART_DEV" ]]; then
-            losetup -d "$LOOP_DEV"
-            echo "[ERROR] Partition not found: $PART_DEV"
-            exit 1
-        fi
-
-        mkdir -p "$MNT_DIR" "$ROOTFS_DIR"
-        mount "$PART_DEV" "$MNT_DIR"
-        cp -rap "$MNT_DIR/"* "$ROOTFS_DIR/"
-        umount -l "$MNT_DIR"
-        losetup -d "$LOOP_DEV"
-        ;;
-      debian)
-        echo "[ERROR][iot][debian] Not implemented yet."
+      # Check unsquashfs (required). Keep explicit to avoid unexpected installs.
+      if ! command -v unsquashfs >/dev/null 2>&1; then
+        echo "[ERROR] 'unsquashfs' not found. Please install 'squashfs-tools'."
+        echo "        e.g., apt-get install -y squashfs-tools"
         exit 1
-        ;;
-      *)
-        echo "[ERROR][iot] Unsupported distro: $DISTRO"
+      fi
+
+      echo "[INFO][iot][ubuntu] Downloading ISO..."
+
+      # Derive a sane ISO_NAME if not provided
+      if [[ -z "$ISO_NAME" ]]; then
+        ISO_NAME=$(basename "${IMG_URL%%\?*}")
+        [[ -z "$ISO_NAME" || "$ISO_NAME" == "/" ]] && ISO_NAME="image.iso"
+      fi
+
+      # Working dirs
+      ISO_EXTRACT_DIR="${ISO_EXTRACT_DIR:-isoImage}"
+      SQUASHFS_WORK_DIR="${SQUASHFS_WORK_DIR:-squashfs-root}"
+      MNT_DIR="${MNT_DIR:-/mnt/iot-iso-tmp}"  # kept for compatibility with other logic
+
+      # Fetch ISO
+      if ! wget -q -c "$IMG_URL" -O "$ISO_NAME"; then
+        echo "[ERROR] Failed to download ISO from: $IMG_URL"
         exit 1
-        ;;
-    esac
+      fi
+
+      echo "[INFO][iot][ubuntu] Extracting ISO with 7z..."
+      rm -rf "$ISO_EXTRACT_DIR" "$SQUASHFS_WORK_DIR"
+      mkdir -p "$ISO_EXTRACT_DIR" "$ROOTFS_DIR"
+
+      if ! 7z x "$ISO_NAME" -o"$ISO_EXTRACT_DIR" -y >/dev/null; then
+        echo "[ERROR] Failed to extract ISO: $ISO_NAME"
+        exit 1
+      fi
+
+      # Prefer minimal.squashfs; fallback to filesystem.squashfs
+      SQUASHFS_PATH=""
+      if [[ -f "$ISO_EXTRACT_DIR/casper/minimal.squashfs" ]]; then
+        SQUASHFS_PATH="$ISO_EXTRACT_DIR/casper/minimal.squashfs"
+      elif [[ -f "$ISO_EXTRACT_DIR/casper/filesystem.squashfs" ]]; then
+        SQUASHFS_PATH="$ISO_EXTRACT_DIR/casper/filesystem.squashfs"
+        echo "[WARN][iot][ubuntu] 'minimal.squashfs' not found, using 'filesystem.squashfs'."
+      else
+        echo "[ERROR] Neither 'casper/minimal.squashfs' nor 'casper/filesystem.squashfs' found in ISO."
+        echo "       Looked under: $ISO_EXTRACT_DIR/casper/"
+        exit 1
+      fi
+
+      echo "[INFO][iot][ubuntu] Unsquashing rootfs from: $SQUASHFS_PATH"
+      if ! unsquashfs -d "$SQUASHFS_WORK_DIR" "$SQUASHFS_PATH" >/dev/null; then
+        echo "[ERROR] Failed to unsquash: $SQUASHFS_PATH"
+        exit 1
+      fi
+
+      echo "[INFO][iot][ubuntu] Copying rootfs into: $ROOTFS_DIR"
+      mkdir -p "$ROOTFS_DIR"
+      if ! cp -rap "${SQUASHFS_WORK_DIR}/"* "$ROOTFS_DIR/"; then
+        echo "[ERROR] Failed to copy rootfs into: $ROOTFS_DIR"
+        exit 1
+      fi
+
+      echo "[INFO][iot][ubuntu] Rootfs prepared at: $ROOTFS_DIR"
+      # Optional cleanup:
+      # rm -rf "$ISO_EXTRACT_DIR" "$SQUASHFS_WORK_DIR"
+      ;;
+
+    debian)
+      echo "[ERROR][iot][debian] Not implemented yet."
+      exit 1
+      ;;
+
+    *)
+      echo "[ERROR][iot] Unsupported distro: $DISTRO"
+      exit 1
+      ;;
+  esac
 }
 
 # Empty stubs for future targets
@@ -207,9 +262,7 @@ else
     CFG["CODENAME"]="questing"
     CFG["ARCH"]="arm64"
     CFG["VARIANT"]="server"
-    CFG["CHANNEL"]="daily-preinstalled"
-    CFG["STREAM"]="current"
-    CFG["FLAVOR"]="ubuntu-server"
+    CFG["BASE_IMAGE_URL"]="https://cdimage.ubuntu.com/releases/questing/release/ubuntu-25.10-live-server-arm64.iso"
 fi
 
 TARGET_PLATFORM="${CFG[QCOM_TARGET_PLATFORM]:-iot}"
@@ -217,25 +270,15 @@ DISTRO="${CFG[DISTRO]:-ubuntu}"
 CODENAME="${CFG[CODENAME]:-questing}"
 ARCH="${CFG[ARCH]:-arm64}"
 VARIANT="${CFG[VARIANT]:-server}"
-CHANNEL="${CFG[CHANNEL]:-daily-preinstalled}"
-STREAM="${CFG[STREAM]:-current}"
-FLAVOR="${CFG[FLAVOR]:-ubuntu-server}"
+BASE_IMAGE_URL="${CFG[BASE_IMAGE_URL]:-"https://cdimage.ubuntu.com/releases/questing/release/ubuntu-25.10-live-server-arm64.iso"}"
 
 # Derive image parameters for Ubuntu (others can be added later)
 case "$(echo "$DISTRO" | tr '[:upper:]' '[:lower:]')" in
   ubuntu|ubuntu-server)
-    IMG_STEM="${CODENAME}-preinstalled-${VARIANT}-${ARCH}.img"
-    IMG_XZ_NAME="${IMG_STEM}.xz"
-    # Ubuntu daily-preinstalled URL format (no codename directory in the path):
-    # https://cdimage.ubuntu.com/<flavor>/<channel>/<stream>/<codename>-preinstalled-<variant>-<arch>.img.xz
-    IMG_URL="https://cdimage.ubuntu.com/${FLAVOR}/${CHANNEL}/${STREAM}/${IMG_XZ_NAME}"
-    IMG_NAME="$IMG_STEM"
+    IMG_URL=${BASE_IMAGE_URL}
     ;;
   *)
     # Leave unsupported distros to be implemented inside the respective target function later.
-    IMG_STEM=""
-    IMG_XZ_NAME=""
-    IMG_NAME=""
     IMG_URL=""
     ;;
 esac
@@ -246,10 +289,7 @@ echo "  DISTRO=$DISTRO"
 echo "  CODENAME=$CODENAME"
 echo "  ARCH=$ARCH"
 echo "  VARIANT=$VARIANT"
-echo "  CHANNEL=$CHANNEL"
-echo "  STREAM=$STREAM"
-echo "  FLAVOR=$FLAVOR"
-[[ -n "$IMG_URL" ]] && echo "  URL=$IMG_URL"
+echo "  BASE_IMAGE_URL=${BASE_IMAGE_URL}"
 
 # ==============================================================================
 # Step 2–3: Target platform switch – preprocess image to fill rootfs/
