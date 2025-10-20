@@ -34,6 +34,11 @@ on:
         type: boolean
         default: false
 
+      distro-codename:
+        description: The distribution codename to build for. Ex noble, jammy, etc
+        type: string
+        default: noble
+
       runner:
         description: The runner to use for the build
         type: string
@@ -50,8 +55,6 @@ permissions:
 env:
   # For ABI checker
   REPO_URL: https://qualcomm-linux.github.io/pkg-oss-staging-repo/
-
-  UBUNTU_DISTRIBUTION: noble #TODO change this to a param
 
   upstream_version: ""
   distro_revision: ""
@@ -184,7 +187,7 @@ jobs:
           # use -b to ignore new version is less than current version. This happens because of the ~pr#
           gbp dch \
             --ignore-branch \
-            --distribution=${{env.UBUNTU_DISTRIBUTION}} \
+            --distribution=${{inputs.distro-codename}} \
             --new-version=${{env.upstream_version}}~pr${{inputs.pr-number}}-${{env.distro_revision}} \
             --dch-opt="-b"
 
@@ -193,6 +196,7 @@ jobs:
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package
         with:
+          distro-codename: ${{inputs.distro-codename}}
           pkg-dir: package-repo
           build-dir: build-area
           run-lintian: ${{inputs.run-lintian}}

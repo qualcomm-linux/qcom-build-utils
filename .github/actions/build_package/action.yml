@@ -3,12 +3,18 @@ description: |
   This Github Actions builds the package
 
 inputs:
+  distro-codename:
+    description: The distribution codename to build for. Ex noble, questing, etc
+    required: true
+
   pkg-dir:
     description: The directory where the debian package source is
     required: true
+
   build-dir:
     description: The directory where the package is built
     required: true
+
   run-lintian:
     description: Run lintian or not during the build
     default: false
@@ -60,8 +66,8 @@ runs:
           lintian_flag="--no-run-lintian"
         fi
 
-        if curl -sfI "http://pkg.qualcomm.com/dists/${{env.UBUNTU_DISTRIBUTION}}/Release" > /dev/null; then
-          EXTRA_REPO="--extra-repository='deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com ${{env.UBUNTU_DISTRIBUTION}}/stable main'"
+        if curl -sfI "http://pkg.qualcomm.com/dists/${{inputs.distro-codename}}/Release" > /dev/null; then
+          EXTRA_REPO="--extra-repository='deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com ${{inputs.distro-codename}}/stable main'"
         else
           EXTRA_REPO=""
         fi
@@ -76,7 +82,7 @@ runs:
           --git-ignore-branch \
           --git-builder="sbuild --host=arm64 \
                                 --build=${{env.BUILD_ARCH}} \
-                                --dist=${{env.UBUNTU_DISTRUBUTION}} \
+                                --dist=${{inputs.distro-codename}} \
                                 $lintian_flag \
                                 --build-dir ../${{inputs.build-dir}} \
                                 --build-dep-resolver=apt \

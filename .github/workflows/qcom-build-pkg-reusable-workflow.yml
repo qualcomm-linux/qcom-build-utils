@@ -18,8 +18,8 @@ on:
         required: true
         default: debian/latest
 
-      ubuntu-distribution:
-        description: The ubuntu distribution to build for. Ex noble, jammy, etc
+      distro-codename:
+        description: The distribution codename to build for. Ex noble, jammy, etc
         type: string
         default: noble
 
@@ -59,8 +59,6 @@ permissions:
 env:
   REPO_URL: https://qualcomm-linux.github.io/pkg-oss-staging-repo/
   REPO_NAME: qualcomm-linux/pkg-oss-staging-repo
-
-  UBUNTU_DISTRIBUTION: ${{inputs.ubuntu-distribution}}
 
 jobs:
   build-debian-package:
@@ -104,6 +102,7 @@ jobs:
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package
         with:
+          distro-codename: ${{inputs.distro-codename}}
           pkg-dir: package-repo
           build-dir: build-area
           run-lintian: ${{inputs.run-lintian}}
