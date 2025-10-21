@@ -179,9 +179,14 @@ image_preproccessing_iot() {
 
       echo "[INFO][iot][ubuntu] Downloading ISO..."
 
-      # Derive a sane ISO_NAME if not provided
-      if [[ -z "$ISO_NAME" ]]; then
-        ISO_NAME=$(basename "${IMG_URL%%\?*}")
+      # SAFE under set -u:
+      ISO_NAME="${ISO_NAME-}"
+      if [[ -z "${ISO_NAME}" ]]; then
+        if [[ -z "${IMG_URL-}" ]]; then
+          echo "[ERROR] IMG_URL is empty/unset; cannot derive ISO_NAME."
+          exit 1
+        fi
+        ISO_NAME="$(basename "${IMG_URL%%\?*}")"
         [[ -z "$ISO_NAME" || "$ISO_NAME" == "/" ]] && ISO_NAME="image.iso"
       fi
 
