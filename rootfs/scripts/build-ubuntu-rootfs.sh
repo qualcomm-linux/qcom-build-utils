@@ -210,18 +210,44 @@ image_preproccessing_iot() {
         exit 1
       fi
 
-      # Prefer minimal.squashfs; fallback to filesystem.squashfs
-      SQUASHFS_PATH=""
-      if [[ -f "$ISO_EXTRACT_DIR/casper/minimal.squashfs" ]]; then
-        SQUASHFS_PATH="$ISO_EXTRACT_DIR/casper/minimal.squashfs"
-      elif [[ -f "$ISO_EXTRACT_DIR/casper/filesystem.squashfs" ]]; then
-        SQUASHFS_PATH="$ISO_EXTRACT_DIR/casper/filesystem.squashfs"
-        echo "[WARN][iot][ubuntu] 'minimal.squashfs' not found, using 'filesystem.squashfs'."
-      else
-        echo "[ERROR] Neither 'casper/minimal.squashfs' nor 'casper/filesystem.squashfs' found in ISO."
-        echo "       Looked under: $ISO_EXTRACT_DIR/casper/"
+      # --- Robust squashfs selection ---
+      local SQUASHFS_PATH=""
+      for candidate in \
+        "$ISO_EXTRACT_DIR/casper/ubuntu-server-minimal.squashfs" \
+        "$ISO_EXTRACT_DIR/casper/minimal.squashfs" \
+        "$ISO_EXTRACT_DIR/casper/filesystem.squashfs" \
+        "$ISO_EXTRACT_DIR/ubuntu-server-minimal.squashfs" \
+        "$ISO_EXTRACT_DIR/minimal.squashfs" \
+        "$ISO_EXTRACT_DIR/filesystem.squashfs"
+      do
+        if [[ -f "$candidate" ]]; then
+          SQUASHFS_PATH="$candidate"
+          break
+        fi
+      done
+      if [[ -z "$SQUASHFS_PATH" ]]; then
+        mapfile -t found_squashfs < <(find "$ISO_EXTRACT_DIR" -maxdepth 3 -type f -name '*.squashfs' 2>/dev/null | sort)
+        if (( ${#found_squashfs[@]} == 1 )); then
+          SQUASHFS_PATH="${found_squashfs[0]}"
+        elif (( ${#found_squashfs[@]} > 1 )); then
+          for f in "${found_squashfs[@]}"; do
+            if [[ "$f" =~ minimal\.squashfs$ ]]; then
+              SQUASHFS_PATH="$f"
+              break
+            fi
+          done
+          [[ -z "$SQUASHFS_PATH" ]] && SQUASHFS_PATH="${found_squashfs[0]}"
+          echo "[WARN][iot][ubuntu] Multiple squashfs files found:"
+          printf '       - %s\n' "${found_squashfs[@]}"
+          echo "       Selected: $SQUASHFS_PATH"
+        fi
+      fi
+      if [[ -z "$SQUASHFS_PATH" ]]; then
+        echo "[ERROR] No squashfs image found in ISO after scanning."
+        echo "       Looked under: $ISO_EXTRACT_DIR (depth 3)"
         exit 1
       fi
+      echo "[INFO][iot][ubuntu] Using squashfs: $SQUASHFS_PATH"
 
       echo "[INFO][iot][ubuntu] Unsquashing rootfs from: $SQUASHFS_PATH"
       if ! unsquashfs -d "$SQUASHFS_WORK_DIR" "$SQUASHFS_PATH" >/dev/null; then
