@@ -474,6 +474,10 @@ echo '[CHROOT] Installing custom firmware and kernel...'
 dpkg -i /$(basename "$FIRMWARE_DEB")
 yes \"\" | dpkg -i /$(basename "$KERNEL_DEB")
 
+adduser --disabled-password --gecos '' qcom
+echo 'qcom:qcom' | chpasswd
+usermod -aG sudo qcom
+
 echo '[CHROOT] Installing manifest packages (if any)...'
 /install_manifest_pkgs.sh || true
 
