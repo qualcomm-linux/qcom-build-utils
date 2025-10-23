@@ -35,7 +35,7 @@ def parse_arguments():
 
     parser.add_argument("--output-dir",
                         required=False,
-                        default=".",
+                        default="..",
                         help="Path to the output directory for the built package.")
 
     parser.add_argument("--distro",
@@ -185,28 +185,41 @@ def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, r
 
     # Build the gbp command
     # The --git-builder value is a single string passed to gbp
-    git_builder = (
-        f"sbuild --host=arm64 --build-dep-resolver=apt  --build-dir=/workspace/output --build={build_arch} --dist={distro} {'--run-lintian' if run_lintian else ''} {extra_repo}"
-    )
-
-    # Build inside the docker image: mount source_dir -> /workspace/src, output_dir -> /workspace/output
-    # Set working dir to /workspace/src and run gbp there. Preserve host uid/gid so files created are owned correctly.
-    os.makedirs(output_dir, exist_ok=True)
+    sbuild_cmd = f"sbuild --build-dir=/workspace/output --host=arm64 --build={build_arch} --dist={distro} {'--run-lintian' if run_lintian else ''} {extra_repo}"
 
     # Ensure git inside the container treats the mounted checkout as safe
     git_safe_cmd = "git config --global --add safe.directory /workspace/src"
-    inner_cmd = f"{git_safe_cmd} && gbp buildpackage --git-ignore-branch --git-builder=\"{git_builder}\""
+    gbp_cmd = f"{git_safe_cmd} && gbp buildpackage --git-ignore-branch --git-builder=\"{sbuild_cmd}\""
+
+
+    # Decide which build command to run based on debian/source/format in the source tree.
+    # Prefer 'native' -> run sbuild directly. If the source format uses 'quilt', use gbp.
+    format_file = os.path.join(source_dir, 'debian', 'source', 'format')
+    if os.path.exists(format_file):
+        try:
+            with open(format_file, 'r', errors='ignore') as f:
+                fmt = f.read().lower()
+        except Exception as e:
+            raise Exception(f"Failed to read {format_file}: {e}")
+
+        if 'native' in fmt:
+            build_cmd = sbuild_cmd
+        elif 'quilt' in fmt:
+            build_cmd = gbp_cmd
+        else:
+            raise Exception(
+                f"Unsupported debian/source/format in {format_file}. Expected to contain 'native' or 'quilt', got: {fmt!r}"
+            )
+    else:
+        raise Exception(f"Missing {format_file}: cannot determine source format (native/quilt)")
 
     docker_cmd = [
         'docker', 'run', '--rm', '--privileged',
-        '-u', f"{os.getuid()}:{os.getgid()}",
-        '-v', f"{os.path.abspath(source_dir)}:/workspace/src:Z",
-        '-v', f"{os.path.abspath(output_dir)}:/workspace/output:Z",
+        '-v', f"{source_dir}:/workspace/src:Z",
+        '-v', f"{output_dir}:/workspace/output:Z",
         '-w', '/workspace/src',
+        image, 'bash', '-c', build_cmd
     ]
-
-    # command to run inside the container
-    docker_cmd += [image, 'bash', '-c', inner_cmd]
 
     logger.info(f"Running build inside container: {' '.join(docker_cmd[:])}")
 
@@ -272,14 +285,10 @@ def main():
     
     check_docker_image(image, build_arch)
 
-    output_dir = os.path.abspath(os.path.join(args.source_dir, "..", "deb_output"))
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
     logger.debug(f"The source dir is {args.source_dir}")
-    logger.debug(f"The output dir is {output_dir}")
+    logger.debug(f"The output dir is {args.output_dir}")
 
-    build_package_in_docker(image, args.source_dir, output_dir, build_arch, args.distro, args.run_lintian)
+    build_package_in_docker(image, args.source_dir, args.output_dir, build_arch, args.distro, args.run_lintian)
 
 
 if __name__ == "__main__":
