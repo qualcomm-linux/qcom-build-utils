@@ -4,9 +4,6 @@
 # Use an official Ubuntu base image
 FROM ubuntu:24.04
 
-ARG TARGETARCH
-ENV TARGET_ARCH=${TARGETARCH}
-
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -19,7 +16,6 @@ RUN apt-get update && apt-get install -y \
     schroot \
     ubuntu-dev-tools \
     crossbuild-essential-arm64 \
-    apt-cacher-ng \
     gh \
     debootstrap \
     tree \
