@@ -48,6 +48,11 @@ def parse_arguments():
                         action='store_true',
                         help="Run lintian on the package.")
 
+    parser.add_argument("--extra-repo",
+                        type=str,
+                        default='deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main',
+                        help="Additional APT repository to include.")
+
     args = parser.parse_args()
 
     return args
@@ -120,6 +125,7 @@ def check_docker_image(image, arch=None, timeout=120):
     in ../docker named `Dockerfile.{arch}` where {arch} is taken from the image tag.
     Raises an Exception with actionable guidance on failure.
     """
+
     logger.debug(f"Checking for docker image: {image}")
 
     # 1) check if image exists locally
@@ -170,51 +176,55 @@ def check_docker_image(image, arch=None, timeout=120):
             proc.kill()
             raise Exception(f"Timed out while building docker image from {dockerfile_path}.")
 
-def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, run_lintian: bool):
+def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, run_lintian: bool, extra_repo: str) -> bool:
+    """
+    Build the debian package inside the given docker image.
+    source_dir: path to the debian package source (mounted into the container)
+    output_dir: path to the output directory for the built package (mounted into the container)
+    build_arch: architecture string for the build (e.g. 'arm64')
+    distro: target distribution string (e.g. 'noble')
+    run_lintian: whether to run lintian on the built package
+    Returns True on success, False on failure.
+    """
 
-    # Check if the remote repository Release file exists (HEAD request)
-    extra_repo = ''
-    url = f"http://pkg.qualcomm.com/dists/{distro}/Release"
-    try:
-        req = urllib.request.Request(url, method='HEAD')
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            if resp.status == 200:
-                extra_repo = f"--extra-repository='deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com {distro}/stable main'"
-    except Exception:
-        extra_repo = ''
+    # Register the name of the newest build log in the output_dir in case there are leftovers from a previous build
+    # So that we can identify if this run produced a newer build log. Sbuild produces .build files with timestamps,
+    # and one of them is a symlink to the latest build log.
+    build_log_files = glob.glob(os.path.join(output_dir or '.', '*.build'))
+    prev_build_log = next((os.readlink(p) for p in build_log_files if os.path.islink(p)), None)
+    logger.debug(f"Previous build log link: {prev_build_log}")
 
     # Build the gbp command
     # The --git-builder value is a single string passed to gbp
-    sbuild_cmd = f"sbuild --build-dir=/workspace/output --host=arm64 --build={build_arch} --dist={distro} {'--run-lintian' if run_lintian else ''} {extra_repo}"
+    extra_repo_option = f"--extra-repository='{extra_repo}'" if extra_repo else ""
+    lintian_option = '--no-run-lintian' if not run_lintian else ''
+    sbuild_cmd = f"sbuild --build-dir=/workspace/output --host=arm64 --build={build_arch} --dist={distro} {lintian_option} {extra_repo_option}"
 
     # Ensure git inside the container treats the mounted checkout as safe
     git_safe_cmd = "git config --global --add safe.directory /workspace/src"
     gbp_cmd = f"{git_safe_cmd} && gbp buildpackage --git-ignore-branch --git-builder=\"{sbuild_cmd}\""
 
-
     # Decide which build command to run based on debian/source/format in the source tree.
     # Prefer 'native' -> run sbuild directly. If the source format uses 'quilt', use gbp.
     format_file = os.path.join(source_dir, 'debian', 'source', 'format')
-    if os.path.exists(format_file):
-        try:
-            with open(format_file, 'r', errors='ignore') as f:
-                fmt = f.read().lower()
-        except Exception as e:
-            raise Exception(f"Failed to read {format_file}: {e}")
-
-        if 'native' in fmt:
-            build_cmd = sbuild_cmd
-        elif 'quilt' in fmt:
-            build_cmd = gbp_cmd
-        else:
-            raise Exception(
-                f"Unsupported debian/source/format in {format_file}. Expected to contain 'native' or 'quilt', got: {fmt!r}"
-            )
-    else:
+    if not os.path.exists(format_file):
         raise Exception(f"Missing {format_file}: cannot determine source format (native/quilt)")
 
+    try:
+        with open(format_file, 'r', errors='ignore') as f:
+            fmt = f.read().lower()
+    except Exception as e:
+        raise Exception(f"Failed to read {format_file}: {e}")
+
+    if 'native' in fmt:
+        build_cmd = sbuild_cmd
+    elif 'quilt' in fmt:
+        build_cmd = gbp_cmd
+    else:
+        raise Exception(f"Unsupported debian/source/format in {format_file}. Expected to contain 'native' or 'quilt', got: {fmt!r}")
+
     docker_cmd = [
-        'docker', 'run', '--rm', '--privileged',
+        'docker', 'run', '--rm', '--privileged', "-t",
         '-v', f"{source_dir}:/workspace/src:Z",
         '-v', f"{output_dir}:/workspace/output:Z",
         '-w', '/workspace/src',
@@ -231,27 +241,19 @@ def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, r
 
     if res.returncode == 0:
         logger.info("✅ Successfully built package")
-        return True
     else:
-        # Look for build log files in the output_dir on the host
-        build_logs = glob.glob(os.path.join(output_dir or '.', '*.build'))
-        build_logs = [p for p in build_logs if not os.path.islink(p)]
+        logger.error("❌ Build failed")
 
-        if build_logs:
-            log_path = build_logs[0]
-            try:
-                with open(log_path, 'r', errors='ignore') as f:
-                    lines = f.readlines()
-                tail = ''.join(lines[-500:])
-                sys.stdout.write(tail)
-                logger.info("❌ Build failed, printed the last 500 lines of the build log file")
-            except Exception as e:
-                logger.error(f"Failed to read build log {log_path}: {e}")
-                raise Exception("❌ Build failed, and reading build log failed")
-        else:
-            logger.error("❌ Build failed, but no .build log file was found to print")
 
-        raise Exception("Build failed")
+    build_log_files = glob.glob(os.path.join(output_dir or '.', '*.build'))
+    new_build_log = next((os.readlink(p) for p in build_log_files if os.path.islink(p)), None)
+
+    if new_build_log == prev_build_log:
+        logger.debug("❌ No new sbuild log produced during this run.")
+    else:
+        logger.info(f"ℹ️  New sbuild log available at: {os.path.join(output_dir, new_build_log)}")
+
+    return res.returncode == 0
 
 def main():
     args = parse_arguments()
@@ -288,13 +290,18 @@ def main():
     logger.debug(f"The source dir is {args.source_dir}")
     logger.debug(f"The output dir is {args.output_dir}")
 
-    build_package_in_docker(image, args.source_dir, args.output_dir, build_arch, args.distro, args.run_lintian)
+    ret = build_package_in_docker(image, args.source_dir, args.output_dir, build_arch, args.distro, args.run_lintian, args.extra_repo)
 
+    if ret:
+        sys.exit(0)
+    else:
+        sys.exit(1)
 
 if __name__ == "__main__":
 
     try:
         main()
+
     except Exception as e:
         logger.critical(f"Uncaught exception : {e}")
 
