@@ -1,0 +1,42 @@
+#!/bin/sh
+set -e
+
+# merge_debian_packaging_upstream: given a Debian packaging branch, merge the
+# latest upstream changes from the upstream branch.
+#
+# Prerequisites:
+#  * The Debian packaging branch is checked out and we are not in a detached
+#    HEAD state
+#  * The working tree is clean and unmodified
+#
+# Provide the upstream commitish as the only argument. Usually this would be
+# the tag of the latest upstream release.
+#
+# The merge commit created works like `gbp-import-ref --merge-mode=replace`
+# except that .github/ is replaced as well as debian/.
+
+upstream="$1"
+
+if ! debian_ref="$(git symbolic-ref HEAD)"; then
+    echo "Function requires the Debian packaging branched to be checked out" >&2
+    echo "Are you in a detached HEAD state?" >&2
+    exit 1
+fi
+case "$debian_ref" in
+    refs/heads/*)
+        debian_branch=${debian_ref#refs/heads/}
+        ;;
+    *)
+        echo "HEAD ref not understood" >&2
+        echo "Do you have the Debian packaging branch checked out?" >&2
+        exit 2
+        ;;
+esac
+
+git checkout "$upstream"
+git reset "$debian_ref" -- :/:debian :/:.github
+tree=$(git write-tree)
+commit=$(git commit-tree -p "$debian_ref" -p "$upstream" -m "Packaging merge from $upstream" "$tree")
+git reset --hard
+git checkout "$debian_branch"
+git reset --hard "$commit"

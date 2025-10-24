@@ -137,15 +137,6 @@ jobs:
           git remote add upstream-source https://x-access-token:${{secrets.TOKEN}}@github.com/${{inputs.upstream-repo}}.git
           git fetch upstream-source "+refs/tags/*:refs/tags/*"
 
-      - name: Clone Upstream Repo At Specified Tag
-        uses: actions/checkout@v4
-        with:
-          repository: ${{inputs.upstream-repo}}
-          ref: ${{inputs.upstream-tag}}
-          token: ${{secrets.TOKEN}}
-          path: ./upstream-repo
-          fetch-depth: 1
-
       - name: Pre-populate the upstream/latest branch if first promotion
         run: |
           cd ./package-repo
@@ -165,7 +156,7 @@ jobs:
             git checkout debian/latest
           fi
 
-      - name: GBP Import Orig
+      - name: Merge upstream tag into packaging branch
         run: |
           cd ./package-repo
 
@@ -174,32 +165,7 @@ jobs:
 
           git checkout -b debian/pr/${{env.NORMALIZED_VERSION}}-1
 
-          # Run gbp with --no-merge, this is because we do not want gbp to perform the final merging of upstream/latest into debian/latest
-          # This because in upstream/latest, the top commit is the one of the filtering of git, github and debian folder. gbp will complain
-          # the merge is unseccessful because we want to merge with debian/latest, which has a workflow in .github, resulting in a merge conflict
-          # where in one branch we deleted .github folder, and the other we add files. We will therefore take the matter in our own hands manually after.
-
-          gbp import-orig \
-            --verbose \
-            --upstream-branch=upstream/latest \
-            --debian-branch=debian/pr/${{env.NORMALIZED_VERSION}}-1 \
-            --no-pristine-tar \
-            --upstream-vcs-tag=${{inputs.upstream-tag}} \
-            --upstream-version=${{env.NORMALIZED_VERSION}} \
-            --upstream-tag="upstream/%(version)s" \
-            --import-msg=$'Merge commit after import of upstream %(version)s.\n\nFiltered out upstream .git/, .github/ and debian/ folders\n\nSigned-off-by: Github Service Bot <githubservice@qti.qualcomm.com>' \
-            --filter=.git \
-            --filter=.github \
-            --filter=debian \
-            --no-merge \
-            ../upstream-repo
-
-            git merge \
-              --allow-unrelated-histories \
-              --signoff \
-              -m "Merge upstream/1.0.0 into debian/latest" \
-              -m "Filtered out .git, .github and debian from upstram, and preserved .github debian/latest" \
-              upstream/latest
+          ../qcom-build-utils/scripts/merge_debian_packaging_upstream ${{inputs.upstream-tag}}
 
       - name: Promote Changelog
         run: |
