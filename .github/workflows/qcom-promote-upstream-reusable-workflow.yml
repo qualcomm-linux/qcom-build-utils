@@ -145,15 +145,7 @@ jobs:
           # the history of upstream directly, instead of creating an --allow-empty commit
           # which will be dragged along.
           if ! git ls-remote --exit-code --heads origin upstream/latest; then
-            git checkout --orphan upstream/latest
-
-            git rm -r --cached .github *
-
-            rm -r .github *
-
-            git reset --hard ${{inputs.upstream-tag}}
-
-            git checkout debian/latest
+            git branch upstream/latest ${{inputs.upstream-tag}}
           fi
 
       - name: Merge upstream tag into packaging branch
