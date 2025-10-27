@@ -146,6 +146,10 @@ jobs:
           # which will be dragged along.
           if ! git ls-remote --exit-code --heads origin upstream/latest; then
             git branch upstream/latest ${{inputs.upstream-tag}}
+          else
+            # The branch exists, check it out and promote it to the upstream tag
+            git checkout upstream/latest
+            git merge --ff-only ${{inputs.upstream-tag}}
           fi
 
       - name: Merge upstream tag into packaging branch
@@ -154,6 +158,8 @@ jobs:
 
           git config user.name "${{vars.DEB_PKG_BOT_CI_NAME}}"
           git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
+
+          git checkout debian/latest
 
           git checkout -b debian/pr/${{env.NORMALIZED_VERSION}}-1
 
@@ -180,6 +186,9 @@ jobs:
 
           # Push upstream/latest branch promoted to the tag
           git push origin upstream/latest
+
+          git tag upstream/${{env.NORMALIZED_VERSION}} upstream/latest
+
           # Push that new tag
           git push origin upstream/${{env.NORMALIZED_VERSION}}
 

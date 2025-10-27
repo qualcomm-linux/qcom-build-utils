@@ -18,10 +18,11 @@ set -e
 upstream="$1"
 
 if ! debian_ref="$(git symbolic-ref HEAD)"; then
-    echo "Function requires the Debian packaging branched to be checked out" >&2
+    echo "Function requires the Debian packaging branche to be checked out" >&2
     echo "Are you in a detached HEAD state?" >&2
     exit 1
 fi
+
 case "$debian_ref" in
     refs/heads/*)
         debian_branch=${debian_ref#refs/heads/}
@@ -32,6 +33,8 @@ case "$debian_ref" in
         exit 2
         ;;
 esac
+
+echo "Merging upstream changes from upstream tag $upstream into Debian packaging branch $debian_branch"
 
 git checkout "$upstream"
 git reset "$debian_ref" -- :/:debian :/:.github
