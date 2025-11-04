@@ -40,8 +40,19 @@ RUN chroot /srv/chroot/noble /bin/bash -c "echo 'deb [arch=amd64] http://archive
 RUN chroot /srv/chroot/noble /bin/bash -c "echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse' > /etc/apt/sources.list.d/arm64-ports.list"
 RUN chroot /srv/chroot/noble /bin/bash -c "echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse' >> /etc/apt/sources.list.d/arm64-ports.list"
 RUN chroot /srv/chroot/noble /bin/bash -c "echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse' >> /etc/apt/sources.list.d/arm64-ports.list"
-  
+
 RUN chroot /srv/chroot/noble /bin/bash -c 'dpkg --add-architecture arm64 && apt-get update && apt-get install -y crossbuild-essential-arm64'
+
+
+RUN chroot /srv/chroot/questing /bin/bash -c "echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu questing main restricted universe multiverse' > /etc/apt/sources.list"
+RUN chroot /srv/chroot/questing /bin/bash -c "echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu questing-updates main restricted universe multiverse' >> /etc/apt/sources.list"
+RUN chroot /srv/chroot/questing /bin/bash -c "echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu questing-security main restricted universe multiverse' >> /etc/apt/sources.list"
+
+RUN chroot /srv/chroot/questing /bin/bash -c "echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports questing main restricted universe multiverse' > /etc/apt/sources.list.d/arm64-ports.list"
+RUN chroot /srv/chroot/questing /bin/bash -c "echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports questing main restricted universe multiverse' >> /etc/apt/sources.list.d/arm64-ports.list"
+RUN chroot /srv/chroot/questing /bin/bash -c "echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports questing-security main restricted universe multiverse' >> /etc/apt/sources.list.d/arm64-ports.list"
+
+RUN chroot /srv/chroot/questing /bin/bash -c 'dpkg --add-architecture arm64 && apt-get update && apt-get install -y crossbuild-essential-arm64'
 
 # Set working directory
 WORKDIR /workspace
