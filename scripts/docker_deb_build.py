@@ -53,16 +53,19 @@ def parse_arguments():
                         default='deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main',
                         help="Additional APT repository to include.")
 
+    parser.add_argument("--rebuild",
+                        action='store_true',
+                        help="Rebuild the package if it already exists.")
+
     args = parser.parse_args()
 
     return args
 
-
 def check_docker_dependencies(timeout=5):
     """
     Verify docker CLI presence, daemon accessibility, and user permission to talk to the daemon.
-    Raises an Exception with an actionable message when a check fails.
     """
+
     # 1) docker binary present
     if shutil.which("docker") is None:
         raise Exception("docker CLI not found. Install Docker: https://docs.docker.com/get-docker/")
@@ -73,6 +76,7 @@ def check_docker_dependencies(timeout=5):
                            check=True, timeout=timeout)
         logger.info("Docker CLI and daemon reachable.")
         return True
+        
     except subprocess.CalledProcessError as e:
         err = (e.stderr or b"").decode(errors="ignore") + (e.stdout or b"").decode(errors="ignore")
         err_l = err.lower()
@@ -120,10 +124,74 @@ def check_docker_dependencies(timeout=5):
     except subprocess.TimeoutExpired:
         raise Exception("Timed out while trying to contact the Docker daemon. Is it running?")
 
-def check_docker_image(image, arch=None, timeout=120):
+def build_docker_image(image, arch):
+    this_script_dir = os.path.dirname(os.path.abspath(__file__))
+    docker_dir = os.path.normpath(os.path.join(this_script_dir, '..', 'docker'))
+    context_dir = docker_dir
+    dockerfile_name = f"Dockerfile.{arch}"
+    dockerfile_path = os.path.join(docker_dir, dockerfile_name)
+
+    logger.debug(f"Building docker image '{image}' for arch '{arch}' from Dockerfile: {dockerfile_path}")
+    
+    if not os.path.exists(dockerfile_path):
+        logger.error(f"No local Dockerfile found for arch '{arch}' at expected path: {dockerfile_path}. Cannot build image '{image}'.")
+        return False
+
+    logger.info(f"Found local Dockerfile for arch '{arch}': {dockerfile_path}. Building image now...")
+
+    build_cmd = ["docker", "build", "-t", image, "-f", dockerfile_path, context_dir]
+
+    logger.info(f"Running: {' '.join(build_cmd)}")
+
+    # Stream build output live so the user sees progress
+    try:
+        proc = subprocess.Popen(build_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, text=True)
+        try:
+            for line in proc.stdout:
+                # print to terminal immediately
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                # also log the line
+                #logger.debug(line.rstrip())
+
+            rc = proc.wait()
+            
+        except KeyboardInterrupt:
+            proc.terminate()
+            proc.wait()
+            raise
+
+        if rc != 0:
+            raise Exception(f"Failed to build docker image from {dockerfile_path} (exit {rc}).")
+
+        logger.info(f"Successfully built image '{image}'.")
+        return True
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        raise Exception(f"Timed out while building docker image from {dockerfile_path}.")
+
+def rebuild_docker_image(image, arch):
+    """
+    Force rebuild of the given docker image from local Dockerfile.
+    """
+
+    logger.debug(f"Rebuilding docker image '{image}' from local Dockerfile...")
+
+    # Delete/purge the current image if it exists
+
+    try:
+        subprocess.run(["docker", "image", "rm", "-f", image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        logger.info(f"Deleted existing image '{image}'.")
+    except subprocess.CalledProcessError:
+        logger.debug(f"No existing image '{image}' to delete.")
+
+    # Build the image
+    build_docker_image(image, arch)
+
+def check_docker_image(image, arch):
     """
     Ensure the given docker image is available locally. If not, look for a local Dockerfile
-    in ../docker named `Dockerfile.{arch}` where {arch} is taken from the image tag.
+    in ../docker named `Dockerfile.{arch}`.
     Raises an Exception with actionable guidance on failure.
     """
 
@@ -136,46 +204,12 @@ def check_docker_image(image, arch=None, timeout=120):
         logger.info(f"Docker image '{image}' is present locally.")
         return True
     except subprocess.CalledProcessError:
-        logger.info(f"Docker image '{image}' not found locally.")
+        logger.warning(f"Docker image '{image}' not found locally.")
     except subprocess.TimeoutExpired:
         raise Exception("Timed out while checking local docker images.")
 
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    docker_dir = os.path.normpath(os.path.join(script_dir, '..', 'docker'))
-    dockerfile_name = f"Dockerfile.{arch}"
-    dockerfile_path = os.path.join(docker_dir, dockerfile_name) if dockerfile_name else None
-
-    if dockerfile_path and os.path.exists(dockerfile_path):
-        logger.info(f"Found local Dockerfile for arch '{arch}': {dockerfile_path}. Building image now...")
-
-        build_cmd = ["docker", "build", "-t", image, "-f", dockerfile_path, docker_dir]
-        logger.info(f"Running: {' '.join(build_cmd)}")
-
-        # Stream build output live so the user sees progress
-        try:
-            proc = subprocess.Popen(build_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, text=True)
-            try:
-                for line in proc.stdout:
-                    # print to terminal immediately
-                    sys.stdout.write(line)
-                    sys.stdout.flush()
-                    # also log the line
-                    #logger.debug(line.rstrip())
-
-                rc = proc.wait(timeout=timeout)
-            except KeyboardInterrupt:
-                proc.terminate()
-                proc.wait()
-                raise
-
-            if rc != 0:
-                raise Exception(f"Failed to build docker image from {dockerfile_path} (exit {rc}).")
-
-            logger.info(f"Successfully built image '{image}'.")
-            return True
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            raise Exception(f"Timed out while building docker image from {dockerfile_path}.")
+    # Since the image is not present locally, try to build it from local Dockerfile
+    build_docker_image(image, arch)
 
 def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, run_lintian: bool, extra_repo: str) -> bool:
     """
@@ -256,40 +290,50 @@ def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, r
 
     return res.returncode == 0
 
+
+
 def main():
     args = parse_arguments()
 
     logger.debug(f"Print of the arguments: {args}")
 
-    if not os.path.isabs(args.source_dir):
-        args.source_dir = os.path.abspath(args.source_dir)
-    if not os.path.isabs(args.output_dir):
-        args.output_dir = os.path.abspath(args.output_dir)
-
-    # Verify Docker is available and the current user can talk to the daemon
-    check_docker_dependencies()
-
+    # In sbuild terms, the build architecture is the architecture of the machine doing the build,
+    # aka the architecture of the machine running this script.
     build_arch = platform.machine()
 
-    logger.debug(f"The arch is {build_arch}")
+    logger.debug(f"The builder arch is {build_arch}")
 
     # Normalize the arch string for use later
     if build_arch == "x86_64":
         build_arch = "amd64"
-        logger.info("The build will be a cross-compilation amd64 -> arm64")
+        logger.debug("The build will be a cross-compilation amd64 -> arm64")
     elif build_arch == "aarch64":
         build_arch = "arm64"
-        logger.info("The build will be a native build arm64 -> arm64")
+        logger.debug("The build will be a native build arm64 -> arm64")
     else:
         raise Exception("Invalid base arch")
 
-    # Test for the presence of the docker image
-    image = f"qualcomm-linux/pkg-build:{build_arch}-latest"
-    
-    check_docker_image(image, build_arch)
+    # Verify Docker is available and the current user can talk to the daemon
+    check_docker_dependencies()
 
+    image = f"qualcomm-linux/pkg-build:{build_arch}-latest"
+
+    # If --rebuild is specified, force rebuild of the docker image and exit
+    if args.rebuild:
+        rebuild_docker_image(image, build_arch)
+        sys.exit(0)
+
+    # Make sure source and output dirs are absolute paths
+    if not os.path.isabs(args.source_dir):
+        args.source_dir = os.path.abspath(args.source_dir)
+    if not os.path.isabs(args.output_dir):
+        args.output_dir = os.path.abspath(args.output_dir)
+    
     logger.debug(f"The source dir is {args.source_dir}")
     logger.debug(f"The output dir is {args.output_dir}")
+
+    # Ensure the docker image is available, building it from local Dockerfile if needed
+    check_docker_image(image, build_arch)
 
     ret = build_package_in_docker(image, args.source_dir, args.output_dir, build_arch, args.distro, args.run_lintian, args.extra_repo)
 
