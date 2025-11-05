@@ -50,7 +50,7 @@ def parse_arguments():
 
     parser.add_argument("--extra-repo",
                         type=str,
-                        default='deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main',
+                        default="", # example : deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main
                         help="Additional APT repository to include.")
 
     parser.add_argument("--rebuild",
