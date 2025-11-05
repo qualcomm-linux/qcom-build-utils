@@ -24,10 +24,10 @@
 #  - Verifies that the .deb was created successfully
 #
 # Usage:
-#   ./build-kernel-deb.sh <path_to_kernel_out_dir>
+#   ./build-kernel-deb.sh <path_to_kernel_out_dir> [build_id]
 #
 # Example:
-#   ./build-kernel-deb.sh /path/to/kernel/out/
+#   ./build-kernel-deb.sh /path/to/kernel/out/ 19085636185-1
 #
 # Author: Bjordis Collaku <bcollaku@qti.qualcomm.com>
 # ===================================================
@@ -46,17 +46,39 @@ echo "Ensuring necessary dependencies are installed..."
 # Ensure the first argument is passed
 if [ -z "$1" ]; then
     echo "Please enter path to kernel products"
+    echo "Usage: $0 <path_to_kernel_out_dir> [build_id]"
     exit 1
 fi
 
-# Assign the first argument to OUT_DIR
+# Arguments
 OUT_DIR="$1"
-KERNEL_VERSION=$(basename $OUT_DIR/modules/lib/modules/*)
-DEB_DIR="linux-kernel-$KERNEL_VERSION-arm64"
+BUILD_ID="${2:-}"
+
+# Detect base kernel version from modules directory
+BASE_KERNEL_VERSION=$(basename "$OUT_DIR"/modules/lib/modules/* 2>/dev/null)
+
+if [ -z "$BASE_KERNEL_VERSION" ] || [ ! -d "$OUT_DIR/modules/lib/modules/$BASE_KERNEL_VERSION" ]; then
+    echo "Unable to detect kernel version under: $OUT_DIR/modules/lib/modules/"
+    exit 1
+fi
+
+# Package kernel version: append -BUILD_ID if provided (safe: package-only)
+PKG_KERNEL_VERSION="$BASE_KERNEL_VERSION"
+if [ -n "$BUILD_ID" ]; then
+    PKG_KERNEL_VERSION="${BASE_KERNEL_VERSION}-${BUILD_ID}"
+fi
+
+# If you actually built the kernel with the suffix and want files/paths to match,
+# uncomment the next line to switch all installed paths to the suffixed version.
+# NOTE: Do this ONLY if uname -r for this kernel will also include the suffix.
+#BASE_KERNEL_VERSION="$PKG_KERNEL_VERSION"
+
+DEB_DIR="linux-kernel-$PKG_KERNEL_VERSION-arm64"
 DEB_PACKAGE="$DEB_DIR.deb"
+
 IMAGE="$OUT_DIR/Image"
 CONFIG="$OUT_DIR/.config"
-MODULES="$OUT_DIR/modules/lib/modules/$KERNEL_VERSION"
+MODULES="$OUT_DIR/modules/lib/modules/$BASE_KERNEL_VERSION"
 DTB="$OUT_DIR/*.dtb"
 
 # Print required kernel products
@@ -65,7 +87,7 @@ echo "Required kernel products in kernel/out/ dir:"
 echo "    - Image"
 echo "    - .config"
 echo "    - Device Tree Blob (DTB) files"
-echo "    - modules/lib/modules/$KERNEL_VERSION"
+echo "    - modules/lib/modules/$BASE_KERNEL_VERSION"
 echo "============================================================"
 
 echo "Checking for the existence of each kernel product..."
@@ -92,41 +114,41 @@ fi
 
 echo "Creating directory structure for Debian package..."
 # Create directory structure for Debian package
-mkdir -p $DEB_DIR/DEBIAN
-mkdir -p $DEB_DIR/boot
-mkdir -p $DEB_DIR/lib/firmware/$KERNEL_VERSION/device-tree
-mkdir -p $DEB_DIR/lib/modules/$KERNEL_VERSION
+mkdir -p "$DEB_DIR/DEBIAN"
+mkdir -p "$DEB_DIR/boot"
+mkdir -p "$DEB_DIR/lib/firmware/$BASE_KERNEL_VERSION/device-tree"
+mkdir -p "$DEB_DIR/lib/modules/$BASE_KERNEL_VERSION"
 
 echo "Setting correct permissions for DEBIAN directory..."
 # Set correct permissions for DEBIAN directory
-chmod 0755 $DEB_DIR/DEBIAN
-chmod -R g-s $DEB_DIR/DEBIAN
+chmod 0755 "$DEB_DIR/DEBIAN"
+chmod -R g-s "$DEB_DIR/DEBIAN"
 
 echo "Integrating kernel products into the Debian package..."
 # Copy files to the package directory
 echo "Copying kernel image to /boot..."
-cp $IMAGE $DEB_DIR/boot/vmlinuz-$KERNEL_VERSION
+cp "$IMAGE" "$DEB_DIR/boot/vmlinuz-$BASE_KERNEL_VERSION"
 
 echo "Copying kernel config to /boot..."
-cp $CONFIG $DEB_DIR/boot/config-$KERNEL_VERSION
+cp "$CONFIG" "$DEB_DIR/boot/config-$BASE_KERNEL_VERSION"
 
 echo "Copying kernel modules to /lib/modules..."
-cp -rap $MODULES $DEB_DIR/lib/modules/
+cp -rap "$MODULES" "$DEB_DIR/lib/modules/"
 
 echo "Copying device tree blobs to /boot/dtbs..."
-cp $OUT_DIR/*.dtb $DEB_DIR/lib/firmware/$KERNEL_VERSION/device-tree/
+cp "$OUT_DIR"/*.dtb "$DEB_DIR/lib/firmware/$BASE_KERNEL_VERSION/device-tree/"
 
 echo "Creating control file..."
 # Create control file
-cat <<EOF > $DEB_DIR/DEBIAN/control
-Package: linux-kernel-$KERNEL_VERSION
+cat <<EOF > "$DEB_DIR/DEBIAN/control"
+Package: linux-kernel-$PKG_KERNEL_VERSION
 Source: x1e80100
-Version: $KERNEL_VERSION
+Version: $PKG_KERNEL_VERSION
 Architecture: arm64
 Maintainer: Bjordis Collaku <bcollaku@quicinc.com>
 Section: kernel
 Priority: optional
-Description: Linux kernel Image, dtb and modules for $KERNEL_VERSION
+Description: Linux kernel Image, dtb and modules for $BASE_KERNEL_VERSION (package build $PKG_KERNEL_VERSION)
 EOF
 
 echo "Creating preinst script..."
@@ -135,7 +157,7 @@ cat <<EOF > $DEB_DIR/DEBIAN/preinst
 #!/bin/sh
 set -e
 
-kernel_version=$KERNEL_VERSION
+kernel_version=$BASE_KERNEL_VERSION
 current_kernel_version=\$(uname -r)
 
 echo "Starting cleanup of existing kernel products matching version \$kernel_version..."
@@ -191,7 +213,7 @@ cat <<EOF > $DEB_DIR/DEBIAN/postinst
 #!/bin/sh
 set -e
 
-kernel_version=$KERNEL_VERSION
+kernel_version=$BASE_KERNEL_VERSION
 
 echo "Starting post-installation procedure for Linux kernel package version \$kernel_version..."
 
@@ -227,7 +249,7 @@ cat <<EOF > $DEB_DIR/DEBIAN/postrm
 #!/bin/sh
 set -e
 
-kernel_version=$KERNEL_VERSION
+kernel_version=$BASE_KERNEL_VERSION
 
 echo "Starting post-removal procedure for Linux kernel package version \$kernel_version..."
 
@@ -251,9 +273,9 @@ dpkg-deb --build $DEB_DIR
 
 # Check if the .deb package was created successfully
 if [ -f "$DEB_PACKAGE" ]; then
-    echo "Debian package for kernel version $KERNEL_VERSION created successfully."
+    echo "Debian package for kernel version $BASE_KERNEL_VERSION created successfully."
 else
-    echo "Failed to create Debian package for kernel version $KERNEL_VERSION."
+    echo "Failed to create Debian package for kernel version $BASE_KERNEL_VERSION."
 fi
 
 # Clean up
