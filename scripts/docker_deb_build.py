@@ -137,11 +137,9 @@ def build_docker_image(image, arch):
         logger.error(f"No local Dockerfile found for arch '{arch}' at expected path: {dockerfile_path}. Cannot build image '{image}'.")
         return False
 
-    logger.info(f"Found local Dockerfile for arch '{arch}': {dockerfile_path}. Building image now...")
-
     build_cmd = ["docker", "build", "-t", image, "-f", dockerfile_path, context_dir]
 
-    logger.info(f"Running: {' '.join(build_cmd)}")
+    logger.debug(f"Running: {' '.join(build_cmd)}")
 
     # Stream build output live so the user sees progress
     try:
@@ -155,7 +153,7 @@ def build_docker_image(image, arch):
                 #logger.debug(line.rstrip())
 
             rc = proc.wait()
-            
+
         except KeyboardInterrupt:
             proc.terminate()
             proc.wait()
@@ -232,7 +230,7 @@ def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, r
     # Build the gbp command
     # The --git-builder value is a single string passed to gbp
     extra_repo_option = f"--extra-repository='{extra_repo}'" if extra_repo else ""
-    lintian_option = '--no-run-lintian' if not run_lintian else ''
+    lintian_option = '--no-run-lintian' if not run_lintian else ""
     sbuild_cmd = f"sbuild --build-dir=/workspace/output --host=arm64 --build={build_arch} --dist={distro} {lintian_option} {extra_repo_option}"
 
     # Ensure git inside the container treats the mounted checkout as safe
@@ -243,7 +241,7 @@ def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, r
     # Prefer 'native' -> run sbuild directly. If the source format uses 'quilt', use gbp.
     format_file = os.path.join(source_dir, 'debian', 'source', 'format')
     if not os.path.exists(format_file):
-        raise Exception(f"Missing {format_file}: cannot determine source format (native/quilt)")
+        raise Exception(f"Missing {format_file}: cannot determine source format (native/quilt). Is the source dir correctly pointing to a debian package source tree?")
 
     try:
         with open(format_file, 'r', errors='ignore') as f:
@@ -266,7 +264,7 @@ def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, r
         image, 'bash', '-c', build_cmd
     ]
 
-    logger.info(f"Running build inside container: {' '.join(docker_cmd[:])}")
+    logger.debug(f"Running build inside container: {' '.join(docker_cmd[:])}")
 
     try:
         # Run and stream output live
@@ -289,8 +287,6 @@ def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, r
         logger.info(f"ℹ️  New sbuild log available at: {os.path.join(output_dir, new_build_log)}")
 
     return res.returncode == 0
-
-
 
 def main():
     args = parse_arguments()
