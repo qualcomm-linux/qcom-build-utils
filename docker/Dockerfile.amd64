@@ -15,7 +15,6 @@ RUN apt-get update && apt-get install -y \
     sbuild \
     schroot \
     ubuntu-dev-tools \
-    crossbuild-essential-arm64 \
     gh \
     debootstrap \
     tree \
@@ -41,7 +40,26 @@ RUN EXTRA_PACKAGES=$(tr -s '[:space:]' ',' < /tmp/extra-packages.txt) && \
         dpkg --add-architecture arm64 && \
         apt-get update && \
         apt-get upgrade -y && \
-        apt-get install -y crossbuild-essential-arm64"
+        apt-get install -y crossbuild-essential-arm64 \
+            gcc-13-base:arm64 \
+            gcc-14-base:arm64 \
+            libasan8:arm64 \
+            libatomic1:arm64 \
+            libc6:arm64 \
+            libc6-dev:arm64 \
+            libcrypt-dev:arm64 \
+            libcrypt1:arm64 \
+            libgcc-13-dev:arm64 \
+            libgcc-s1:arm64 \
+            libgomp1:arm64 \
+            libhwasan0:arm64 \
+            libitm1:arm64 \
+            liblsan0:arm64 \
+            libstdc++-13-dev:arm64 \
+            libstdc++6:arm64 \
+            libtsan2:arm64 \
+            libubsan1:arm64 \
+            linux-libc-dev:arm64"
 
 # Build the questing chroot
 RUN EXTRA_PACKAGES=$(tr -s '[:space:]' ',' < /tmp/extra-packages.txt) && \
@@ -56,7 +74,26 @@ RUN EXTRA_PACKAGES=$(tr -s '[:space:]' ',' < /tmp/extra-packages.txt) && \
         dpkg --add-architecture arm64 && \
         apt-get update && \
         apt-get upgrade -y && \
-        apt-get install -y crossbuild-essential-arm64"
+        apt-get install -y crossbuild-essential-arm64 \
+            gcc-13-base:arm64 \
+            gcc-14-base:arm64 \
+            libasan8:arm64 \
+            libatomic1:arm64 \
+            libc6:arm64 \
+            libc6-dev:arm64 \
+            libcrypt-dev:arm64 \
+            libcrypt1:arm64 \
+            libgcc-13-dev:arm64 \
+            libgcc-s1:arm64 \
+            libgomp1:arm64 \
+            libhwasan0:arm64 \
+            libitm1:arm64 \
+            liblsan0:arm64 \
+            libstdc++-13-dev:arm64 \
+            libstdc++6:arm64 \
+            libtsan2:arm64 \
+            libubsan1:arm64 \
+            linux-libc-dev:arm64"
 
 # Set working directory
 WORKDIR /workspace
