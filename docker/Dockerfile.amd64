@@ -28,31 +28,35 @@ RUN apt-get update && apt-get install -y \
 
 COPY extra-packages.txt /tmp/extra-packages.txt
 
+# Build the noble chroot
 RUN EXTRA_PACKAGES=$(tr -s '[:space:]' ',' < /tmp/extra-packages.txt) && \
-    sbuild-createchroot --include="$EXTRA_PACKAGES" --arch=amd64 --components=main,universe noble    /srv/chroot/noble    http://archive.ubuntu.com/ubuntu
+    sbuild-createchroot --include="$EXTRA_PACKAGES" --arch=amd64 --components=main,universe noble    /srv/chroot/noble    http://archive.ubuntu.com/ubuntu && \
+    chroot /srv/chroot/noble /bin/bash -c "\
+        echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu     noble          main restricted universe multiverse' >  /etc/apt/sources.list && \
+        echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu     noble-updates  main restricted universe multiverse' >> /etc/apt/sources.list && \
+        echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu     noble-security main restricted universe multiverse' >> /etc/apt/sources.list && \
+        echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble          main restricted universe multiverse' >  /etc/apt/sources.list.d/arm64-ports.list && \
+        echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates  main restricted universe multiverse' >> /etc/apt/sources.list.d/arm64-ports.list && \
+        echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse' >> /etc/apt/sources.list.d/arm64-ports.list && \
+        dpkg --add-architecture arm64 && \
+        apt-get update && \
+        apt-get upgrade -y && \
+        apt-get install -y crossbuild-essential-arm64"
+
+# Build the questing chroot
 RUN EXTRA_PACKAGES=$(tr -s '[:space:]' ',' < /tmp/extra-packages.txt) && \
-    sbuild-createchroot --include="$EXTRA_PACKAGES" --arch=amd64 --components=main,universe questing /srv/chroot/questing http://archive.ubuntu.com/ubuntu
-
-RUN chroot /srv/chroot/noble /bin/bash -c "echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble          main restricted universe multiverse' >  /etc/apt/sources.list"
-RUN chroot /srv/chroot/noble /bin/bash -c "echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble-updates  main restricted universe multiverse' >> /etc/apt/sources.list"
-RUN chroot /srv/chroot/noble /bin/bash -c "echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse' >> /etc/apt/sources.list"
-
-RUN chroot /srv/chroot/noble /bin/bash -c "echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble          main restricted universe multiverse' >  /etc/apt/sources.list.d/arm64-ports.list"
-RUN chroot /srv/chroot/noble /bin/bash -c "echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates  main restricted universe multiverse' >> /etc/apt/sources.list.d/arm64-ports.list"
-RUN chroot /srv/chroot/noble /bin/bash -c "echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse' >> /etc/apt/sources.list.d/arm64-ports.list"
-
-RUN chroot /srv/chroot/noble /bin/bash -c 'dpkg --add-architecture arm64 && apt-get update && apt-get install -y crossbuild-essential-arm64'
-
-
-RUN chroot /srv/chroot/questing /bin/bash -c "echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu questing          main restricted universe multiverse' >  /etc/apt/sources.list"
-RUN chroot /srv/chroot/questing /bin/bash -c "echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu questing-updates  main restricted universe multiverse' >> /etc/apt/sources.list"
-RUN chroot /srv/chroot/questing /bin/bash -c "echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu questing-security main restricted universe multiverse' >> /etc/apt/sources.list"
-
-RUN chroot /srv/chroot/questing /bin/bash -c "echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports questing          main restricted universe multiverse' >  /etc/apt/sources.list.d/arm64-ports.list"
-RUN chroot /srv/chroot/questing /bin/bash -c "echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports questing-updates  main restricted universe multiverse' >> /etc/apt/sources.list.d/arm64-ports.list"
-RUN chroot /srv/chroot/questing /bin/bash -c "echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports questing-security main restricted universe multiverse' >> /etc/apt/sources.list.d/arm64-ports.list"
-
-RUN chroot /srv/chroot/questing /bin/bash -c 'dpkg --add-architecture arm64 && apt-get update && apt-get install -y crossbuild-essential-arm64'
+    sbuild-createchroot --include="$EXTRA_PACKAGES" --arch=amd64 --components=main,universe questing /srv/chroot/questing http://archive.ubuntu.com/ubuntu && \
+    chroot /srv/chroot/questing /bin/bash -c "\
+        echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu     questing          main restricted universe multiverse' >  /etc/apt/sources.list && \
+        echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu     questing-updates  main restricted universe multiverse' >> /etc/apt/sources.list && \
+        echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu     questing-security main restricted universe multiverse' >> /etc/apt/sources.list && \
+        echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports questing          main restricted universe multiverse' >  /etc/apt/sources.list.d/arm64-ports.list && \
+        echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports questing-updates  main restricted universe multiverse' >> /etc/apt/sources.list.d/arm64-ports.list && \
+        echo 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports questing-security main restricted universe multiverse' >> /etc/apt/sources.list.d/arm64-ports.list && \
+        dpkg --add-architecture arm64 && \
+        apt-get update && \
+        apt-get upgrade -y && \
+        apt-get install -y crossbuild-essential-arm64"
 
 # Set working directory
 WORKDIR /workspace
