@@ -36,10 +36,33 @@ env:
 
 jobs:
 
-  build-image-amd64:
-
+  # Check if this PR changes files in the docker/ folder
+  check-if-build-needed:
     runs-on: ubuntu-latest
+    outputs:
+      build-needed: ${{ steps.set-output.outputs.build-needed }}
+    steps:
 
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{github.head_ref}}
+          fetch-depth: 0
+
+      - name: Check if build is needed
+        id: set-output
+        run: |
+          echo "build-needed=true" >> $GITHUB_OUTPUT
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+            if [[ $CHANGED_FILES == *"docker/"* ]]; then
+              echo "build-needed=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  build-image-amd64:
+    if: needs.check-if-build-needed.outputs.build-needed == 'true'
+    runs-on: ubuntu-latest
     steps:
 
       - name: Checkout Dockerfile
@@ -61,9 +84,8 @@ jobs:
         run: docker push ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:amd64-${{inputs.version}}
 
   build-image-arm64:
-
+    if: needs.check-if-build-needed.outputs.build-needed == 'true'
     runs-on: ["self-hosted", "lecore-prd-u2404-arm64-xlrg-od-ephem"]
-
     steps:
 
       - name: Checkout Dockerfile
