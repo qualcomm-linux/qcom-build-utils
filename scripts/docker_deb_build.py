@@ -50,8 +50,8 @@ def parse_arguments():
 
     parser.add_argument("--extra-repo",
                         type=str,
-                        default="", # example : deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main
-                        help="Additional APT repository to include.")
+                        default="",
+                        help="Additional APT repository to include. example : 'deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main'")
 
     parser.add_argument("--rebuild",
                         action='store_true',
@@ -225,7 +225,7 @@ def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, r
     # and one of them is a symlink to the latest build log.
     build_log_files = glob.glob(os.path.join(output_dir or '.', '*.build'))
     prev_build_log = next((os.readlink(p) for p in build_log_files if os.path.islink(p)), None)
-    logger.debug(f"Previous build log link: {prev_build_log}")
+    logger.debug(f"Previous build log: {prev_build_log}")
 
     # Build the gbp command
     # The --git-builder value is a single string passed to gbp
@@ -282,9 +282,9 @@ def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, r
     new_build_log = next((os.readlink(p) for p in build_log_files if os.path.islink(p)), None)
 
     if new_build_log == prev_build_log:
-        logger.debug("❌ No new sbuild log produced during this run.")
+        logger.debug("ℹ️ No new sbuild log produced during this run.")
     else:
-        logger.info(f"ℹ️  New sbuild log available at: {os.path.join(output_dir, new_build_log)}")
+        logger.debug(f"ℹ️ New sbuild log available at: {os.path.join(output_dir, new_build_log)}")
 
     return res.returncode == 0
 
