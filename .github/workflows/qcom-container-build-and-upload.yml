@@ -53,9 +53,15 @@ jobs:
         id: set-output
         run: |
           echo "build-needed=true" >> $GITHUB_OUTPUT
+          
           if [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
             CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+            echo "Changed files: $CHANGED_FILES"
             if [[ $CHANGED_FILES == *"docker/"* ]]; then
+              echo "Build IS needed as docker/ folder changed."
+              echo "build-needed=true" >> $GITHUB_OUTPUT
+            else
+              echo "Build is NOT needed as docker/ folder did not change."
               echo "build-needed=false" >> $GITHUB_OUTPUT
             fi
           fi
