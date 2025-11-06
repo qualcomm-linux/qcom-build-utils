@@ -53,7 +53,7 @@ jobs:
         id: set-output
         run: |
           echo "build-needed=true" >> $GITHUB_OUTPUT
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          if [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
             CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
             if [[ $CHANGED_FILES == *"docker/"* ]]; then
               echo "build-needed=false" >> $GITHUB_OUTPUT
@@ -61,6 +61,7 @@ jobs:
           fi
 
   build-image-amd64:
+    needs: check-if-build-needed
     if: needs.check-if-build-needed.outputs.build-needed == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -84,6 +85,7 @@ jobs:
         run: docker push ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:amd64-${{inputs.version}}
 
   build-image-arm64:
+    needs: check-if-build-needed
     if: needs.check-if-build-needed.outputs.build-needed == 'true'
     runs-on: ["self-hosted", "lecore-prd-u2404-arm64-xlrg-od-ephem"]
     steps:
