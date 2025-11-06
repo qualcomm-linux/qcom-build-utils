@@ -82,11 +82,11 @@ jobs:
         run: docker build -f docker/Dockerfile.amd64 -t ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:amd64-${{inputs.version}} ./docker
 
       - name: Authenticate to GHCR
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request_target'
         run: echo ${{ secrets.DEB_PKG_BOT_CI_TOKEN }} | docker login ghcr.io -u ${{ vars.DEB_PKG_BOT_CI_USERNAME }} --password-stdin
 
       - name: Push
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request_target'
         run: docker push ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:amd64-${{inputs.version}}
 
   build-image-arm64:
@@ -105,9 +105,9 @@ jobs:
         run: docker build -f docker/Dockerfile.arm64 -t ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:arm64-${{inputs.version}} ./docker
 
       - name: Authenticate to GHCR
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request_target'
         run: echo ${{ secrets.DEB_PKG_BOT_CI_TOKEN }} | docker login ghcr.io -u ${{ vars.DEB_PKG_BOT_CI_USERNAME }} --password-stdin
 
       - name: Push
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request_target'
         run: docker push ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:arm64-${{inputs.version}}
