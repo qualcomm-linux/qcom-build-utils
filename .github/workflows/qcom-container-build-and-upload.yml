@@ -76,8 +76,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{github.head_ref}}
-          sparse-checkout: docker/Dockerfile.amd64
-          sparse-checkout-cone-mode: false # single file -> false
+          sparse-checkout: docker
 
       - name: Build and Tag the Image
         run: docker build -f docker/Dockerfile.amd64 -t ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:amd64-${{inputs.version}} ./docker
@@ -100,8 +99,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{github.head_ref}}
-          sparse-checkout: docker/Dockerfile.arm64
-          sparse-checkout-cone-mode: false # single file -> false
+          sparse-checkout: docker
 
       - name: Build and Tag the Image
         run: docker build -f docker/Dockerfile.arm64 -t ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:arm64-${{inputs.version}} ./docker
