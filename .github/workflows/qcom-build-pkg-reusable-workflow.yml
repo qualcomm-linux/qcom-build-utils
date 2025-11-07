@@ -70,7 +70,7 @@ jobs:
         shell: bash
 
     container:
-      image: ghcr.io/qualcomm-linux/pkg-builder:${{inputs.runner == 'ubuntu-latest' && 'amd64' || 'arm64'}}-latest
+      image: ghcr.io/qualcomm-linux/pkg-builder:${{inputs.runner == 'ubuntu-latest' && 'amd64' || 'arm64'}}-${{inputs.distro-codename}}
       options: --privileged
       credentials:
         username: ${{vars.DEB_PKG_BOT_CI_USERNAME}}

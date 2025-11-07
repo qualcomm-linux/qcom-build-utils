@@ -54,7 +54,7 @@ jobs:
         shell: bash
 
     container:
-      image: ghcr.io/qualcomm-linux/pkg-builder:amd64-latest
+      image: ghcr.io/qualcomm-linux/pkg-builder:amd64-noble
       credentials:
         username: ${{ vars.DEB_PKG_BOT_CI_USERNAME }}
         password: ${{ secrets.TOKEN }}
