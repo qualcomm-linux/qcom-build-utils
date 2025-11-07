@@ -68,36 +68,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - name: Checkout Dockerfile
+      - name: Checkout qcom-build-utils
         uses: actions/checkout@v4
         with:
           ref: ${{github.head_ref}}
-          sparse-checkout: docker
 
-      - name: Build and Tag the Image
-        run: docker build -f docker/Dockerfile.amd64 -t ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:amd64-latest ./docker
-
-      - name: Checkout pkg-example
-        uses: actions/checkout@v4
+      - name: Build Images
+        uses: ./.github/actions/build_container
         with:
-          repository: qualcomm-linux/pkg-example
-          ref: debian/latest
-          token: ${{secrets.DEB_PKG_BOT_CI_TOKEN}}
-          path: ./pkg-example
-          fetch-depth: 1
-          fetch-tags: true
-
-      - name: Build example package for noble
-        run: |
-          mkdir -p build
-          docker run --rm --privileged -t -v $(pwd)/pkg-example:/workspace/src -v $(pwd)/build:/workspace/build -w /workspace/src ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:amd64-latest bash -c "git config --global --add safe.directory /workspace/src && gbp buildpackage --git-ignore-branch --git-builder='sbuild --build-dir=/workspace/output --host=arm64 --build=amd64 --dist=noble --no-run-lintian'"
-
-      # When the image build is triggered by a PR modifying the docker/ folder, do not push to GHCR as it is only a test run
-      - name: Push to GHCR
-        if: github.event_name != 'pull_request_target'
-        run: |
-          echo ${{ secrets.DEB_PKG_BOT_CI_TOKEN }} | docker login ghcr.io -u ${{ vars.DEB_PKG_BOT_CI_USERNAME }} --password-stdin
-          docker push ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:amd64-latest
+          arch: amd64
+          push-to-ghcr: ${{ github.event_name != 'pull_request_target' }}
+          token: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
+          username: ${{ vars.DEB_PKG_BOT_CI_USERNAME }}
 
   # Build the arm64 natively using a self-hosted runner on an arm64 host
   # Cross compiling the image using buildx on an x86_64 host was tried but failed due to
@@ -107,33 +89,15 @@ jobs:
     if: needs.check-if-build-needed.outputs.build-needed == 'true'
     runs-on: ["self-hosted", "lecore-prd-u2404-arm64-xlrg-od-ephem"]
     steps:
-
       - name: Checkout Dockerfile
         uses: actions/checkout@v4
         with:
           ref: ${{github.head_ref}}
-          sparse-checkout: docker
 
-      - name: Build and Tag the Image
-        run: docker build -f docker/Dockerfile.arm64 -t ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:arm64-latest ./docker
-
-      - name: Checkout pkg-example
-        uses: actions/checkout@v4
+      - name: Build Images
+        uses: ./.github/actions/build_container
         with:
-          repository: qualcomm-linux/pkg-example
-          ref: debian/latest
-          token: ${{secrets.DEB_PKG_BOT_CI_TOKEN}}
-          path: ./pkg-example
-          fetch-depth: 1
-          fetch-tags: true
-
-      - name: Build example package for noble
-        run: |
-          mkdir -p build
-          docker run --rm --privileged -t -v $(pwd)/pkg-example:/workspace/src -v $(pwd)/build:/workspace/build -w /workspace/src ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:amd64-latest bash -c "git config --global --add safe.directory /workspace/src && gbp buildpackage --git-ignore-branch --git-builder='sbuild --build-dir=/workspace/output --host=arm64 --build=amd64 --dist=noble --no-run-lintian'"
-      # When the image build is triggered by a PR modifying the docker/ folder, do not push to GHCR as it is only a test run
-      - name: Push to GHCR
-        if: github.event_name != 'pull_request_target'
-        run: |
-          echo ${{ secrets.DEB_PKG_BOT_CI_TOKEN }} | docker login ghcr.io -u ${{ vars.DEB_PKG_BOT_CI_USERNAME }} --password-stdin
-          docker push ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:arm64-latest
+          arch: arm64
+          push-to-ghcr: ${{ github.event_name != 'pull_request_target' }}
+          token: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
+          username: ${{ vars.DEB_PKG_BOT_CI_USERNAME }}

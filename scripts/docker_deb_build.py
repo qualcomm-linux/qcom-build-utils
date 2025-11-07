@@ -317,7 +317,7 @@ def main():
     # Verify Docker is available and the current user can talk to the daemon
     check_docker_dependencies()
 
-    image_base = f"qualcomm-linux/pkg-build:{build_arch}-"
+    image_base = f"ghcr.io/qualcomm-linux/pkg-build:{build_arch}-"
 
     # If --rebuild is specified, force rebuild of the docker image and exit
     if args.rebuild:
