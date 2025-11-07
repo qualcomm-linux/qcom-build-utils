@@ -1,0 +1,70 @@
+name: Builds the container and chroots
+description: |
+  This Github Actions builds the container and sets up the chroot environment for building packages for noble and questing.
+
+inputs:
+
+  arch:
+    description: The architecture to build for. Ex amd64, arm64, etc
+    required: true
+
+  push-to-ghcr:
+    description: Whether to push the built image to GitHub Container Registry
+    required: true
+    default: "true"
+
+runs:
+  using: "composite"
+  
+  steps:
+    - name: Checkout Dockerfile
+      uses: actions/checkout@v4
+      with:
+        ref: ${{github.head_ref}}
+        sparse-checkout: |
+          docker
+          scripts
+
+    - name: Build and Tag the Image
+      shell: bash
+      run: ./scripts/docker_deb_build.py --rebuild
+
+    - name: Checkout pkg-example
+      uses: actions/checkout@v4
+      with:
+        repository: qualcomm-linux/pkg-example
+        ref: debian/latest
+        token: ${{secrets.DEB_PKG_BOT_CI_TOKEN}}
+        path: ./pkg-example
+        fetch-depth: 1
+        fetch-tags: true
+
+    - name: Print Tags
+      shell: bash
+      run: |
+        cd pkg-example
+        git ls-remote --tags origin
+        git tag
+
+    - name: Build example package for noble
+      shell: bash
+      run: |
+        mkdir -p build_noble
+        ./scripts/docker_deb_build.py --source-dir pkg-example --output-dir build_noble --distro noble --no-run-lintian
+
+    - name: Build example package for questing
+      shell: bash
+      run: |
+        mkdir -p build_questing
+        ./scripts/docker_deb_build.py --source-dir pkg-example --output-dir build_questing --distro questing --no-run-lintian
+
+    # When the image build is triggered by a PR modifying the docker/ folder, do not push to GHCR as it is only a test run
+    - name: Push to GHCR
+      if: ${{inputs.push-to-ghcr}} == 'true'
+      shell: bash
+      run: |
+        echo ${{ secrets.DEB_PKG_BOT_CI_TOKEN }} | docker login ghcr.io -u ${{ vars.DEB_PKG_BOT_CI_USERNAME }} --password-stdin
+        docker push ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:${{inputs.arch}}-noble
+        docker push ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:${{inputs.arch}}-questing
+
+
