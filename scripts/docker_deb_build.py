@@ -103,8 +103,8 @@ def check_docker_dependencies(timeout=20):
                 if sock_group not in user_groups:
                     raise Exception(
                         f"Permission denied accessing Docker socket ({sock}). Current user '{user}' is not in the socket group '{sock_group}'.\n"
-                        f"Add the user to the group: sudo usermod -aG {sock_group} $USER  (then re-login) or run the script with sudo.\n"
-                        f"Also, to avoid having to do a complete logout/login, you can run: newgrp {sock_group} which will start a new shell with the new group applied."
+                        f"Add the user to the group: \"sudo usermod -aG {sock_group} $USER\"  (then re-login) or run the script with sudo.\n"
+                        f"Also, to avoid having to do a complete logout/login, you can run: \"newgrp {sock_group}\" which will start a new shell with the new group applied."
                     )
                 else:
                     # user is in group but still cannot connect -> daemon likely stopped
