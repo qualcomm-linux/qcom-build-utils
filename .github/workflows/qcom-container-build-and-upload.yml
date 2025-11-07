@@ -87,6 +87,12 @@ jobs:
           fetch-depth: 1
           fetch-tags: true
 
+      - name: Print Tags
+        run: |
+          cd pkg-example
+          git ls-remote --tags origin
+          git tag
+
       - name: Build example package for noble
         run: |
           mkdir -p build
