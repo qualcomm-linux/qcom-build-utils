@@ -13,6 +13,7 @@ on:
   pull_request_target:
     branches:
       - main
+      - development
 
   push:
     branches:
