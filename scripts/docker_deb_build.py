@@ -61,7 +61,7 @@ def parse_arguments():
 
     return args
 
-def check_docker_dependencies(timeout=5):
+def check_docker_dependencies(timeout=20):
     """
     Verify docker CLI presence, daemon accessibility, and user permission to talk to the daemon.
     """
