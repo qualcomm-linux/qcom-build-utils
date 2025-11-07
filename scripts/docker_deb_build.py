@@ -210,7 +210,7 @@ def check_docker_image(image_base, arch, distro):
         raise Exception("Timed out while checking local docker images.")
 
     # Since the image is not present locally, try to build it from local Dockerfile
-    build_docker_image(image, arch)
+    build_docker_image(image, arch, distro)
 
 def build_package_in_docker(image_base, source_dir, output_dir, build_arch, distro, run_lintian: bool, extra_repo: str) -> bool:
     """
@@ -317,7 +317,7 @@ def main():
     # Verify Docker is available and the current user can talk to the daemon
     check_docker_dependencies()
 
-    image_base = f"ghcr.io/qualcomm-linux/pkg-build:{build_arch}-"
+    image_base = f"ghcr.io/qualcomm-linux/pkg-builder:{build_arch}-"
 
     # If --rebuild is specified, force rebuild of the docker image and exit
     if args.rebuild:
