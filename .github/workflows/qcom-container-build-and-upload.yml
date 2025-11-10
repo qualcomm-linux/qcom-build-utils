@@ -13,17 +13,13 @@ on:
   pull_request_target:
     branches:
       - main
+      - development
 
   push:
     branches:
       - main
 
   workflow_dispatch:
-    inputs:
-      version:
-        description: The version name to be appended to the image name, default is 'latest'
-        type: string
-        default: latest
 
 permissions:
   contents: read
@@ -36,7 +32,7 @@ env:
 
 jobs:
 
-  # Check if this PR changes files in the docker/ folder
+  # Check if this PR changes files in the docker/ folder. If not, there is no point in building and pushing a new image.
   check-if-build-needed:
     runs-on: ubuntu-latest
     outputs:
@@ -66,48 +62,43 @@ jobs:
             fi
           fi
 
+  # Build the amd64 natively on ubuntu-latest which is an x86_64 host
   build-image-amd64:
     needs: check-if-build-needed
     if: needs.check-if-build-needed.outputs.build-needed == 'true'
     runs-on: ubuntu-latest
     steps:
 
-      - name: Checkout Dockerfile
+      - name: Checkout qcom-build-utils
         uses: actions/checkout@v4
         with:
           ref: ${{github.head_ref}}
-          sparse-checkout: docker
 
-      - name: Build and Tag the Image
-        run: docker build -f docker/Dockerfile.amd64 -t ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:amd64-${{inputs.version}} ./docker
+      - name: Build Images
+        uses: ./.github/actions/build_container
+        with:
+          arch: amd64
+          push-to-ghcr: ${{ github.event_name != 'pull_request_target' }}
+          token: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
+          username: ${{ vars.DEB_PKG_BOT_CI_USERNAME }}
 
-      - name: Authenticate to GHCR
-        if: github.event_name != 'pull_request_target'
-        run: echo ${{ secrets.DEB_PKG_BOT_CI_TOKEN }} | docker login ghcr.io -u ${{ vars.DEB_PKG_BOT_CI_USERNAME }} --password-stdin
-
-      - name: Push
-        if: github.event_name != 'pull_request_target'
-        run: docker push ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:amd64-${{inputs.version}}
-
+  # Build the arm64 natively using a self-hosted runner on an arm64 host
+  # Cross compiling the image using buildx on an x86_64 host was tried but failed due to
+  # issues with qemu and multiarch support in docker buildx.
   build-image-arm64:
     needs: check-if-build-needed
     if: needs.check-if-build-needed.outputs.build-needed == 'true'
     runs-on: ["self-hosted", "lecore-prd-u2404-arm64-xlrg-od-ephem"]
     steps:
-
       - name: Checkout Dockerfile
         uses: actions/checkout@v4
         with:
           ref: ${{github.head_ref}}
-          sparse-checkout: docker
 
-      - name: Build and Tag the Image
-        run: docker build -f docker/Dockerfile.arm64 -t ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:arm64-${{inputs.version}} ./docker
-
-      - name: Authenticate to GHCR
-        if: github.event_name != 'pull_request_target'
-        run: echo ${{ secrets.DEB_PKG_BOT_CI_TOKEN }} | docker login ghcr.io -u ${{ vars.DEB_PKG_BOT_CI_USERNAME }} --password-stdin
-
-      - name: Push
-        if: github.event_name != 'pull_request_target'
-        run: docker push ghcr.io/${{env.QCOM_ORG_NAME}}/${{env.IMAGE_NAME}}:arm64-${{inputs.version}}
+      - name: Build Images
+        uses: ./.github/actions/build_container
+        with:
+          arch: arm64
+          push-to-ghcr: ${{ github.event_name != 'pull_request_target' }}
+          token: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
+          username: ${{ vars.DEB_PKG_BOT_CI_USERNAME }}

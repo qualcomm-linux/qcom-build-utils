@@ -27,8 +27,6 @@ COPY extra-packages.txt /tmp/extra-packages.txt
 
 RUN EXTRA_PACKAGES=$(tr -s '[:space:]' ',' < /tmp/extra-packages.txt) && \
     sbuild-createchroot --include="$EXTRA_PACKAGES" --arch=arm64 --components=main,universe noble    /srv/chroot/noble    http://ports.ubuntu.com
-RUN EXTRA_PACKAGES=$(tr -s '[:space:]' ',' < /tmp/extra-packages.txt) && \
-    sbuild-createchroot --include="$EXTRA_PACKAGES" --arch=arm64 --components=main,universe questing /srv/chroot/questing http://ports.ubuntu.com
 
 # Set working directory
 WORKDIR /workspace

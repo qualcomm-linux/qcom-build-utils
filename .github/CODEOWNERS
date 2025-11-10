@@ -1,8 +1,9 @@
 # Default reviewers for all changes in entire repository,
 # unless a later match takes precedence
-* @sjakki88 @vishwasudupa @bjordiscollaku @simonbeaudoin0935
+* @vishwasudupa @bjordiscollaku @simonbeaudoin0935 @keerthi-go
 
-# Specific ownership for the ubuntu folder
+.github/*    @simonbeaudoin0935
+docker/*     @simonbeaudoin0935
 scripts/*    @vishwasudupa @bjordiscollaku @simonbeaudoin0935
 rootfs/*     @bjordiscollaku
 kernel/*     @bjordiscollaku

@@ -50,8 +50,8 @@ def parse_arguments():
 
     parser.add_argument("--extra-repo",
                         type=str,
-                        default="", # example : deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main
-                        help="Additional APT repository to include.")
+                        default="",
+                        help="Additional APT repository to include. example : 'deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main'")
 
     parser.add_argument("--rebuild",
                         action='store_true',
@@ -61,7 +61,7 @@ def parse_arguments():
 
     return args
 
-def check_docker_dependencies(timeout=5):
+def check_docker_dependencies(timeout=20):
     """
     Verify docker CLI presence, daemon accessibility, and user permission to talk to the daemon.
     """
@@ -103,8 +103,8 @@ def check_docker_dependencies(timeout=5):
                 if sock_group not in user_groups:
                     raise Exception(
                         f"Permission denied accessing Docker socket ({sock}). Current user '{user}' is not in the socket group '{sock_group}'.\n"
-                        f"Add the user to the group: sudo usermod -aG {sock_group} $USER  (then re-login) or run the script with sudo.\n"
-                        f"Also, to avoid having to do a complete logout/login, you can run: newgrp {sock_group} which will start a new shell with the new group applied."
+                        f"Add the user to the group: \"sudo usermod -aG {sock_group} $USER\"  (then re-login) or run the script with sudo.\n"
+                        f"Also, to avoid having to do a complete logout/login, you can run: \"newgrp {sock_group}\" which will start a new shell with the new group applied."
                     )
                 else:
                     # user is in group but still cannot connect -> daemon likely stopped
@@ -124,11 +124,11 @@ def check_docker_dependencies(timeout=5):
     except subprocess.TimeoutExpired:
         raise Exception("Timed out while trying to contact the Docker daemon. Is it running?")
 
-def build_docker_image(image, arch):
+def build_docker_image(image, arch, distro):
     this_script_dir = os.path.dirname(os.path.abspath(__file__))
     docker_dir = os.path.normpath(os.path.join(this_script_dir, '..', 'docker'))
     context_dir = docker_dir
-    dockerfile_name = f"Dockerfile.{arch}"
+    dockerfile_name = f"Dockerfile.{arch}.{distro}"
     dockerfile_path = os.path.join(docker_dir, dockerfile_name)
 
     logger.debug(f"Building docker image '{image}' for arch '{arch}' from Dockerfile: {dockerfile_path}")
@@ -168,10 +168,11 @@ def build_docker_image(image, arch):
         proc.kill()
         raise Exception(f"Timed out while building docker image from {dockerfile_path}.")
 
-def rebuild_docker_image(image, arch):
+def rebuild_docker_image(image_base, arch, distro):
     """
     Force rebuild of the given docker image from local Dockerfile.
     """
+    image = f"{image_base}{distro}"
 
     logger.debug(f"Rebuilding docker image '{image}' from local Dockerfile...")
 
@@ -184,14 +185,16 @@ def rebuild_docker_image(image, arch):
         logger.debug(f"No existing image '{image}' to delete.")
 
     # Build the image
-    build_docker_image(image, arch)
+    build_docker_image(image, arch, distro)
 
-def check_docker_image(image, arch):
+def check_docker_image(image_base, arch, distro):
     """
     Ensure the given docker image is available locally. If not, look for a local Dockerfile
     in ../docker named `Dockerfile.{arch}`.
     Raises an Exception with actionable guidance on failure.
     """
+
+    image = f"{image_base}{distro}"
 
     logger.debug(f"Checking for docker image: {image}")
 
@@ -207,9 +210,9 @@ def check_docker_image(image, arch):
         raise Exception("Timed out while checking local docker images.")
 
     # Since the image is not present locally, try to build it from local Dockerfile
-    build_docker_image(image, arch)
+    build_docker_image(image, arch, distro)
 
-def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, run_lintian: bool, extra_repo: str) -> bool:
+def build_package_in_docker(image_base, source_dir, output_dir, build_arch, distro, run_lintian: bool, extra_repo: str) -> bool:
     """
     Build the debian package inside the given docker image.
     source_dir: path to the debian package source (mounted into the container)
@@ -220,12 +223,14 @@ def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, r
     Returns True on success, False on failure.
     """
 
+    image = f"{image_base}{distro}"
+
     # Register the name of the newest build log in the output_dir in case there are leftovers from a previous build
     # So that we can identify if this run produced a newer build log. Sbuild produces .build files with timestamps,
     # and one of them is a symlink to the latest build log.
     build_log_files = glob.glob(os.path.join(output_dir or '.', '*.build'))
     prev_build_log = next((os.readlink(p) for p in build_log_files if os.path.islink(p)), None)
-    logger.debug(f"Previous build log link: {prev_build_log}")
+    logger.debug(f"Previous build log: {prev_build_log}")
 
     # Build the gbp command
     # The --git-builder value is a single string passed to gbp
@@ -282,9 +287,9 @@ def build_package_in_docker(image, source_dir, output_dir, build_arch, distro, r
     new_build_log = next((os.readlink(p) for p in build_log_files if os.path.islink(p)), None)
 
     if new_build_log == prev_build_log:
-        logger.debug("❌ No new sbuild log produced during this run.")
+        logger.debug("ℹ️ No new sbuild log produced during this run.")
     else:
-        logger.info(f"ℹ️  New sbuild log available at: {os.path.join(output_dir, new_build_log)}")
+        logger.debug(f"ℹ️ New sbuild log available at: {os.path.join(output_dir, new_build_log)}")
 
     return res.returncode == 0
 
@@ -312,11 +317,12 @@ def main():
     # Verify Docker is available and the current user can talk to the daemon
     check_docker_dependencies()
 
-    image = f"qualcomm-linux/pkg-build:{build_arch}-latest"
+    image_base = f"ghcr.io/qualcomm-linux/pkg-builder:{build_arch}-"
 
     # If --rebuild is specified, force rebuild of the docker image and exit
     if args.rebuild:
-        rebuild_docker_image(image, build_arch)
+        rebuild_docker_image(image_base, build_arch, 'noble')
+        rebuild_docker_image(image_base, build_arch, 'questing')
         sys.exit(0)
 
     # Make sure source and output dirs are absolute paths
@@ -329,9 +335,9 @@ def main():
     logger.debug(f"The output dir is {args.output_dir}")
 
     # Ensure the docker image is available, building it from local Dockerfile if needed
-    check_docker_image(image, build_arch)
+    check_docker_image(image_base, build_arch, args.distro)
 
-    ret = build_package_in_docker(image, args.source_dir, args.output_dir, build_arch, args.distro, args.run_lintian, args.extra_repo)
+    ret = build_package_in_docker(image_base, args.source_dir, args.output_dir, build_arch, args.distro, args.run_lintian, args.extra_repo)
 
     if ret:
         sys.exit(0)
