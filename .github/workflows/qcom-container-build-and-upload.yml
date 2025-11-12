@@ -48,7 +48,7 @@ jobs:
       - name: Check if build is needed
         id: set-output
         run: |
-          echo "build-needed=true" >> $GITHUB_OUTPUT
+          echo "build-needed=false" >> $GITHUB_OUTPUT
           
           if [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
             CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
@@ -60,6 +60,23 @@ jobs:
               echo "Build is NOT needed as docker/ folder did not change."
               echo "build-needed=false" >> $GITHUB_OUTPUT
             fi
+
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.before }}..${{ github.event.after }})
+            echo "Changed files: $CHANGED_FILES"
+            if [[ $CHANGED_FILES == *".github/docker/"* ]]; then
+              echo "Build IS needed as .github/docker/ folder changed."
+              echo "build-needed=true" >> $GITHUB_OUTPUT
+            else
+              echo "Build is NOT needed as .github/docker/ folder did not change."
+              echo "build-needed=false" >> $GITHUB_OUTPUT
+            fi
+          elif [[ "${{ github.event_name }}" == "schedule" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Build is needed for schedule or workflow_dispatch or schedule."
+            echo "build-needed=true" >> $GITHUB_OUTPUT
+          else
+            echo "Unrecognized event: ${{ github.event_name }}. Failing the build."
+            exit 1
           fi
 
   # Build the amd64 natively on ubuntu-latest which is an x86_64 host
