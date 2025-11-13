@@ -267,22 +267,31 @@ flowchart TD
 
 ### Usage Example
 
-Called from upstream repository's workflow:
+Called from upstream repository's workflow (e.g., `.github/workflows/pkg-build-pr-check.yml`):
 
 ```yaml
+name: Package Build PR Check
+
+on:
+  pull_request_target:
+    branches: [ main ]
+
 jobs:
-  test-package:
+  package-build-pr-check:
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-upstream-pr-pkg-build-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
-      upstream-repo: qualcomm-linux/my-project
-      upstream-repo-ref: ${{ github.head_ref }}
-      pkg-repo: qualcomm-linux/pkg-my-project
-      pr-number: ${{ github.event.pull_request.number }}
-      run-lintian: true
+      upstream-repo: ${{github.repository}}
+      upstream-repo-ref: ${{github.head_ref}}
+      pkg-repo: ${{vars.PKG_REPO_GITHUB_NAME}}
+      pr-number: ${{github.event.pull_request.number}}
     secrets:
       TOKEN: ${{secrets.DEB_PKG_BOT_CI_TOKEN}}
 ```
+
+**Setup Requirements**:
+- Set repository variable `PKG_REPO_GITHUB_NAME` to the associated package repository (e.g., `qualcomm-linux/pkg-example`)
+- See [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source) for a complete example
 
 ### Notes
 

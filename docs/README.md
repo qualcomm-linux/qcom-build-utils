@@ -24,6 +24,7 @@ For package repository maintainers looking to use these workflows:
 
 ## Key Concepts
 
+- **Upstream Repository**: The source code repository for a project (e.g., [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source))
 - **Package Repository (pkg-*)**: A Debian packaging repository following the git-buildpackage structure, containing debian control files and workflows
 - **Reusable Workflows**: Centralized workflow definitions in qcom-build-utils that are called from package repositories
 - **Composite Actions**: Modular steps that perform specific tasks like building packages or checking ABI compatibility
@@ -35,5 +36,6 @@ For package repository maintainers looking to use these workflows:
 For questions or issues:
 - Review the documentation in this directory
 - Use the [pkg-template](https://github.com/qualcomm-linux/pkg-template) to start a new package repository
-- Check the [pkg-example](https://github.com/qualcomm-linux/pkg-example) repository for a complete example
+- Check the [pkg-example](https://github.com/qualcomm-linux/pkg-example) repository for a complete packaging example
+- See the [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source) repository for an example upstream project with package integration
 - Consult the main [README.md](../README.md) for general build instructions

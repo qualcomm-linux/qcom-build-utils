@@ -4,18 +4,22 @@ This document provides a high-level overview of the qcom-build-utils workflow ar
 
 ## System Overview
 
-The qcom-build-utils workflow system consists of three main components:
+The qcom-build-utils workflow system consists of four main components:
 
-1. **qcom-build-utils Repository** - Centralized workflow and action definitions
-2. **Package Repositories (pkg-*)** - Individual Debian packaging repositories
-3. **Build Infrastructure** - Container images, runners, and artifact storage
+1. **Upstream Repositories** - Source code repositories for projects (e.g., qcom-example-package-source)
+2. **Package Repositories (pkg-*)** - Debian packaging repositories that track upstream projects
+3. **qcom-build-utils Repository** - Centralized workflow and action definitions
+4. **Build Infrastructure** - Container images, runners, and artifact storage
 
 ```mermaid
 graph TB
+    subgraph "Upstream Repository"
+        UPR[PR to main]
+    end
+    
     subgraph "Package Repository (pkg-*)"
         PR[Pull Request]
         PM[Push to debian/latest]
-        UPR[Upstream PR]
     end
     
     subgraph "qcom-build-utils"
@@ -58,7 +62,34 @@ graph TB
 
 ## Component Responsibilities
 
-### 1. qcom-build-utils Repository
+### 1. Upstream Repositories
+
+**Purpose**: Source code repositories for projects that are packaged as Debian packages.
+
+**Example**: [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source)
+
+**Structure**:
+```
+qcom-example-package-source/
+├── .github/
+│   └── workflows/
+│       └── pkg-build-pr-check.yml  # Validates PRs don't break package
+├── src/                            # Source code
+├── include/                        # Headers
+├── Makefile                        # Build system
+└── README.md
+```
+
+**Responsibilities**:
+- Maintain the actual project source code
+- Implement project-specific features and fixes
+- Tag releases for package promotion
+- Optionally validate that PRs don't break the Debian package build
+
+**Package Integration**:
+Upstream repositories can include a workflow (e.g., `pkg-build-pr-check.yml`) that calls `qcom-upstream-pr-pkg-build-reusable-workflow` to ensure PRs don't break the package build. This workflow requires setting a repository variable `PKG_REPO_GITHUB_NAME` pointing to the associated package repository.
+
+### 2. qcom-build-utils Repository
 
 **Purpose**: Provides centralized, reusable workflow definitions and composite actions for building Debian packages.
 
@@ -74,7 +105,7 @@ graph TB
 - Maintain build container images
 - Host shared build scripts and utilities
 
-### 2. Package Repositories (pkg-*)
+### 3. Package Repositories (pkg-*)
 
 **Purpose**: Individual repositories containing Debian packaging metadata and source code for specific packages.
 
@@ -109,7 +140,7 @@ pkg-mypackage/
 - Follow git-buildpackage structure
 - Manage package-specific build configurations
 
-### 3. Build Infrastructure
+### 4. Build Infrastructure
 
 **Components**:
 
@@ -238,17 +269,19 @@ sequenceDiagram
 
 ### Upstream PR Validation Flow
 
-When an upstream repository opens a PR that affects the package:
+When a PR is opened in an upstream repository (e.g., qcom-example-package-source), an optional workflow can validate that the changes don't break the Debian package build:
 
 ```mermaid
 sequenceDiagram
-    participant Up as Upstream PR
+    participant Dev as Developer
+    participant Up as Upstream Repository
     participant RW as qcom-upstream-pr-pkg-build-reusable-workflow
     participant Pkg as pkg-* Repository
     participant Build as build_package Action
     participant ABI as abi_checker Action
     
-    Up->>RW: PR opened in upstream repo
+    Dev->>Up: Opens PR to main
+    Up->>RW: Triggers pkg-build-pr-check workflow
     RW->>Pkg: Clone packaging repo
     RW->>Up: Clone PR branch
     RW->>Pkg: Merge upstream PR into debian/latest
@@ -256,8 +289,13 @@ sequenceDiagram
     Build-->>RW: Build artifacts
     RW->>ABI: Check ABI compatibility
     ABI-->>RW: ABI check results
-    RW-->>Up: Report build status
+    RW-->>Up: Report build status to PR
 ```
+
+**Setup Requirements**:
+- Upstream repository must have a workflow file (e.g., `.github/workflows/pkg-build-pr-check.yml`)
+- Repository variable `PKG_REPO_GITHUB_NAME` must be set to the associated package repository name
+- Example: [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source)
 
 ## Container Build and Maintenance
 

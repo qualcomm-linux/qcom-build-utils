@@ -436,13 +436,20 @@ This will:
 
 If you maintain the upstream repository and want PRs validated against the package build:
 
-#### .github/workflows/test-package.yml (in upstream repo)
+#### Setup
+
+1. **Set repository variable**: Add `PKG_REPO_GITHUB_NAME` variable to your upstream repository
+   - Value: The associated package repository name (e.g., `qualcomm-linux/pkg-myproject`)
+
+2. **Add workflow file**: Create `.github/workflows/pkg-build-pr-check.yml` in your upstream repository
+
+#### .github/workflows/pkg-build-pr-check.yml (in upstream repo)
 
 ```yaml
-name: Test Package Build
+name: Package Build PR Check
 
 on:
-  pull_request:
+  pull_request_target:
     branches: [ main ]
 
 permissions:
@@ -450,20 +457,21 @@ permissions:
   security-events: write
 
 jobs:
-  test-package:
+  package-build-pr-check:
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-upstream-pr-pkg-build-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
-      upstream-repo: qualcomm-linux/myproject
-      upstream-repo-ref: ${{ github.head_ref }}
-      pkg-repo: qualcomm-linux/pkg-myproject
-      pr-number: ${{ github.event.pull_request.number }}
-      run-lintian: false
+      upstream-repo: ${{github.repository}}
+      upstream-repo-ref: ${{github.head_ref}}
+      pkg-repo: ${{vars.PKG_REPO_GITHUB_NAME}}
+      pr-number: ${{github.event.pull_request.number}}
     secrets:
       TOKEN: ${{secrets.DEB_PKG_BOT_CI_TOKEN}}
 ```
 
 This validates that upstream PRs don't break the Debian package build.
+
+**Example**: See [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source) for a complete upstream repository example with package integration.
 
 ## Package Repository Workflow Diagram
 
@@ -652,10 +660,22 @@ cat .github/workflows/post-merge.yml
 ls -la debian/
 ```
 
+### qcom-example-package-source
+
+The [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source) repository is an example upstream project that demonstrates package integration:
+
+- Upstream source code repository structure
+- Package build validation workflow
+- Integration with pkg-example package repository
+- Example of `PKG_REPO_GITHUB_NAME` variable usage
+
+This shows how an upstream project can validate that PRs don't break the Debian package build.
+
 ## Getting Help
 
 - Review this documentation
 - Use [pkg-template](https://github.com/qualcomm-linux/pkg-template) to start a new package repository
-- Check the [pkg-example](https://github.com/qualcomm-linux/pkg-example) repository for a complete example
+- Check the [pkg-example](https://github.com/qualcomm-linux/pkg-example) repository for a complete packaging example
+- See [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source) for an upstream project example
 - Consult [Debian packaging documentation](https://www.debian.org/doc/manuals/maint-guide/)
 - Open an issue in qcom-build-utils for workflow-related problems
