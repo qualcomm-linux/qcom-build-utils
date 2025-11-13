@@ -26,10 +26,32 @@ For package repository maintainers looking to use these workflows:
 
 - **Upstream Repository**: The source code repository for a project (e.g., [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source))
 - **Package Repository (pkg-*)**: A Debian packaging repository following the git-buildpackage structure, containing debian control files and workflows
+- **PKG_REPO_GITHUB_NAME Variable**: A repository variable set in the upstream repository that links it to its associated package repository
 - **Reusable Workflows**: Centralized workflow definitions in qcom-build-utils that are called from package repositories
 - **Composite Actions**: Modular steps that perform specific tasks like building packages or checking ABI compatibility
 - **Debian Branches**: Git branches following the `debian/` prefix convention (e.g., `debian/latest`, `debian/1.0.0-1`)
 - **Upstream Branches**: Git branches following the `upstream/` prefix convention for tracking upstream source code
+
+### Repository Linking
+
+Upstream and package repositories are linked via the `PKG_REPO_GITHUB_NAME` repository variable:
+
+```mermaid
+flowchart LR
+    subgraph US["Upstream Repository"]
+        USC[Source Code]
+        USV["Variable:<br/>PKG_REPO_GITHUB_NAME"]
+    end
+    
+    subgraph PKG["Package Repository"]
+        PKGD[Debian Packaging]
+    end
+    
+    USC -.linked via.-> USV
+    USV -->|references| PKGD
+    
+    style USV fill:#e1f5ff
+```
 
 ## Support
 

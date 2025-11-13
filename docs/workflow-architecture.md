@@ -89,6 +89,36 @@ qcom-example-package-source/
 **Package Integration**:
 Upstream repositories can include a workflow (e.g., `pkg-build-pr-check.yml`) that calls `qcom-upstream-pr-pkg-build-reusable-workflow` to ensure PRs don't break the package build. This workflow requires setting a repository variable `PKG_REPO_GITHUB_NAME` pointing to the associated package repository.
 
+#### Repository Variable Linking
+
+The connection between an upstream repository and its package repository is established via the `PKG_REPO_GITHUB_NAME` repository variable:
+
+```mermaid
+graph LR
+    subgraph "Upstream Repository"
+        UP[qcom-example-package-source]
+        UPVAR["Repository Variable:<br/>PKG_REPO_GITHUB_NAME<br/>= 'qualcomm-linux/pkg-example'"]
+        UPWF[.github/workflows/<br/>pkg-build-pr-check.yml]
+    end
+    
+    subgraph "Package Repository"
+        PKG[pkg-example]
+        PKGWF[.github/workflows/<br/>pre-merge.yml<br/>post-merge.yml]
+    end
+    
+    UP --> UPVAR
+    UPVAR -.references.-> PKG
+    UPWF -->|uses ${{vars.PKG_REPO_GITHUB_NAME}}| PKG
+    
+    style UPVAR fill:#e1f5ff
+```
+
+**Key Points**:
+- The `PKG_REPO_GITHUB_NAME` variable is set in the **upstream repository's** GitHub settings
+- Value format: `organization/repository` (e.g., `qualcomm-linux/pkg-example`)
+- The upstream workflow uses `${{vars.PKG_REPO_GITHUB_NAME}}` to reference the package repository
+- This creates a dynamic link allowing the upstream repo to validate changes against its package build
+
 ### 2. qcom-build-utils Repository
 
 **Purpose**: Provides centralized, reusable workflow definitions and composite actions for building Debian packages.
@@ -295,7 +325,24 @@ sequenceDiagram
 **Setup Requirements**:
 - Upstream repository must have a workflow file (e.g., `.github/workflows/pkg-build-pr-check.yml`)
 - Repository variable `PKG_REPO_GITHUB_NAME` must be set to the associated package repository name
+  - **Location**: Set in upstream repository → Settings → Secrets and variables → Actions → Variables
+  - **Format**: `organization/repository-name` (e.g., `qualcomm-linux/pkg-example`)
+  - **Usage**: Referenced in workflow as `${{vars.PKG_REPO_GITHUB_NAME}}`
 - Example: [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source)
+
+**Workflow Configuration**:
+The upstream repository's workflow uses the variable to dynamically reference its package repository:
+
+```yaml
+jobs:
+  package-build-pr-check:
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-upstream-pr-pkg-build-reusable-workflow.yml@development
+    with:
+      upstream-repo: ${{github.repository}}
+      upstream-repo-ref: ${{github.head_ref}}
+      pkg-repo: ${{vars.PKG_REPO_GITHUB_NAME}}  # Links to package repo
+      pr-number: ${{github.event.pull_request.number}}
+```
 
 ## Container Build and Maintenance
 

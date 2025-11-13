@@ -290,8 +290,26 @@ jobs:
 ```
 
 **Setup Requirements**:
-- Set repository variable `PKG_REPO_GITHUB_NAME` to the associated package repository (e.g., `qualcomm-linux/pkg-example`)
-- See [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source) for a complete example
+
+The `PKG_REPO_GITHUB_NAME` variable is the key to linking upstream and package repositories:
+
+1. **Configure in upstream repository**: Go to Settings → Secrets and variables → Actions → Variables
+2. **Create variable**:
+   - **Name**: `PKG_REPO_GITHUB_NAME`
+   - **Value**: Package repository in format `organization/repo-name` (e.g., `qualcomm-linux/pkg-example`)
+3. **Use in workflow**: Reference as `${{vars.PKG_REPO_GITHUB_NAME}}` in the `pkg-repo` parameter
+
+```mermaid
+graph LR
+    A[Upstream Repo<br/>Variable Set] -->|PKG_REPO_GITHUB_NAME| B[Workflow reads<br/>${{vars.PKG_REPO_GITHUB_NAME}}]
+    B -->|Passes to| C[qcom-upstream-pr-pkg-build<br/>reusable workflow]
+    C -->|Clones and tests| D[Package Repository<br/>e.g., pkg-example]
+    
+    style A fill:#e1f5ff
+    style D fill:#ffe6e6
+```
+
+**Example**: See [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source) for a complete example
 
 ### Notes
 

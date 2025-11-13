@@ -439,9 +439,36 @@ If you maintain the upstream repository and want PRs validated against the packa
 #### Setup
 
 1. **Set repository variable**: Add `PKG_REPO_GITHUB_NAME` variable to your upstream repository
-   - Value: The associated package repository name (e.g., `qualcomm-linux/pkg-myproject`)
+   - **Location**: Upstream repository → Settings → Secrets and variables → Actions → Variables
+   - **Variable name**: `PKG_REPO_GITHUB_NAME`
+   - **Value**: The associated package repository name (e.g., `qualcomm-linux/pkg-myproject`)
+   - **Purpose**: This variable creates the link between your upstream repository and its Debian package repository
 
 2. **Add workflow file**: Create `.github/workflows/pkg-build-pr-check.yml` in your upstream repository
+
+#### Repository Variable Configuration
+
+The `PKG_REPO_GITHUB_NAME` variable establishes the relationship between repositories:
+
+```mermaid
+graph TB
+    subgraph "Upstream Repository Settings"
+        VAR["Variables:<br/>PKG_REPO_GITHUB_NAME = 'qualcomm-linux/pkg-myproject'"]
+    end
+    
+    subgraph "Upstream Workflow"
+        WF[pkg-build-pr-check.yml<br/>uses: ${{vars.PKG_REPO_GITHUB_NAME}}]
+    end
+    
+    subgraph "Package Repository"
+        PKG[qualcomm-linux/pkg-myproject]
+    end
+    
+    VAR --> WF
+    WF -->|triggers build in| PKG
+    
+    style VAR fill:#ffe6e6
+```
 
 #### .github/workflows/pkg-build-pr-check.yml (in upstream repo)
 
@@ -461,15 +488,18 @@ jobs:
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-upstream-pr-pkg-build-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
-      upstream-repo: ${{github.repository}}
-      upstream-repo-ref: ${{github.head_ref}}
-      pkg-repo: ${{vars.PKG_REPO_GITHUB_NAME}}
+      upstream-repo: ${{github.repository}}           # Current upstream repo
+      upstream-repo-ref: ${{github.head_ref}}         # PR branch
+      pkg-repo: ${{vars.PKG_REPO_GITHUB_NAME}}        # Links to package repo via variable
       pr-number: ${{github.event.pull_request.number}}
     secrets:
       TOKEN: ${{secrets.DEB_PKG_BOT_CI_TOKEN}}
 ```
 
-This validates that upstream PRs don't break the Debian package build.
+**How the variable works**:
+- `${{vars.PKG_REPO_GITHUB_NAME}}` reads the repository variable from GitHub settings
+- The variable value (e.g., `qualcomm-linux/pkg-example`) tells the workflow which package repository to test against
+- This allows the upstream repository to automatically validate that code changes won't break the Debian package
 
 **Example**: See [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source) for a complete upstream repository example with package integration.
 
