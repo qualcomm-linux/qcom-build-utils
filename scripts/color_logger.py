@@ -21,6 +21,7 @@ Usage:
 
 import logging
 import datetime
+import sys
 
 class ColorLogger:
     LEVEL_STRING = {
@@ -52,7 +53,7 @@ class ColorLogger:
         reset = "\033[0m"
         color = self.LEVEL_COLORS.get(level, "")
         level_str = self.LEVEL_STRING.get(level, '    ')
-        colored_message = f"{color}{message}{reset}"
+        colored_message = f"{color}{message}{reset}" if sys.stdout.isatty() else f"{message}"
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
 
         self.logger.log(level, f"[{timestamp}] {level_str} : {colored_message if self.color_enabled else message}")
