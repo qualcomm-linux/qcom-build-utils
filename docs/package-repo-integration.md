@@ -6,6 +6,18 @@ This guide explains how to integrate qcom-build-utils workflows into your Debian
 
 Package repositories (conventionally named with `pkg-` prefix) are Debian packaging repositories that follow the git-buildpackage structure. They contain Debian control files and minimal workflow files that call the reusable workflows from qcom-build-utils.
 
+## Quick Start
+
+The fastest way to get started is to use the [pkg-template](https://github.com/qualcomm-linux/pkg-template) repository:
+
+1. Go to https://github.com/qualcomm-linux/pkg-template
+2. Click "Use this template" → "Create a new repository"
+3. Name your repository with the `pkg-` prefix
+4. Customize the template files for your package
+5. Follow the [workflow usage](#workflow-usage) section to start developing
+
+For a complete working example, see [pkg-example](https://github.com/qualcomm-linux/pkg-example).
+
 ## Repository Structure
 
 A typical package repository has the following structure:
@@ -63,7 +75,30 @@ gitGraph
 
 ## Setting Up Your Package Repository
 
-### Step 1: Repository Setup
+### Quick Start with Template
+
+The easiest way to create a new package repository is to use the [pkg-template](https://github.com/qualcomm-linux/pkg-template) repository as a starting point:
+
+1. **Navigate to the template repository**: Go to https://github.com/qualcomm-linux/pkg-template
+2. **Click "Use this template"**: Click the green "Use this template" button
+3. **Create your repository**: 
+   - Choose "qualcomm-linux" as the owner
+   - Name your repository with the `pkg-` prefix (e.g., `pkg-mypackage`)
+   - Add a description
+   - Click "Create repository"
+
+The template includes:
+- Pre-configured workflow files (`.github/workflows/pre-merge.yml` and `post-merge.yml`)
+- Basic Debian packaging structure (`debian/` directory with example files)
+- Proper source format configuration
+
+After creating from the template, you'll need to customize the files for your specific package.
+
+### Manual Setup (Alternative)
+
+If you prefer to set up a repository manually instead of using the template:
+
+#### Step 1: Repository Setup
 
 1. **Create repository** with `pkg-` prefix:
    ```bash
@@ -84,7 +119,9 @@ gitGraph
    - `DEB_PKG_BOT_CI_NAME`
    - `DEB_PKG_BOT_CI_EMAIL`
 
-### Step 2: Create Debian Packaging Files
+#### Step 2: Create Debian Packaging Files
+
+> **Note**: If you used the pkg-template, these files are already included. You'll need to customize them for your package.
 
 Create the standard Debian packaging structure:
 
@@ -153,7 +190,9 @@ For non-native (upstream tracking) packages:
 
 Follow the Debian copyright format. See example in pkg-example.
 
-### Step 3: Create Workflow Files
+#### Step 3: Create Workflow Files
+
+> **Note**: If you used the pkg-template, workflow files are already included and ready to use.
 
 Create the minimal workflow files that call qcom-build-utils reusable workflows.
 
@@ -215,7 +254,9 @@ jobs:
       TOKEN: ${{secrets.DEB_PKG_BOT_CI_TOKEN}}
 ```
 
-### Step 4: Initial Commit
+#### Step 4: Initial Commit
+
+> **Note**: If you created your repository from pkg-template, the initial structure is already in place. You should customize the files and then commit your changes.
 
 1. Create `debian/latest` branch:
    ```bash
@@ -579,7 +620,20 @@ Follow Debian versioning:
 - Review all dependency changes
 - Keep build containers up to date
 
-## Reference: pkg-example
+## Reference Repositories
+
+### pkg-template
+
+The [pkg-template](https://github.com/qualcomm-linux/pkg-template) repository is a template for creating new package repositories:
+
+- Pre-configured workflow files
+- Basic Debian packaging structure
+- Example control files
+- Ready to use via GitHub's "Use this template" feature
+
+Use this template as your starting point when creating a new package repository.
+
+### pkg-example
 
 The [pkg-example](https://github.com/qualcomm-linux/pkg-example) repository is a complete, working example of a package repository. Use it as a reference for:
 
@@ -601,6 +655,7 @@ ls -la debian/
 ## Getting Help
 
 - Review this documentation
-- Check the [pkg-example](https://github.com/qualcomm-linux/pkg-example) repository
+- Use [pkg-template](https://github.com/qualcomm-linux/pkg-template) to start a new package repository
+- Check the [pkg-example](https://github.com/qualcomm-linux/pkg-example) repository for a complete example
 - Consult [Debian packaging documentation](https://www.debian.org/doc/manuals/maint-guide/)
 - Open an issue in qcom-build-utils for workflow-related problems

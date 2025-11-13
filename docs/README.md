@@ -17,9 +17,10 @@ The qcom-build-utils repository provides a set of **reusable GitHub workflows** 
 
 For package repository maintainers looking to use these workflows:
 
-1. Review the [Workflow Architecture](./workflow-architecture.md) to understand the overall system
-2. Follow the [Package Repository Integration](./package-repo-integration.md) guide to set up workflows in your `pkg-*` repository
-3. Refer to the [pkg-example](https://github.com/qualcomm-linux/pkg-example) repository for a complete working example
+1. **Start with the template**: Use [pkg-template](https://github.com/qualcomm-linux/pkg-template) to quickly create a new package repository
+2. Review the [Workflow Architecture](./workflow-architecture.md) to understand the overall system
+3. Follow the [Package Repository Integration](./package-repo-integration.md) guide to customize your repository
+4. Refer to the [pkg-example](https://github.com/qualcomm-linux/pkg-example) repository for a complete working example
 
 ## Key Concepts
 
@@ -33,5 +34,6 @@ For package repository maintainers looking to use these workflows:
 
 For questions or issues:
 - Review the documentation in this directory
-- Check the [pkg-example](https://github.com/qualcomm-linux/pkg-example) repository
+- Use the [pkg-template](https://github.com/qualcomm-linux/pkg-template) to start a new package repository
+- Check the [pkg-example](https://github.com/qualcomm-linux/pkg-example) repository for a complete example
 - Consult the main [README.md](../README.md) for general build instructions
