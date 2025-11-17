@@ -34,23 +34,28 @@ For package repository maintainers looking to use these workflows:
 
 ### Repository Linking
 
-Upstream and package repositories are linked via the `PKG_REPO_GITHUB_NAME` repository variable:
+Upstream and package repositories are linked via the `PKG_REPO_GITHUB_NAME` repository variable, and in the opposite directrion via the `UPSTREAM_REPO_GITHUB_NAME`:
 
 ```mermaid
 flowchart LR
     subgraph US["Upstream Repository"]
         USC[Source Code]
-        USV["Variable:<br/>PKG_REPO_GITHUB_NAME"]
+        USV["Repo Variable:<br/>PKG_REPO_GITHUB_NAME"]
     end
     
     subgraph PKG["Package Repository"]
         PKGD[Debian Packaging]
+        PKGV["Repo Variable:<br/>UPSTREAM_REPO_GITHUB_NAME"]
     end
     
-    USC -.linked via.-> USV
-    USV -->|references| PKGD
+    USC -.uses.-> USV
+    USV -->|to reference| PKGD
     
+    PKGD -.uses.-> PKGV
+    PKGV -->|to reference| USC
+
     style USV fill:#e1f5ff
+    style PKGV fill:#e1f5ff
 ```
 
 ## Support
