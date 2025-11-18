@@ -499,17 +499,16 @@ echo '[CHROOT] Custom installed packages saved to /tmp/packages_\${DATE}.manifes
 echo '[CHROOT] Detecting installed kernel version...'
 kernel_ver=\$(echo "$KERNEL_DEB" | sed -n 's|.*/linux-kernel-\(.*\)-arm64\.deb|\1|p')
 crd_dtb_path=\"/lib/firmware/\$kernel_ver/device-tree/x1e80100-crd.dtb\"
+evk_dtb_path=\"/lib/firmware/\$kernel_ver/device-tree/hamoa-iot-evk.dtb\"
 
 echo '[CHROOT] Writing GRUB configuration...'
 tee /boot/grub.cfg > /dev/null <<GRUBCFG
 set timeout=5
-\#set default=${CODENAME}_crd
-set default=\"QLI\"
-if [ "$TARGET" == \"hamoa\"  ]; then
-        set default=\"hamoa\"
-fi
-menuentry \"Ubuntu QLI IoT for X Elite CRD\" --id QLI {
+set default=${CODENAME}_evk
+
+menuentry \"Ubuntu ${CODENAME} IoT for X Elite EVK\" --id ${CODENAME}_evk {
     search --no-floppy --label system --set=root
+    devicetree \$evk_dtb_path
     linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
     initrd /boot/initrd.img-\$kernel_ver
 }
@@ -520,24 +519,13 @@ menuentry \"Ubuntu ${CODENAME} IoT for X Elite CRD\" --id ${CODENAME}_crd {
     linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
     initrd /boot/initrd.img-\$kernel_ver
 }
-GRUBCFG
 
-# Conditionally append EVK entry if its DTB is present
-evk_dtb_path=\"/lib/firmware/\$kernel_ver/device-tree/hamoa-iot-evk.dtb\"
-
-if [ -f "\$evk_dtb_path" ]; then
-    echo '[CHROOT] EVK DTB detected — appending EVK GRUB menuentry...'
-    tee -a /boot/grub.cfg > /dev/null <<EVK
-menuentry \"Ubuntu ${CODENAME} IoT for X Elite EVK\" --id ${CODENAME}_evk {
+menuentry \"Ubuntu QLI IoT for X Elite CRD\" --id QLI {
     search --no-floppy --label system --set=root
-    devicetree \$evk_dtb_path
     linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
     initrd /boot/initrd.img-\$kernel_ver
 }
-EVK
-else
-    echo '[CHROOT] EVK DTB not found — skipping EVK GRUB menuentry.'
-fi
+GRUBCFG
 "
 
 # ==============================================================================
