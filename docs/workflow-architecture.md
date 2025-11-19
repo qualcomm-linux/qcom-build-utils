@@ -108,7 +108,7 @@ graph LR
     
     UP --> UPVAR
     UPVAR -.references.-> PKG
-    UPWF -->|uses ${{vars.PKG_REPO_GITHUB_NAME}}| PKG
+    UPWF -->|uses vars.PKG_REPO_GITHUB_NAME| PKG
     
     style UPVAR fill:#e1f5ff
 ```

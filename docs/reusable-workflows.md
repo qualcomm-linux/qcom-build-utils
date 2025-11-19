@@ -301,7 +301,7 @@ The `PKG_REPO_GITHUB_NAME` variable is the key to linking upstream and package r
 
 ```mermaid
 graph LR
-    A[Upstream Repo<br/>Variable Set] -->|PKG_REPO_GITHUB_NAME| B[Workflow reads<br/>${{vars.PKG_REPO_GITHUB_NAME}}]
+    A[Upstream Repo<br/>Variable Set] -->|PKG_REPO_GITHUB_NAME| B[Workflow reads<br/>vars.PKG_REPO_GITHUB_NAME]
     B -->|Passes to| C[qcom-upstream-pr-pkg-build<br/>reusable workflow]
     C -->|Clones and tests| D[Package Repository<br/>e.g., pkg-example]
     

@@ -457,7 +457,7 @@ graph TB
     end
     
     subgraph "Upstream Workflow"
-        WF[pkg-build-pr-check.yml<br/>uses: ${{vars.PKG_REPO_GITHUB_NAME}}]
+        WF[pkg-build-pr-check.yml<br/>uses: vars.PKG_REPO_GITHUB_NAME]
     end
     
     subgraph "Package Repository"
