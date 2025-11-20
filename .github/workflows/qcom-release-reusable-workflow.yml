@@ -10,21 +10,10 @@ on:
         type: string
         required: true
 
-
-      pkg-repo:
-        description: The upstream package repo against which to try the build
-        type: string
-        required: true
-
       distro-codename:
         description: The distribution codename to build for. Ex noble, jammy, etc
         type: string
         default: noble
-
-      runner:
-        description: The runner to use for the build
-        type: string
-        default: ubuntu-latest
 
     secrets:
       TOKEN:
@@ -35,9 +24,9 @@ permissions:
   security-events: write
 
 jobs:
-  gkg-release:
+  pkg-release:
 
-    runs-on: ${{inputs.runner}}
+    runs-on: ubuntu-latest
 
     defaults:
       run:
@@ -45,14 +34,12 @@ jobs:
 
     steps:
 
-      - name: Print caller info
-        run: |
-          echo "pkg-repo : ${{inputs.pkg-repo}}"
+      - name: Install devscripts
+        run: sudo apt update && sudo apt install -y devscripts
 
       - name: Checkout Packaging Repo
         uses: actions/checkout@v4
         with:
-          repository: ${{inputs.pkg-repo}}
           clean: false
           token: ${{secrets.TOKEN}}
           path: ./package-repo
@@ -61,24 +48,33 @@ jobs:
 
       - name: Changelog suite name change
         run: |
-          cd ./package-repo/debian
-          cat changelog
+          cd ./package-repo
+
+          git checkout debian/latest
+
+          cat debian/changelog
 
           # Check if the latest changelog entry suite is UNRELEASED
-          if ! head -1 changelog | grep -q '(UNRELEASED)'; then
-            echo "Error: The suite in the latest changelog entry is not UNRELEASED."
+          if ! head -1 debian/changelog | grep -q 'UNRELEASED'; then
+            echo "Error: The suite in the latest changelog entry is not UNRELEASED." \
+                 "The release process expects the latest entry to be UNRELEASED at any point except in the commit (this one) that represents the release"
             exit 1
           fi
 
-          sed -i 's/UNRELEASED/unstable/' changelog
-          cat changelog
+          #Update the changelog timestamp
+          dch --release --distribution=unstable "Release"
+
+          cat debian/changelog
 
       - name: Commit changelog suite change
         run: |
-          cd ./package-repo/debian
+          cd ./package-repo
 
           git config user.name "${{vars.DEB_PKG_BOT_CI_NAME}}"
           git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
+
+          export DEBFULLNAME="${{vars.DEB_PKG_BOT_CI_NAME}}"
+          export DEBEMAIL="${{vars.DEB_PKG_BOT_CI_EMAIL}}"
 
           version=$(dpkg-parsechangelog --show-field Version)
           
@@ -86,10 +82,25 @@ jobs:
 
           git tag debian/${version}
 
-          sed -i 's/unstable/UNRELEASED/' changelog
+          # bump Debian revision (last hyphen-separated field), e.g. 1.0.0-1 -> 1.0.0-2
+          if [[ "$version" != *-* ]]; then
+            echo "Error: version '$version' has no debian revision part" >&2
+            exit 1
+          fi
 
-          #TODO here we will want to bump the distro version for next dev cycle
-          git commit -a -m "Initial commit of new version ${version}"
+          upstream="${version%-*}"
+          rev="${version##*-}"
 
+          if ! [[ "$rev" =~ ^[0-9]+$ ]]; then
+            echo "Error: debian revision '$rev' is not numeric" >&2
+            exit 1
+          fi
 
-          
+          rev=$((rev + 1))
+          newversion="${upstream}-${rev}"
+          echo "Bumped version -> ${newversion}"
+          dch --newversion=${newversion} --distribution=UNRELEASED --controlmaint "Initial commit"
+
+          git commit -a -m "Initial commit of new version ${newversion}"
+          git push origin debian/latest
+          git push origin debian/${version} 
