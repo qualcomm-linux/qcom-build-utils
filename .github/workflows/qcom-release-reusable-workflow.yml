@@ -1,0 +1,95 @@
+name: Release Promotion Workflow
+description: |
+  This reusable workflow is called by a user to create a release of the package
+
+on:
+  workflow_call:
+    inputs:
+      qcom-build-utils-ref:
+        description: The ref name that was used to invoke this reusable workflow
+        type: string
+        required: true
+
+
+      pkg-repo:
+        description: The upstream package repo against which to try the build
+        type: string
+        required: true
+
+      distro-codename:
+        description: The distribution codename to build for. Ex noble, jammy, etc
+        type: string
+        default: noble
+
+      runner:
+        description: The runner to use for the build
+        type: string
+        default: ubuntu-latest
+
+    secrets:
+      TOKEN:
+        required: true
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  gkg-release:
+
+    runs-on: ${{inputs.runner}}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+
+      - name: Print caller info
+        run: |
+          echo "pkg-repo : ${{inputs.pkg-repo}}"
+
+      - name: Checkout Packaging Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{inputs.pkg-repo}}
+          clean: false
+          token: ${{secrets.TOKEN}}
+          path: ./package-repo
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Changelog suite name change
+        run: |
+          cd ./package-repo/debian
+          cat changelog
+
+          # Check if the latest changelog entry suite is UNRELEASED
+          if ! head -1 changelog | grep -q '(UNRELEASED)'; then
+            echo "Error: The suite in the latest changelog entry is not UNRELEASED."
+            exit 1
+          fi
+
+          sed -i 's/UNRELEASED/unstable/' changelog
+          cat changelog
+
+      - name: Commit changelog suite change
+        run: |
+          cd ./package-repo/debian
+
+          git config user.name "${{vars.DEB_PKG_BOT_CI_NAME}}"
+          git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
+
+          version=$(dpkg-parsechangelog --show-field Version)
+          
+          git commit -a -m "Release version ${version}"
+
+          git tag debian/${version}
+
+          sed -i 's/unstable/UNRELEASED/' changelog
+
+          #TODO here we will want to bump the distro version for next dev cycle
+          git commit -a -m "Initial commit of new version ${version}"
+
+
+          
