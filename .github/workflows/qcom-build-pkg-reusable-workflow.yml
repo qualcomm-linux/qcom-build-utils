@@ -121,13 +121,3 @@ jobs:
           distro-codename: ${{inputs.distro-codename}}
           force-override: false
           token: ${{secrets.TOKEN}}
-
-      - name: Push debian/<version> tag
-        if: ${{inputs.is-post-merge == true}}
-        run: |
-          cd ./package-repo
-
-          version=$(dpkg-parsechangelog --show-field Version)
-          git tag debian/${version}
-
-          git push origin debian/${version}
