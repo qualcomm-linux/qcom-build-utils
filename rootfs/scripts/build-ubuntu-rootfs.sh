@@ -502,29 +502,11 @@ kernel_ver=$(basename "$KERNEL_DEB" \
   | sed 's|^linux-kernel-\(.*\)-arm64\.deb$|\1|' \
   | sed 's|-[0-9][0-9]*-[0-9][0-9]*$||')
 
-crd_dtb_path=\"/lib/firmware/\$kernel_ver/device-tree/x1e80100-crd.dtb\"
-evk_dtb_path=\"/lib/firmware/\$kernel_ver/device-tree/hamoa-iot-evk.dtb\"
-
-echo '[CHROOT] Writing GRUB configuration...'
+echo '[CHROOT] Writing GRUB configuration for single DTB-agnostic entry...'
 tee /boot/grub.cfg > /dev/null <<GRUBCFG
 set timeout=5
-set default=${CODENAME}_evk
 
-menuentry \"Ubuntu ${CODENAME} IoT for X Elite EVK\" --id ${CODENAME}_evk {
-    search --no-floppy --label system --set=root
-    devicetree \$evk_dtb_path
-    linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
-    initrd /boot/initrd.img-\$kernel_ver
-}
-
-menuentry \"Ubuntu ${CODENAME} IoT for X Elite CRD\" --id ${CODENAME}_crd {
-    search --no-floppy --label system --set=root
-    devicetree \$crd_dtb_path
-    linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
-    initrd /boot/initrd.img-\$kernel_ver
-}
-
-menuentry \"Ubuntu QLI IoT for X Elite CRD\" --id QLI {
+menuentry "Ubuntu \${CODENAME}" {
     search --no-floppy --label system --set=root
     linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
     initrd /boot/initrd.img-\$kernel_ver
