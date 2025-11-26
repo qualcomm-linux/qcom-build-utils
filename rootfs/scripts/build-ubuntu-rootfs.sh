@@ -506,7 +506,7 @@ echo '[CHROOT] Writing GRUB configuration for single DTB-agnostic entry...'
 tee /boot/grub.cfg > /dev/null <<GRUBCFG
 set timeout=5
 
-menuentry "Ubuntu \${CODENAME}" {
+menuentry \"Ubuntu ${CODENAME}\" {
     search --no-floppy --label system --set=root
     linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
     initrd /boot/initrd.img-\$kernel_ver
