@@ -41,10 +41,7 @@
 #       * losetup
 #       * mount / umount
 #       * dd (with status=progress support is nice but not required)
-#   - sudo access for:
-#       * losetup
-#       * mkfs.vfat
-#       * mount / umount
+#   - This script must be run as root (no internal sudo calls).
 #
 # Notes:
 #   - The combined DTB is written to: <DTB_SRC>/combined-dtb.dtb
@@ -58,6 +55,12 @@
 # =============================================================================
 
 set -euo pipefail
+
+# Require running as root (needed for losetup, mkfs, mount, etc.)
+if [[ "$EUID" -ne 0 ]]; then
+    echo "[ERROR] This script must be run as root (no internal sudo calls)." >&2
+    exit 1
+fi
 
 # ----------------------------- Defaults --------------------------------------
 
@@ -79,7 +82,7 @@ Usage: $0 -dtb-src <path> -manifest <file> [-size <MB>] [-out <file>]
 
   -dtb-src   Path to DTB source directory (e.g. arch/arm64/boot/dts/qcom)
   -manifest  Path to manifest file listing DTBs (one per line)
-  -size      FAT image size in MB (default: 7)
+  -size      FAT image size in MB (default: 4)
   -out       Output image filename (default: dtb.bin)
 EOF
     exit 1
@@ -95,7 +98,7 @@ cleanup() {
     # Unmount the mountpoint if it exists and is currently mounted
     if [[ -n "${MNT_DIR:-}" && -d "$MNT_DIR" ]]; then
         if mountpoint -q "$MNT_DIR"; then
-            sudo umount "$MNT_DIR" || true
+            umount "$MNT_DIR" || true
         fi
         # Try to remove the temporary directory (ignore failures)
         rmdir "$MNT_DIR" 2>/dev/null || true
@@ -103,7 +106,7 @@ cleanup() {
 
     # Detach loop device if it was created
     if [[ -n "${LOOP_DEV:-}" ]]; then
-        sudo losetup -d "$LOOP_DEV" || true
+        losetup -d "$LOOP_DEV" || true
     fi
 
     # Remove temporary sanitized list
@@ -208,7 +211,6 @@ OUT="${DTB_SRC}/combined-dtb.dtb"
 rm -f "$OUT"
 
 # Concatenate in the order specified by the sanitized manifest.
-# xargs -a is GNU-specific but acceptable for typical Linux build hosts.
 xargs -a "$SANLIST" -r cat > "$OUT"
 echo "[INFO] Combined DTBs into: $OUT"
 ls -lh "$OUT"
@@ -219,7 +221,7 @@ echo "[INFO] Creating FAT image '$DTB_BIN' (${DTB_BIN_SIZE} MB)..."
 dd if=/dev/zero of="$DTB_BIN" bs=1M count="$DTB_BIN_SIZE" status=progress
 
 # Attach a loop device to the image
-LOOP_DEV="$(sudo losetup --show -fP "$DTB_BIN")"
+LOOP_DEV="$(losetup --show -fP "$DTB_BIN")"
 echo "[INFO] Using loop device: $LOOP_DEV"
 
 # Create a temporary mount directory for this run
@@ -227,15 +229,15 @@ MNT_DIR="$(mktemp -d -t dtb-mnt-XXXXXX)"
 
 # Format the loop device with FAT
 echo "[INFO] Formatting $LOOP_DEV as FAT..."
-sudo mkfs.vfat "$LOOP_DEV" >/dev/null
+mkfs.vfat "$LOOP_DEV" >/dev/null
 
 # Mount the loop device
 echo "[INFO] Mounting $LOOP_DEV at $MNT_DIR..."
-sudo mount "$LOOP_DEV" "$MNT_DIR"
+mount "$LOOP_DEV" "$MNT_DIR"
 
 # ----------------------- Deploy Combined DTB ---------------------------------
 
-sudo cp "$OUT" "$MNT_DIR/"
+cp "$OUT" "$MNT_DIR/"
 echo "[INFO] Deployed combined DTB into FAT image."
 echo "[INFO] Files in image:"
 ls -lh "$MNT_DIR"
