@@ -227,9 +227,9 @@ echo "[INFO] Using loop device: $LOOP_DEV"
 # Create a temporary mount directory for this run
 MNT_DIR="$(mktemp -d -t dtb-mnt-XXXXXX)"
 
-# Format the loop device with FAT
-echo "[INFO] Formatting $LOOP_DEV as FAT..."
-mkfs.vfat "$LOOP_DEV" >/dev/null
+# Format the loop device with FAT (4 KiB logical sector size)
+echo "[INFO] Formatting $LOOP_DEV as FAT with 4 KiB sector size..."
+mkfs.vfat -S 4096 "$LOOP_DEV" >/dev/null
 
 # Mount the loop device
 echo "[INFO] Mounting $LOOP_DEV at $MNT_DIR..."
