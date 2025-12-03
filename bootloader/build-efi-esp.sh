@@ -13,8 +13,8 @@
 #   Workflow:
 #     1. **Auto‑elevate** – re‑executes itself with `sudo` if not already root.
 #     2. **Install tooling** – `grub-efi-arm64-bin`, `grub2-common`, `dosfstools`.
-#     3. **Allocate** a 200 MB blank file and format it FAT32 with specified
-#        sector size (default: 512).
+#     3. **Allocate** a blank file (size depends on sector size) and format it
+#        FAT32 with specified sector size (default: 512).
 #     4. **Loop‑attach** the image and install GRUB for the arm64‑efi target
 #        in *removable* mode (no NVRAM writes).
 #     5. **Seed** a minimal `grub.cfg` that chain‑loads the main GRUB on
@@ -62,6 +62,12 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Adjust ESP size for 4096-byte sector case
+if [[ "$SECTOR_SIZE" -eq 4096 ]]; then
+    ESP_SIZE_MB=300
+    echo "[INFO] Sector size is 4096; adjusting ESP size to ${ESP_SIZE_MB} MB for FAT32 compliance."
+fi
 
 echo "[INFO] Using sector size: ${SECTOR_SIZE}"
 
