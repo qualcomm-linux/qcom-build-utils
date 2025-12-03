@@ -33,11 +33,6 @@ on:
         type: boolean
         default: false
 
-      push-to-repo:
-        description: Whether or not to push the built package to the repository if the compiled version is not already in it
-        type: boolean
-        default: false
-
       is-post-merge:
         description: true if this build has been triggered by a merge into debian/latest. Will ensure PR branch is deleted
         type: boolean
@@ -55,7 +50,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
 
 env:
   REPO_URL: https://qualcomm-linux.github.io/pkg-oss-staging-repo/
@@ -115,7 +109,7 @@ jobs:
           distro-codename: ${{inputs.distro-codename}}
 
       - name: Push package to repo
-        if: ${{inputs.push-to-repo == true}}
+        if: ${{inputs.is-post-merge == true}}
         uses: ./qcom-build-utils/.github/actions/push_to_repo
         with:
           distro-codename: ${{inputs.distro-codename}}

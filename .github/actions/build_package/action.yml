@@ -44,7 +44,7 @@ runs:
       run: |
         echo "Listing the content of the workspace :"; tree
 
-        mkdir ${{inputs.build-dir}}
+        mkdir -p ${{inputs.build-dir}}
 
         if grep -q 'quilt' ./package-repo/debian/source/format; then
           echo "Source format is quilt"

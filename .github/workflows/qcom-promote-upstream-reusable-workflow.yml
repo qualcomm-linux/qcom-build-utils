@@ -41,8 +41,7 @@ env:
   NORMALIZED_VERSION: ""
   DISTRIBUTION: noble
 
-  #TODO : Check if a PR branch already exist. This would mean that someone or something triggered the
-  # promotion more than once before it was merged
+  UPSTREAM_TAG_ALREADY_EXISTS: false
 
 jobs:
   promote-upstream-version:
@@ -61,25 +60,22 @@ jobs:
 
     steps:
 
-      - name: Ensure Workspace Is Clean
-        run: rm -rf *
-
       # Normalizing a tag : (e.g ) v1.0.0 -> 1.0.0
       - name: Normalize Tag Version
         run: |
-          echo "ℹ️Input upstream-tag is : ${{inputs.upstream-tag}}"
+          echo "ℹ️ Input upstream-tag is : ${{inputs.upstream-tag}}"
 
           NORMALIZED_VERSION=$(echo "${{inputs.upstream-tag}}" | sed 's/^v//')
           echo "NORMALIZED_VERSION=$NORMALIZED_VERSION" >> $GITHUB_ENV
 
-          echo "ℹ️Normalized version : $NORMALIZED_VERSION"
+          echo "ℹ️ Normalized version : $NORMALIZED_VERSION"
 
       - name: Checkout qcom-build-utils
         uses: actions/checkout@v4
         with:
           repository: qualcomm-linux/qcom-build-utils
           ref: ${{inputs.qcom-build-utils-ref}}
-          token: ${{secrets.TOKEN}}
+          #token: Not needed for public repo
           path: ./qcom-build-utils
           fetch-depth: 1
           sparse-checkout: |
@@ -90,7 +86,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          clean: false # A rm -rf * was done first, don't clean otherwise this would delete qcom-build-utils cloned above
           token: ${{secrets.TOKEN}}
           path: ./package-repo
           fetch-depth: 0
@@ -119,16 +114,54 @@ jobs:
             exit 1
           fi
 
-      - name: Determine If Requested Tag Already Exist In upstream/
+      - name: Validate the upstream tag promotion state
         run: |
           cd ./package-repo
 
-          if (git tag --list | grep "upstream/${{env.NORMALIZED_VERSION}}"); then
-            echo "❌ It appears like this repo has already integrated the upstream tag '${{inputs.upstream-tag}}'" \
-                 " because a local tag 'upstream/$NORMALIZED_VERSION' already exists."
+          # Check if the upstream/<normalized_version> tag does not already exists
+          if ! git tag --list | grep "upstream/${{env.NORMALIZED_VERSION}}"; then
+            echo "✅ The upstream tag '${{inputs.upstream-tag}}' has not been promoted yet. Continuing."
+            exit 0
+          fi
+
+          echo "⚠️ It appears like this repo has already integrated the upstream tag '${{inputs.upstream-tag}}'"
+
+          LATEST_UPSTREAM_TAG=$(git tag --list 'upstream/*' | sort -V | tail -1)
+
+          echo "ℹ️ The latest upstream tag in the repo is: $LATEST_UPSTREAM_TAG"
+
+          if [ "$LATEST_UPSTREAM_TAG" != "upstream/${{env.NORMALIZED_VERSION}}" ]; then
+            echo "❌ However, the existing tag 'upstream/${{env.NORMALIZED_VERSION}}' is NOT the latest upstream tag"
+            echo "❌ This means we are trying to promote an older tag. Aborting."
             exit 1
-          else
-            echo "✅ TODO MAKE SURE WE ARE NOT REGRESSING"
+          fi
+
+          echo "ℹ️ The existing tag 'upstream/${{env.NORMALIZED_VERSION}}' is the latest upstream tag already."
+          echo "ℹ️ This is likely a second attempt to promote the same upstream tag, where the first attempt already added the upstream tag in the upstram branch"
+
+          # Check if there is a PR open for this already
+          gh auth login --with-token <<< "${{secrets.TOKEN}}"
+          PRS=$(gh pr list --head "debian/pr/${{env.NORMALIZED_VERSION}}-1" --state open --json number --jq '.[].number')
+          if [ -n "$PRS" ]; then
+            echo "❌ An open PR already exists for this promotion attempt: $PRS"
+            echo "❌ Please merge or close the existing PR before attempting to promote the same upstream tag again."
+            exit 1
+          fi
+
+          # If we reach this point, it means the upstream tag exists but no PR is open for it
+          echo "⚠️ The upstream tag 'upstream/${{env.NORMALIZED_VERSION}}' already exists but no PR is open for it."
+          echo "⚠️ This likely means the previous promotion PR was closed without merging."
+          echo "⚠️ We will proceed with the promotion, but please ensure to merge the resulting PR to avoid confusion like this."
+          
+          # Keep track that the upstream tag already exists
+          echo "UPSTREAM_TAG_ALREADY_EXISTS=true" >> $GITHUB_ENV
+
+          # Perform a last check to see if the debian/pr/<version>-1 branch already exists locally (which would mean its also present remotely)
+          if git ls-remote --exit-code --heads origin "debian/pr/${{env.NORMALIZED_VERSION}}-1"; then
+            echo "❌ The debian/pr/${{env.NORMALIZED_VERSION}}-1 branch already exists remotely."
+            echo "❌ This likely means the previous promotion PR branch was not deleted after closing the PR."
+            echo "❌ Please delete the remote branch before attempting to promote the same upstream tag again."
+            exit 1
           fi
 
       - name: Add Upstream Link As A Remote And Fetch Tags
@@ -137,6 +170,15 @@ jobs:
           git remote add upstream-source https://x-access-token:${{secrets.TOKEN}}@github.com/${{inputs.upstream-repo}}.git
           git fetch upstream-source "+refs/tags/*:refs/tags/*"
 
+      - name: Ensure the tag exists in the upstream repo
+        run: |
+          cd ./package-repo
+
+          if ! git rev-parse --verify "refs/tags/${{inputs.upstream-tag}}" >/dev/null 2>&1; then
+            echo "❌ The specified upstream tag '${{inputs.upstream-tag}}' does not exist in the upstream repository."
+            exit 1
+          fi
+          
       - name: Pre-populate the upstream/latest branch if first promotion
         run: |
           cd ./package-repo
@@ -184,13 +226,17 @@ jobs:
         run: |
           cd ./package-repo
 
-          # Push upstream/latest branch promoted to the tag
-          git push origin upstream/latest
+          if [ "${{env.UPSTREAM_TAG_ALREADY_EXISTS}}" = "false" ]; then
+              # This is the happy path where no previous promotion attempt was detected
 
-          git tag upstream/${{env.NORMALIZED_VERSION}} upstream/latest
+              # Push upstream/latest branch promoted to the tag
+              git push origin upstream/latest
 
-          # Push that new tag
-          git push origin upstream/${{env.NORMALIZED_VERSION}}
+              git tag upstream/${{env.NORMALIZED_VERSION}} upstream/latest
+
+              # Push that new tag
+              git push origin upstream/${{env.NORMALIZED_VERSION}}
+          fi
 
           git push origin debian/pr/${{env.NORMALIZED_VERSION}}-1
 
@@ -200,44 +246,6 @@ jobs:
 
           gh auth login --with-token <<< "${{secrets.TOKEN}}"
 
-          gh pr create \
-            --title "Promote upstream version ${{env.NORMALIZED_VERSION}}" \
-            --body "Automated PR to test upstream version promotion. Checkout this branch locally and push additional commits to make the build pass if need be.
-          \`\`\`mermaid
-          ---
-          config:
-            themeVariables:
-              'gitInv2': '#ff0000'
-            gitGraph:
-              parallelCommits: true
-              rotateCommitLabel: true
-          ---
-          gitGraph BT:
-              
-              branch debian/latest   order: 1
-              branch upstream-main   order: 4
-              branch upstream/latest order: 3
-              checkout main
-              commit id: 'Unrelated history: workflows, doc'
-              checkout upstream-main
-              commit
-              checkout upstream-main
-              commit
-              commit id: 'release' tag: 'v1.0.0'
-              checkout upstream/latest
-              commit id: 'previous stuff'
-              merge upstream-main id: 'Filtered .github/debian folders' tag: 'upstream/1.0.0'
-              checkout debian/latest
-              commit
-              commit
-              commit
-              branch debian/pr/1.0.0-1 order: 2
-              merge upstream/latest id: '*YOU ARE HERE*' type: HIGHLIGHT
-              commit id: 'possible patches'
-              checkout debian/latest
-              merge debian/pr/1.0.0-1 id: 'USER CLICKED MERGE'
-              commit id: 'suite: UNRELEASED to unstable' type: HIGHLIGHT tag: 'debian/1.0.0-1'
-              commit id: 'suite: unstable->UNRELEASED'
-          \`\`\` " \
-            --base debian/latest \
-            --head debian/pr/${{env.NORMALIZED_VERSION}}-1
+          ../qcom-build-utils/scripts/create_promotion_pr.py \
+            --upstream-tag "${{inputs.upstream-tag}}" \
+            --normalized-version "${{env.NORMALIZED_VERSION}}"

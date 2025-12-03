@@ -39,7 +39,22 @@ echo "Merging upstream changes from upstream tag $upstream into Debian packaging
 git checkout "$upstream"
 git reset "$debian_ref" -- :/:debian :/:.github
 tree=$(git write-tree)
-commit=$(git commit-tree -p "$debian_ref" -p "$upstream" -m "Packaging merge from $upstream" "$tree")
+
+merge_commit_header="Merge upstream tag '$upstream' into Debian packaging branch '$debian_branch'"
+
+merge_commit_body=$(cat <<EOF
+This commit pulls in upstream changes from tag '$upstream' into the Debian packaging branch.
+
+Since upstream project might have content of their own in their .github/ folder (because they have CI stuff on their side),
+it's important to NOT pick up .github/ folder from upstream, and only leave the .github/ folder from debian packaging branch.
+
+The same applies to debian/ folder if upstream has one (which is rare but possible).
+EOF
+)
+
+merge_commit_signoff="Signed-off-by: $(git config user.name) <$(git config user.email)>"
+
+commit=$(git commit-tree -p "$debian_ref" -p "$upstream" -m "$merge_commit_header" -m "$merge_commit_body" -m "$merge_commit_signoff" "$tree")
 git reset --hard
 git checkout "$debian_branch"
 git reset --hard "$commit"
