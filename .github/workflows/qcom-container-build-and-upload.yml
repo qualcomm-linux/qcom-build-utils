@@ -13,17 +13,21 @@ on:
   pull_request_target:
     branches:
       - main
-      - development
+    paths:
+      - '.github/workflows/qcom-container-build-and-upload.yml'
+      - 'docker/**'
 
   push:
     branches:
       - main
+    paths:
+      - '.github/workflows/qcom-container-build-and-upload.yml'
+      - 'docker/**'
 
   workflow_dispatch:
 
 permissions:
   contents: read
-  security-events: write
 
 env:
   QCOM_ORG_NAME: "qualcomm-linux"
@@ -32,57 +36,8 @@ env:
 
 jobs:
 
-  # Check if this PR changes files in the docker/ folder. If not, there is no point in building and pushing a new image.
-  check-if-build-needed:
-    runs-on: ubuntu-latest
-    outputs:
-      build-needed: ${{ steps.set-output.outputs.build-needed }}
-    steps:
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{github.head_ref}}
-          fetch-depth: 0
-
-      - name: Check if build is needed
-        id: set-output
-        run: |
-          echo "build-needed=false" >> $GITHUB_OUTPUT
-          
-          if [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
-            CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
-            echo "Changed files: $CHANGED_FILES"
-            if [[ $CHANGED_FILES == *"docker/"* ]]; then
-              echo "Build IS needed as docker/ folder changed."
-              echo "build-needed=true" >> $GITHUB_OUTPUT
-            else
-              echo "Build is NOT needed as docker/ folder did not change."
-              echo "build-needed=false" >> $GITHUB_OUTPUT
-            fi
-
-          elif [[ "${{ github.event_name }}" == "push" ]]; then
-            CHANGED_FILES=$(git diff --name-only ${{ github.event.before }}..${{ github.event.after }})
-            echo "Changed files: $CHANGED_FILES"
-            if [[ $CHANGED_FILES == *".github/docker/"* ]]; then
-              echo "Build IS needed as .github/docker/ folder changed."
-              echo "build-needed=true" >> $GITHUB_OUTPUT
-            else
-              echo "Build is NOT needed as .github/docker/ folder did not change."
-              echo "build-needed=false" >> $GITHUB_OUTPUT
-            fi
-          elif [[ "${{ github.event_name }}" == "schedule" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "Build is needed for schedule or workflow_dispatch or schedule."
-            echo "build-needed=true" >> $GITHUB_OUTPUT
-          else
-            echo "Unrecognized event: ${{ github.event_name }}. Failing the build."
-            exit 1
-          fi
-
   # Build the amd64 natively on ubuntu-latest which is an x86_64 host
   build-image-amd64:
-    needs: check-if-build-needed
-    if: needs.check-if-build-needed.outputs.build-needed == 'true'
     runs-on: ubuntu-latest
     steps:
 
@@ -103,8 +58,6 @@ jobs:
   # Cross compiling the image using buildx on an x86_64 host was tried but failed due to
   # issues with qemu and multiarch support in docker buildx.
   build-image-arm64:
-    needs: check-if-build-needed
-    if: needs.check-if-build-needed.outputs.build-needed == 'true'
     runs-on: ["self-hosted", "lecore-prd-u2404-arm64-xlrg-od-ephem"]
     steps:
       - name: Checkout Dockerfile
