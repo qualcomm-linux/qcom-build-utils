@@ -14,7 +14,6 @@
 #   - Supports JSON package manifest for additional package installation
 #     (via apt or local .deb) inside the rootfs.
 #   - Supports injecting custom apt sources from the package manifest.
-#   - Backward compatible with legacy 2-argument mode (kernel.deb, firmware.deb).
 #   - Parses qcom-product.conf (if provided) or uses defaults to determine the base image.
 #   - Runs target platform-specific image preprocessing to populate rootfs/.
 #   - Injects custom kernel and firmware .deb packages.
@@ -24,23 +23,32 @@
 #   - Deploy package manifest output files
 #   - Produces a flashable ext4 image (ubuntu.img).
 #
-# USAGE:
-#   FULL:   ./build-ubuntu-rootfs.sh <qcom-product.conf> <package-manifest.json> <kernel.deb> <firmware.deb>
-#   CONFIG: ./build-ubuntu-rootfs.sh <qcom-product.conf> <kernel.deb> <firmware.deb>
-#   LEGACY: ./build-ubuntu-rootfs.sh <kernel.deb> <firmware.deb>
+# UPDATED (seed-based preprocessing):
+#   - Instead of downloading/extracting an Ubuntu ISO and unsquashing minimal.squashfs,
+#     preprocessing now uses a seed file (list of packages) + distro/codename from
+#     qcom-product.conf to create the baseline rootfs via debootstrap.
+#
+# USAGE (named inputs):
+#   ./build-ubuntu-rootfs.sh \
+#     --product-conf qcom-product.conf \
+#     --seed seed_file \
+#     --kernel-package kernel.deb \
+#     --firmware firmware.deb \
+#     [--overlay package-manifest.json]
 #
 # ARGUMENTS:
-#   <qcom-product.conf>      Optional. Product configuration file for build parameters.
-#   <package-manifest.json>  Optional. JSON manifest specifying extra packages to install.
-#   <kernel.deb>             Required. Custom kernel package.
-#   <firmware.deb>           Required. Custom firmware package.
+#   --product-conf <qcom-product.conf>     Required. Product configuration file.
+#   --seed <seed_file>                    Required. Seed file: one package per line (# comments allowed).
+#   --kernel-package <kernel.deb>         Required. Custom kernel package.
+#   --firmware <firmware.deb>             Required. Custom firmware package.
+#   --overlay <package-manifest.json>      Optional. JSON manifest specifying extra packages/apt sources.
 #
 # OUTPUT:
 #   ubuntu.img               Flashable ext4 rootfs image.
 #
 # REQUIREMENTS:
 #   - Run as root (auto-elevates with sudo if needed).
-#   - Host tools: wget, 7z, jq, losetup, mount, cp, chroot, mkfs.ext4, truncate, etc.
+#   - Host tools: debootstrap, wget, jq, losetup, mount, cp, chroot, mkfs.ext4, truncate, etc.
 #
 # AUTHOR: Bjordis Collaku <bcollaku@qti.qualcomm.com>
 # ==============================================================================
@@ -56,59 +64,74 @@ if [[ "$EUID" -ne 0 ]]; then
 fi
 
 # ==============================================================================
-# Globals & Argument Parsing (backward compatible)
+# Globals & Argument Parsing (named inputs)
 # ==============================================================================
 CONF=""
-MANIFEST=""
+SEED=""
+MANIFEST=""          # internal name retained (overlay JSON)
 KERNEL_DEB=""
 FIRMWARE_DEB=""
 USE_CONF=0
 USE_MANIFEST=0
 TARGET=""
 
-if [[ $# -eq 4 ]]; then
-    CONF="$1"
-    MANIFEST="$2"
-    KERNEL_DEB="$3"
-    FIRMWARE_DEB="$4"
-    USE_CONF=1
-    USE_MANIFEST=1
-elif [[ $# -eq 3 ]]; then
-    if [[ "$1" == *.conf ]]; then
-        CONF="$1"
-        MANIFEST=""
-        KERNEL_DEB="$2"
-        FIRMWARE_DEB="$3"
-        USE_CONF=1
-        USE_MANIFEST=0
-    else
-        CONF=""
-        MANIFEST=""
-        KERNEL_DEB="$1"
-        FIRMWARE_DEB="$2"
-        USE_CONF=0
-        USE_MANIFEST=0
-        TARGET="$3"
-    fi
-elif [[ $# -eq 2 ]]; then
-    CONF=""
-    MANIFEST=""
-    KERNEL_DEB="$1"
-    FIRMWARE_DEB="$2"
-    USE_CONF=0
-    USE_MANIFEST=0
-else
+print_usage() {
     echo "Usage:"
-    echo "  $0 <qcom-product.conf> <package-manifest.json> <kernel_package.deb> <firmware_package.deb>"
-    echo "  $0 <qcom-product.conf> <kernel_package.deb> <firmware_package.deb>"
-    echo "  $0 <kernel_package.deb> <firmware_package.deb>"
+    echo "  $0 --product-conf <qcom-product.conf> --seed <seed_file> --kernel-package <kernel.deb> --firmware <firmware.deb> [--overlay <package-manifest.json>]"
+    echo
+    echo "Arguments:"
+    echo "  --product-conf   Required. qcom-product.conf"
+    echo "  --seed           Required. Seed file (one package per line; supports # comments)"
+    echo "  --kernel-package Required. Kernel .deb"
+    echo "  --firmware       Required. Firmware .deb"
+    echo "  --overlay        Optional. package-manifest.json (same schema as current manifest)"
+}
+
+# Parse named options
+# NOTE: We intentionally keep parsing simple (no getopt dependency) for portability.
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --product-conf)
+            CONF="${2-}"; shift 2 ;;
+        --seed)
+            SEED="${2-}"; shift 2 ;;
+        --kernel-package)
+            KERNEL_DEB="${2-}"; shift 2 ;;
+        --firmware)
+            FIRMWARE_DEB="${2-}"; shift 2 ;;
+        --overlay)
+            MANIFEST="${2-}"; shift 2 ;;
+        -h|--help)
+            print_usage
+            exit 0
+            ;;
+        *)
+            echo "[ERROR] Unknown option: $1"
+            print_usage
+            exit 1
+            ;;
+    esac
+done
+
+# Validate required args
+if [[ -z "${CONF}" || -z "${SEED}" || -z "${KERNEL_DEB}" || -z "${FIRMWARE_DEB}" ]]; then
+    echo "[ERROR] Missing required argument(s)."
+    print_usage
     exit 1
 fi
 
+USE_CONF=1
+USE_MANIFEST=0
+if [[ -n "${MANIFEST}" ]]; then
+    USE_MANIFEST=1
+fi
+
+[[ -f "$CONF" ]] || { echo "[ERROR] Config file not found: $CONF"; exit 1; }
+[[ -f "$SEED" ]] || { echo "[ERROR] Seed file not found: $SEED"; exit 1; }
 [[ -f "$KERNEL_DEB" ]] || { echo "[ERROR] Kernel package not found: $KERNEL_DEB"; exit 1; }
 [[ -f "$FIRMWARE_DEB" ]] || { echo "[ERROR] Firmware package not found: $FIRMWARE_DEB"; exit 1; }
 if [[ "$USE_MANIFEST" -eq 1 && -n "$MANIFEST" ]]; then
-    [[ -f "$MANIFEST" ]] || { echo "[ERROR] Manifest file not found: $MANIFEST"; exit 1; }
+    [[ -f "$MANIFEST" ]] || { echo "[ERROR] Manifest/overlay file not found: $MANIFEST"; exit 1; }
 fi
 
 WORKDIR=$(pwd)
@@ -144,144 +167,129 @@ parse_configuration() {
 }
 
 # ==============================================================================
-# Function: image_preproccessing_iot
-#     Target: iot
-#     Downloads/extracts the base image, mounts, and fills $ROOTFS_DIR/.
-#     Distro-specific handling is done via an inner case.
+# Function: _seed_to_debootstrap_include
+#     Parses seed file into a comma-separated package list.
+#     - Supports blank lines and # comments.
+#     - Ensures required baseline packages exist for later stages (without changing later stages).
 # ==============================================================================
-image_preproccessing_iot() {
-  case "$(echo "$DISTRO" | tr '[:upper:]' '[:lower:]')" in
-    ubuntu|ubuntu-server)
-      echo "[INFO][iot][ubuntu] Preparing environment..."
+_seed_to_debootstrap_include() {
+    local seed_file="$1"
+    local include_pkgs=()
+    declare -A seen=()
 
-      # --- Silent ensure of 7z (p7zip-full) ---
-      if ! command -v 7z >/dev/null 2>&1; then
-        echo "[INFO][iot][ubuntu] '7z' not found. Installing p7zip-full silently..."
-        export DEBIAN_FRONTEND=noninteractive
-        # Use -qq for quiet and redirect all output to /dev/null
-        apt-get -qq update >/dev/null 2>&1 || true
-        apt-get -qq install -y p7zip-full >/dev/null 2>&1 || {
-          echo "[ERROR] Failed to install 'p7zip-full' required for 7z."
-          exit 1
-        }
-      fi
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%%#*}"
+        line="$(echo "$line" | xargs)"
+        [[ -z "$line" ]] && continue
 
-      # --- Silent ensure of unsquashfs (squashfs-tools) ---
-      if ! command -v unsquashfs >/dev/null 2>&1; then
-        echo "[INFO][iot][ubuntu] 'unsquashfs' not found. Installing squashfs-tools silently..."
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get -qq update >/dev/null 2>&1 || true
-        apt-get -qq install -y squashfs-tools >/dev/null 2>&1 || {
-          echo "[ERROR] Failed to install 'squashfs-tools' required for unsquashfs."
-          exit 1
-        }
-      fi    
-
-      echo "[INFO][iot][ubuntu] Downloading ISO..."
-
-      # SAFE under set -u:
-      ISO_NAME="${ISO_NAME-}"
-      if [[ -z "${ISO_NAME}" ]]; then
-        if [[ -z "${IMG_URL-}" ]]; then
-          echo "[ERROR] IMG_URL is empty/unset; cannot derive ISO_NAME."
-          exit 1
+        # Seed must be one package token per line
+        if [[ "$line" =~ [[:space:]] ]]; then
+            echo "[ERROR] Invalid seed entry (whitespace found). Use one package per line:"
+            echo "        '$line'"
+            exit 1
         fi
-        ISO_NAME="$(basename "${IMG_URL%%\?*}")"
-        [[ -z "$ISO_NAME" || "$ISO_NAME" == "/" ]] && ISO_NAME="image.iso"
-      fi
 
-      # Working dirs
-      ISO_EXTRACT_DIR="${ISO_EXTRACT_DIR:-isoImage}"
-      SQUASHFS_WORK_DIR="${SQUASHFS_WORK_DIR:-squashfs-root}"
-      MNT_DIR="${MNT_DIR:-/mnt/iot-iso-tmp}"  # kept for compatibility with other logic
-
-      # Fetch ISO
-      if ! wget -q -c "$IMG_URL" -O "$ISO_NAME"; then
-        echo "[ERROR] Failed to download ISO from: $IMG_URL"
-        exit 1
-      fi
-
-      echo "[INFO][iot][ubuntu] Extracting ISO with 7z..."
-      rm -rf "$ISO_EXTRACT_DIR" "$SQUASHFS_WORK_DIR"
-      mkdir -p "$ISO_EXTRACT_DIR" "$ROOTFS_DIR"
-
-      if ! 7z x "$ISO_NAME" -o"$ISO_EXTRACT_DIR" -y >/dev/null; then
-        echo "[ERROR] Failed to extract ISO: $ISO_NAME"
-        exit 1
-      fi
-
-      # --- Robust squashfs selection ---
-      local SQUASHFS_PATH=""
-      for candidate in \
-        "$ISO_EXTRACT_DIR/casper/ubuntu-server-minimal.squashfs" \
-        "$ISO_EXTRACT_DIR/casper/minimal.squashfs" \
-        "$ISO_EXTRACT_DIR/casper/filesystem.squashfs" \
-        "$ISO_EXTRACT_DIR/ubuntu-server-minimal.squashfs" \
-        "$ISO_EXTRACT_DIR/minimal.squashfs" \
-        "$ISO_EXTRACT_DIR/filesystem.squashfs"
-      do
-        if [[ -f "$candidate" ]]; then
-          SQUASHFS_PATH="$candidate"
-          break
+        if [[ -z "${seen[$line]+x}" ]]; then
+            include_pkgs+=("$line")
+            seen["$line"]=1
         fi
-      done
-      if [[ -z "$SQUASHFS_PATH" ]]; then
-        mapfile -t found_squashfs < <(find "$ISO_EXTRACT_DIR" -maxdepth 3 -type f -name '*.squashfs' 2>/dev/null | sort)
-        if (( ${#found_squashfs[@]} == 1 )); then
-          SQUASHFS_PATH="${found_squashfs[0]}"
-        elif (( ${#found_squashfs[@]} > 1 )); then
-          for f in "${found_squashfs[@]}"; do
-            if [[ "$f" =~ minimal\.squashfs$ ]]; then
-              SQUASHFS_PATH="$f"
-              break
-            fi
-          done
-          [[ -z "$SQUASHFS_PATH" ]] && SQUASHFS_PATH="${found_squashfs[0]}"
-          echo "[WARN][iot][ubuntu] Multiple squashfs files found:"
-          printf '       - %s\n' "${found_squashfs[@]}"
-          echo "       Selected: $SQUASHFS_PATH"
+    done < "$seed_file"
+
+    # These are REQUIRED for your existing later stages to run unchanged
+    # (Step 8 uses lsb_release; apt/dpkg/user tools/systemctl expected present).
+    local required_pkgs=(
+        lsb-release
+        ca-certificates
+        sudo
+        adduser
+        passwd
+        systemd-sysv
+        apt
+    )
+
+    for p in "${required_pkgs[@]}"; do
+        if [[ -z "${seen[$p]+x}" ]]; then
+            include_pkgs+=("$p")
+            seen["$p"]=1
         fi
-      fi
-      if [[ -z "$SQUASHFS_PATH" ]]; then
-        echo "[ERROR] No squashfs image found in ISO after scanning."
-        echo "       Looked under: $ISO_EXTRACT_DIR (depth 3)"
-        exit 1
-      fi
-      echo "[INFO][iot][ubuntu] Using squashfs: $SQUASHFS_PATH"
+    done
 
-      echo "[INFO][iot][ubuntu] Unsquashing rootfs from: $SQUASHFS_PATH"
-      if ! unsquashfs -d "$SQUASHFS_WORK_DIR" "$SQUASHFS_PATH" >/dev/null; then
-        echo "[ERROR] Failed to unsquash: $SQUASHFS_PATH"
-        exit 1
-      fi
-
-      echo "[INFO][iot][ubuntu] Copying rootfs into: $ROOTFS_DIR"
-      mkdir -p "$ROOTFS_DIR"
-      if ! cp -rap "${SQUASHFS_WORK_DIR}/"* "$ROOTFS_DIR/"; then
-        echo "[ERROR] Failed to copy rootfs into: $ROOTFS_DIR"
-        exit 1
-      fi
-
-      echo "[INFO][iot][ubuntu] Rootfs prepared at: $ROOTFS_DIR"
-      # Optional cleanup:
-      # rm -rf "$ISO_EXTRACT_DIR" "$SQUASHFS_WORK_DIR"
-      ;;
-
-    debian)
-      echo "[ERROR][iot][debian] Not implemented yet."
-      exit 1
-      ;;
-
-    *)
-      echo "[ERROR][iot] Unsupported distro: $DISTRO"
-      exit 1
-      ;;
-  esac
+    # Output comma-separated list
+    local out=""
+    for p in "${include_pkgs[@]}"; do
+        if [[ -z "$out" ]]; then
+            out="$p"
+        else
+            out="${out},${p}"
+        fi
+    done
+    echo "$out"
 }
 
-# Empty stubs for future targets
-image_preproccessing_compute() { :; }
-image_preproccessing_server()  { :; }
+# ==============================================================================
+# Function: image_preprocessing
+#     Generic preprocessing: creates baseline rootfs via debootstrap + seed
+#     (distro + platform agnostic; controlled via qcom-product.conf inputs).
+#
+#     Notes:
+#       - Mirror/components can be controlled via qcom-product.conf:
+#           APT_MIRROR=...
+#           APT_COMPONENTS=main,universe
+#       - For production, prefer setting APT_MIRROR in product-conf per distro.
+# ==============================================================================
+image_preprocessing() {
+    echo "[INFO][preprocess] Preparing environment for debootstrap baseline rootfs..."
+
+    # --- Ensure debootstrap is installed (silently) ---
+    if ! command -v debootstrap >/dev/null 2>&1; then
+        echo "[INFO][preprocess] 'debootstrap' not found. Installing debootstrap silently..."
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get -qq update >/dev/null 2>&1 || true
+        apt-get -qq install -y debootstrap >/dev/null 2>&1 || {
+            echo "[ERROR] Failed to install 'debootstrap'."
+            exit 1
+        }
+    fi
+
+    # NOTE: ARM64-only assumption: host is arm64 and target ARCH is arm64.
+    if [[ "${ARCH}" != "arm64" ]]; then
+        echo "[ERROR][preprocess] This commit assumes ARCH=arm64 only. Current ARCH=$ARCH"
+        exit 1
+    fi
+
+    echo "[INFO][preprocess] Creating baseline rootfs via debootstrap using seed: $SEED"
+
+    # Clean rootfs dir and recreate
+    rm -rf "$ROOTFS_DIR"
+    mkdir -p "$ROOTFS_DIR"
+
+    # Generic defaults; recommend overriding via qcom-product.conf per distro.
+    local MIRROR="${CFG[APT_MIRROR]:-http://ports.ubuntu.com/ubuntu-ports}"
+    local COMPONENTS="${CFG[APT_COMPONENTS]:-main,universe}"
+
+    local INCLUDE_LIST
+    INCLUDE_LIST="$(_seed_to_debootstrap_include "$SEED")"
+
+    echo "[INFO][preprocess] debootstrap parameters:"
+    echo "  TARGET_PLATFORM=$TARGET_PLATFORM"
+    echo "  DISTRO=$DISTRO"
+    echo "  CODENAME=$CODENAME"
+    echo "  ARCH=$ARCH"
+    echo "  MIRROR=$MIRROR"
+    echo "  COMPONENTS=$COMPONENTS"
+    echo "  INCLUDE(from seed + required)=$INCLUDE_LIST"
+
+    if ! debootstrap --arch="$ARCH" --variant=minbase --components="$COMPONENTS" --include="$INCLUDE_LIST" "$CODENAME" "$ROOTFS_DIR" "$MIRROR"; then
+        echo "[ERROR][preprocess] debootstrap failed."
+        exit 1
+    fi
+
+    # Ensure directories exist for later steps (so Step 3.5+ stays unchanged)
+    mkdir -p "$ROOTFS_DIR/proc" "$ROOTFS_DIR/sys" "$ROOTFS_DIR/dev" "$ROOTFS_DIR/dev/pts"
+    mkdir -p "$ROOTFS_DIR/etc/apt/sources.list.d"
+
+    echo "[INFO][preprocess] Rootfs prepared at: $ROOTFS_DIR"
+}
 
 # ==============================================================================
 # Step 1: Load configuration (from file or defaults) & derive image parameters
@@ -297,7 +305,6 @@ else
     CFG["CODENAME"]="questing"
     CFG["ARCH"]="arm64"
     CFG["VARIANT"]="server"
-    CFG["BASE_IMAGE_URL"]="https://cdimage.ubuntu.com/releases/questing/release/ubuntu-25.10-live-server-arm64.iso"
 fi
 
 TARGET_PLATFORM="${CFG[QCOM_TARGET_PLATFORM]:-iot}"
@@ -305,18 +312,6 @@ DISTRO="${CFG[DISTRO]:-ubuntu}"
 CODENAME="${CFG[CODENAME]:-questing}"
 ARCH="${CFG[ARCH]:-arm64}"
 VARIANT="${CFG[VARIANT]:-server}"
-BASE_IMAGE_URL="${CFG[BASE_IMAGE_URL]:-"https://cdimage.ubuntu.com/releases/questing/release/ubuntu-25.10-live-server-arm64.iso"}"
-
-# Derive image parameters for Ubuntu (others can be added later)
-case "$(echo "$DISTRO" | tr '[:upper:]' '[:lower:]')" in
-  ubuntu|ubuntu-server)
-    IMG_URL=${BASE_IMAGE_URL}
-    ;;
-  *)
-    # Leave unsupported distros to be implemented inside the respective target function later.
-    IMG_URL=""
-    ;;
-esac
 
 echo "[INFO] Build Source:"
 echo "  TARGET_PLATFORM=$TARGET_PLATFORM"
@@ -324,26 +319,11 @@ echo "  DISTRO=$DISTRO"
 echo "  CODENAME=$CODENAME"
 echo "  ARCH=$ARCH"
 echo "  VARIANT=$VARIANT"
-echo "  BASE_IMAGE_URL=${BASE_IMAGE_URL}"
 
 # ==============================================================================
-# Step 2–3: Target platform switch – preprocess image to fill rootfs/
+# Step 2–3: Preprocess baseline rootfs to fill rootfs/
 # ==============================================================================
-case "$(echo "$TARGET_PLATFORM" | tr '[:upper:]' '[:lower:]')" in
-  iot)
-    image_preproccessing_iot
-    ;;
-  compute)
-    image_preproccessing_compute
-    ;;
-  server)
-    image_preproccessing_server
-    ;;
-  *)
-    echo "[ERROR] Unsupported target platform: $TARGET_PLATFORM"
-    exit 1
-    ;;
-esac
+image_preprocessing
 
 # ==============================================================================
 # Step 3.5: Add custom apt sources from manifest (if provided)
