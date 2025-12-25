@@ -435,6 +435,15 @@ echo "[INFO] Entering chroot to install packages and configure GRUB..."
 chroot "$ROOTFS_DIR" /bin/bash -c "
 set -e
 
+echo '[CHROOT] Updating APT and installing networking tools...'
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends \
+  network-manager \
+  wpasupplicant \
+  iw \
+  net-tools
+
 echo '[CHROOT] Disabling unnecessary services...'
 ln -sf /dev/null /etc/systemd/system/systemd-networkd-wait-online.service
 ln -sf /dev/null /etc/systemd/system/dev-disk-by\\\\x2dlabel-UEFI.device
