@@ -4,32 +4,27 @@
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 #
 # ==============================================================================
-# Script: build-ubuntu-rootfs.sh
+# Script: build-rootfs.sh
 # ------------------------------------------------------------------------------
 # DESCRIPTION:
 #   This script creates a bootable Linux root filesystem image for ARM64
 #   platforms (e.g., Qualcomm IoT/Compute/Server reference boards).
 #
 #   - Supports Qualcomm product configuration file (.conf) for build parameters.
+#   - Builds a deterministic baseline rootfs using debootstrap from:
+#       * qcom-product.conf for DISTRO/CODENAME/ARCH (and optional apt settings)
+#       * a seed file containing one package per line (# comments allowed)
 #   - Supports JSON package manifest for additional package installation
 #     (via apt or local .deb) inside the rootfs.
 #   - Supports injecting custom apt sources from the package manifest.
-#   - Parses qcom-product.conf (if provided) or uses defaults to determine the base image.
-#   - Runs target platform-specific image preprocessing to populate rootfs/.
 #   - Injects custom kernel and firmware .deb packages.
-#   - Installs user-specified packages from manifest (if provided).
-#   - Dynamically deduces and generates base and custom package manifests
+#   - Installs user-specified packages from seed and/or overlay manifest.
+#   - Dynamically deduces and generates base and custom package manifests.
 #   - Configures GRUB bootloader, hostname, DNS, and other system settings.
-#   - Deploy package manifest output files
-#   - Produces a flashable ext4 image (ubuntu.img).
-#
-# UPDATED (seed-based preprocessing):
-#   - Instead of downloading/extracting an Ubuntu ISO and unsquashing minimal.squashfs,
-#     preprocessing now uses a seed file (list of packages) + distro/codename from
-#     qcom-product.conf to create the baseline rootfs via debootstrap.
+#   - Produces a flashable ext4 image (rootfs.img).
 #
 # USAGE (named inputs):
-#   ./build-ubuntu-rootfs.sh \
+#   ./build-rootfs.sh \
 #     --product-conf qcom-product.conf \
 #     --seed seed_file \
 #     --kernel-package kernel.deb \
@@ -41,10 +36,10 @@
 #   --seed <seed_file>                    Required. Seed file: one package per line (# comments allowed).
 #   --kernel-package <kernel.deb>         Required. Custom kernel package.
 #   --firmware <firmware.deb>             Required. Custom firmware package.
-#   --overlay <package-manifest.json>      Optional. JSON manifest specifying extra packages/apt sources.
+#   --overlay <package-manifest.json>     Optional. JSON manifest specifying extra packages/apt sources.
 #
 # OUTPUT:
-#   ubuntu.img               Flashable ext4 rootfs image.
+#   rootfs.img                            Flashable ext4 rootfs image.
 #
 # REQUIREMENTS:
 #   - Run as root (auto-elevates with sudo if needed).
@@ -137,7 +132,7 @@ fi
 WORKDIR=$(pwd)
 MNT_DIR="$WORKDIR/mnt"
 ROOTFS_DIR="$WORKDIR/rootfs"
-ROOTFS_IMG="ubuntu.img"
+ROOTFS_IMG="rootfs.img"
 mkdir -p "$MNT_DIR" "$ROOTFS_DIR"
 
 declare -A CFG
@@ -432,7 +427,8 @@ mount --bind /dev/pts "$ROOTFS_DIR/dev/pts"
 # Step 8: Enter chroot to Install Packages and Configure GRUB
 # ==============================================================================
 echo "[INFO] Entering chroot to install packages and configure GRUB..."
-chroot "$ROOTFS_DIR" /bin/bash -c "
+env DISTRO="$DISTRO" CODENAME="$CODENAME" \
+    chroot "$ROOTFS_DIR" /bin/bash -c "
 set -e
 
 echo '[CHROOT] Updating APT and installing networking tools...'
@@ -447,9 +443,6 @@ apt-get install -y --no-install-recommends \
 echo '[CHROOT] Disabling unnecessary services...'
 ln -sf /dev/null /etc/systemd/system/systemd-networkd-wait-online.service
 ln -sf /dev/null /etc/systemd/system/dev-disk-by\\\\x2dlabel-UEFI.device
-
-# Get codename
-CODENAME=\$(lsb_release -sc)
 
 echo '[CHROOT] Capturing base package list...'
 dpkg-query -W -f='\${Package} \${Version}\n' > /tmp/\${CODENAME}_base.manifest
@@ -490,7 +483,7 @@ echo '[CHROOT] Writing GRUB configuration for single DTB-agnostic entry...'
 tee /boot/grub.cfg > /dev/null <<GRUBCFG
 set timeout=5
 
-menuentry \"Ubuntu ${CODENAME}\" {
+menuentry \"\${DISTRO} \${CODENAME}\" {
     search --no-floppy --label system --set=root
     linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
     initrd /boot/initrd.img-\$kernel_ver
