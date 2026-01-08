@@ -50,8 +50,9 @@ def parse_arguments():
 
     parser.add_argument("--extra-repo",
                         type=str,
-                        default="",
-                        help="Additional APT repository to include. example : 'deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main'")
+                        action='append',
+                        default=[],
+                        help="Additional APT repository to include. Can be specified multiple times. Example: 'deb [arch=arm64 trusted=yes] http://pkg.qualcomm.com noble/stable main'")
 
     parser.add_argument("--rebuild",
                         action='store_true',
@@ -212,7 +213,7 @@ def check_docker_image(image_base, arch, distro):
     # Since the image is not present locally, try to build it from local Dockerfile
     build_docker_image(image, arch, distro)
 
-def build_package_in_docker(image_base, source_dir, output_dir, build_arch, distro, run_lintian: bool, extra_repo: str) -> bool:
+def build_package_in_docker(image_base, source_dir, output_dir, build_arch, distro, run_lintian: bool, extra_repo: list[str]) -> bool:
     """
     Build the debian package inside the given docker image.
     source_dir: path to the debian package source (mounted into the container)
@@ -220,6 +221,7 @@ def build_package_in_docker(image_base, source_dir, output_dir, build_arch, dist
     build_arch: architecture string for the build (e.g. 'arm64')
     distro: target distribution string (e.g. 'noble')
     run_lintian: whether to run lintian on the built package
+    extra_repo: list of additional APT repositories to include
     Returns True on success, False on failure.
     """
 
@@ -234,7 +236,7 @@ def build_package_in_docker(image_base, source_dir, output_dir, build_arch, dist
 
     # Build the gbp command
     # The --git-builder value is a single string passed to gbp
-    extra_repo_option = f"--extra-repository='{extra_repo}'" if extra_repo else ""
+    extra_repo_option = " ".join(f"--extra-repository='{repo}'" for repo in extra_repo) if extra_repo else ""
     lintian_option = '--no-run-lintian' if not run_lintian else ""
     sbuild_cmd = f"sbuild --build-dir=/workspace/output --host=arm64 --build={build_arch} --dist={distro} {lintian_option} {extra_repo_option}"
 
