@@ -126,27 +126,23 @@ jobs:
           mkdir build
 
           cd package-repo
-
-          # Get the nearest reachable upstream/* tag from debian/latest.
-          # This tag represents the source repository state that this packaging is
-          # intended to package.
-          NEAREST_UPSTREAM_TAG=$(git describe --tags --match 'upstream/*' --abbrev=0 debian/latest)
-
-          # Get the commit corresponding to that tag
-          NEAREST_UPSTREAM_COMMIT=$(git rev-parse "$NEAREST_UPSTREAM_TAG")
+          
+          LATEST_UPSTREAM_TAG=$(git tag --list 'upstream/*' | sort -V | tail -1)
+          SRC_COMMIT=$(git rev-parse "$LATEST_UPSTREAM_TAG")
 
           # Get the nearest reachable debian/* tag from debian/latest.
           # This tag represents the packaging repository state for this release.
           PACKAGE_REPO_TAG=$(git describe --tags --match 'debian/*' --abbrev=0 debian/latest)
           
-          # 1) Collect all binary package names from debian/control
+          SOURCE=$(grep-dctrl -n -s Source -r '' debian/control | head -n1)
+
+          # Collect all binary package names from debian/control
           ALL_PKGS=$(grep-dctrl -n -s Package -r '' debian/control | sort -u)
 
-          # 2) Collect dev packages (Section: libdevel)
+          # Collect dev packages (Section: libdevel)
           DEV_PKGS=$(grep-dctrl -n -F Section -e libdevel -s Package debian/control | sort -u)
-
           
-          # 3) Compute MAIN = ALL - DEV (using comm on sorted lists)
+          # Compute MAIN = ALL - DEV (using comm on sorted lists)
           MAIN_PKGS=$(comm -23 <(printf '%s\n' "$ALL_PKGS") <(printf '%s\n' "$DEV_PKGS"))
 
           MAIN_PKGS_JSON=$(printf '%s\n' "$MAIN_PKGS" | jq -c -R -s 'split("\n") | map(select(length>0))')
@@ -157,20 +153,22 @@ jobs:
 
           cat > ../build/provenance.json << EOF
           {
-            "src_repo": "${{vars.UPSTREAM_REPO_GITHUB_NAME}}",
-            "src_repo_tag": "$NEAREST_UPSTREAM_TAG",
-            "src_commit": "$NEAREST_UPSTREAM_COMMIT",
-            "pkg_repo": "${{ github.repository }}",
-            "pkg_repo_tag": "$PACKAGE_REPO_TAG",
-            "pkg_commit": "$(git rev-parse HEAD)",
-            "packages": $MAIN_PKGS_JSON,
-            "dev-packages": $DEV_PKGS_JSON,
-            "build_timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            $SOURCE : {
+              "src_repo": "${{vars.UPSTREAM_REPO_GITHUB_NAME}}",
+              "src_repo_tag": "$NEAREST_UPSTREAM_TAG",
+              "src_commit": "$NEAREST_UPSTREAM_COMMIT",
+              "pkg_repo": "${{ github.repository }}",
+              "pkg_repo_tag": "$PACKAGE_REPO_TAG",
+              "pkg_commit": "$(git rev-parse HEAD)",
+              "packages": $MAIN_PKGS_JSON,
+              "dev-packages": $DEV_PKGS_JSON,
+              "build_timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            }
           }
           EOF
 
-          echo "Content of the provenance file:"
-          cat ../build/provenance.json | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
+          echo "Content of the provenance ile:"
+          cat ../ld/provenance.json | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
 
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package
