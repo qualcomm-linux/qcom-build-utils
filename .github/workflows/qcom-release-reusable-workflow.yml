@@ -126,14 +126,19 @@ jobs:
           mkdir build
 
           cd package-repo
-          
-          LATEST_UPSTREAM_TAG=$(git tag --list 'upstream/*' | sort -V | tail -1)
-          SRC_COMMIT=$(git rev-parse "$LATEST_UPSTREAM_TAG")
+
+          NEAREST_UPSTREAM_BRANCH_TAG=$(git describe --tags --match 'upstream/*' --abbrev=0)
+          NEAREST_UPSTREAM_COMMIT=$(git rev-list -n 1 "$NEAREST_UPSTREAM_BRANCH_TAG")
+          NEAREST_UPSTREAM_TAG=$(git ls-remote --tags "https://github.com/${{vars.UPSTREAM_REPO_GITHUB_NAME}}.git" | \
+            awk -v commit="$NEAREST_UPSTREAM_COMMIT" '$1 == commit && $2 ~ /refs\/tags\// { sub("refs/tags/", "", $2); print $2 }' | head -n1)
+
+          # Now, translate the upstream/* tag to the upstream tag it represents in the upstream repo
+
 
           # Get the nearest reachable debian/* tag from debian/latest.
           # This tag represents the packaging repository state for this release.
           PACKAGE_REPO_TAG=$(git describe --tags --match 'debian/*' --abbrev=0 debian/latest)
-          
+
           SOURCE=$(grep-dctrl -n -s Source -r '' debian/control | head -n1)
 
           # Collect all binary package names from debian/control
@@ -141,34 +146,44 @@ jobs:
 
           # Collect dev packages (Section: libdevel)
           DEV_PKGS=$(grep-dctrl -n -F Section -e libdevel -s Package debian/control | sort -u)
-          
+
           # Compute MAIN = ALL - DEV (using comm on sorted lists)
           MAIN_PKGS=$(comm -23 <(printf '%s\n' "$ALL_PKGS") <(printf '%s\n' "$DEV_PKGS"))
 
           MAIN_PKGS_JSON=$(printf '%s\n' "$MAIN_PKGS" | jq -c -R -s 'split("\n") | map(select(length>0))')
           DEV_PKGS_JSON=$(printf '%s\n' "$DEV_PKGS"  | jq -c -R -s 'split("\n") | map(select(length>0))')
 
-          # TODO
-          # Use tag from upstream source repo, not the upstream/* tag in the packaging repo
+          #src_repo : The upstream source repository name in github format (user/repo)
+          #src_repo_tag : The tag in the upstream source repository that was used in the last promotion (e.g. v1.2.3)
+          #src_repo_commit : The commit hash in the upstream source repository that corresponds to the src_repo_tag
+          
+          #pkg_repo : The packaging repository name in github format (user/repo)
+          #pkg_repo_tag : The tag in the packaging repository that corresponds to this release (e.g. debian/1.2.3-1)
+          #pkg_repo_commit : The commit hash in the packaging repository that corresponds to the pkg_repo_tag
+          #pkg_repo_upstream_tag : The upstream/* tag in the packaging repository that was used for this release (e.g. upstream/v1.2.3).
 
           cat > ../build/provenance.json << EOF
           {
             $SOURCE : {
               "src_repo": "${{vars.UPSTREAM_REPO_GITHUB_NAME}}",
               "src_repo_tag": "$NEAREST_UPSTREAM_TAG",
-              "src_commit": "$NEAREST_UPSTREAM_COMMIT",
+              "src_repo_commit": "$NEAREST_UPSTREAM_COMMIT",
+
               "pkg_repo": "${{ github.repository }}",
               "pkg_repo_tag": "$PACKAGE_REPO_TAG",
-              "pkg_commit": "$(git rev-parse HEAD)",
+              "pkg_repo_commit": "$(git rev-parse HEAD)",
+              "pkg_repo_upstream_tag": "$NEAREST_UPSTREAM_BRANCH_TAG",
+
               "packages": $MAIN_PKGS_JSON,
               "dev-packages": $DEV_PKGS_JSON,
+
               "build_timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
             }
           }
           EOF
 
-          echo "Content of the provenance ile:"
-          cat ../ld/provenance.json | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
+          echo "Content of the provenance file:"
+          cat ../build/provenance.json | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
 
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package
@@ -238,6 +253,8 @@ jobs:
           CATEGORY_FOLDER="${{ inputs.test-run == true && 'test' || 'proposed'}}"
           SUITE_NAME="${{ inputs.distro-codename }}"
           VERSION_NAME="${{ needs.pkg-release.outputs.complete_version }}"
+          WORKFLOW_BUILD_ID="${{ github.run_id }}"
+          WORKFLOW_RUN_ID="${{ github.run_attempt }}"
 
           echo "ORG_NAME=${OWNER_NAME}"
           echo "REPO_NAME=${REPO_NAME}"
@@ -245,7 +262,11 @@ jobs:
           echo "SUITE_NAME=${SUITE_NAME}"
           echo "VERSION_NAME=${VERSION_NAME}"
 
-          echo "S3_BUCKET_PATH=${OWNER_NAME}/pkg/${CATEGORY_FOLDER}/${REPO_NAME}/${SUITE_NAME}/${VERSION_NAME}/" >> $GITHUB_ENV
+          S3_BUCKET_PATH="${OWNER_NAME}/pkg/${CATEGORY_FOLDER}/${WORKFLOW_BUILD_ID}/${WORKFLOW_RUN_ID}/${REPO_NAME}/${SUITE_NAME}/${VERSION_NAME}/"
+
+          echo "S3_BUCKET_PATH=${S3_BUCKET_PATH}" >> $GITHUB_ENV
+
+          echo "S3 Bucket Path: ${S3_BUCKET_PATH}"
 
       - name: Upload released debian package to S3
         uses: qualcomm-linux/upload-private-artifact-action@aws
