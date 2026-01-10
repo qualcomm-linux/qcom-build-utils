@@ -15,6 +15,12 @@ on:
         type: string
         required: true
 
+      debian-branch:
+        description: The debian branch to apply the promotion to. For example branch "debian/qcom-next"
+        type: string
+        required: false
+        default: debian/qcom-next
+
       upstream-tag:
         description: The tag in the upstream repo to promote to.
         type: string
@@ -24,11 +30,6 @@ on:
         description: The upstream git repo adress
         type: string
         required: true
-
-      promote-changelog:
-        description: Run the gbp dch command to promote changelog version
-        type: boolean
-        default: false
 
     secrets:
       TOKEN:
@@ -96,12 +97,12 @@ jobs:
 
           git branch
           git tag
-          git checkout debian/latest
+          git checkout ${{inputs.debian-branch}}
           echo "Listing all the current tags :"
           git tag --list
           if git ls-remote --exit-code --heads origin upstream/latest; then
             git checkout upstream/latest # Checkout this branch just to make sure it exists locally after its been fetched as gbp will need it later
-            git checkout - # Then revert back to debian/latest branch as we will need to have it checked out for gbp later
+            git checkout - # Then revert back to the inputs.debian-branch branch as we will need to have it checked out for gbp later
           fi
 
 
@@ -201,7 +202,7 @@ jobs:
           git config user.name "${{vars.DEB_PKG_BOT_CI_NAME}}"
           git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
 
-          git checkout debian/latest
+          git checkout ${{inputs.debian-branch}}
 
           git checkout -b debian/pr/${{env.NORMALIZED_VERSION}}-1
 
