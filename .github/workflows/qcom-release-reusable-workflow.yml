@@ -256,17 +256,17 @@ jobs:
           WORKFLOW_BUILD_ID="${{ github.run_id }}"
           WORKFLOW_RUN_ID="${{ github.run_attempt }}"
 
+          S3_BUCKET_PATH="${OWNER_NAME}/pkg/${CATEGORY_FOLDER}/${WORKFLOW_BUILD_ID}/${WORKFLOW_RUN_ID}/${REPO_NAME}/${SUITE_NAME}/${VERSION_NAME}/"
+
           echo "ORG_NAME=${OWNER_NAME}"
           echo "REPO_NAME=${REPO_NAME}"
           echo "CATEGORY_FOLDER=${CATEGORY_FOLDER}"
           echo "SUITE_NAME=${SUITE_NAME}"
           echo "VERSION_NAME=${VERSION_NAME}"
 
-          S3_BUCKET_PATH="${OWNER_NAME}/pkg/${CATEGORY_FOLDER}/${WORKFLOW_BUILD_ID}/${WORKFLOW_RUN_ID}/${REPO_NAME}/${SUITE_NAME}/${VERSION_NAME}/"
+          echo "S3 Bucket Path: ${S3_BUCKET_PATH}"
 
           echo "S3_BUCKET_PATH=${S3_BUCKET_PATH}" >> $GITHUB_ENV
-
-          echo "S3 Bucket Path: ${S3_BUCKET_PATH}"
 
       - name: Upload released debian package to S3
         uses: qualcomm-linux/upload-private-artifact-action@aws
