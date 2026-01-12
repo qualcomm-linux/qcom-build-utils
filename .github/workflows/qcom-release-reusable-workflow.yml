@@ -14,6 +14,12 @@ on:
         type: string
         required: true
 
+      debian-branch:
+        description: The debian branch to use to execute the release from. For example branch "debian/qcom-next"
+        type: string
+        required: false
+        default: debian/qcom-next
+
       distro-codename:
         description: The distribution codename to build for. Ex noble, jammy, etc
         type: string
@@ -78,7 +84,7 @@ jobs:
           fetch-tags: true
 
       # Take the latest changelog entry and change the suite name from UNRELEASED to unstable and set timestamp and tag
-      # the debian/latest branch to debian/<version> where <version> is the version from the changelog. It is conceptually
+      # the inputs.debian-branch branch to debian/<version> where <version> is the version from the changelog. It is conceptually
       # important that the changelog entry suite is UNRELEASED at any point except in the commit that represents the release.
       # The commit that represents the release is created in this step and shall only contain the changelog change from UNRELEASED to unstable.
       - name: Changelog suite name change
@@ -92,7 +98,7 @@ jobs:
           export DEBFULLNAME="${{vars.DEB_PKG_BOT_CI_NAME}}"
           export DEBEMAIL="${{vars.DEB_PKG_BOT_CI_EMAIL}}"
 
-          git checkout debian/latest
+          git checkout ${{inputs.debian-branch}}
 
           echo "Initial changelog content:"
           cat debian/changelog | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
@@ -135,9 +141,9 @@ jobs:
           # Now, translate the upstream/* tag to the upstream tag it represents in the upstream repo
 
 
-          # Get the nearest reachable debian/* tag from debian/latest.
+          # Get the nearest reachable debian/* tag from inputs.debian-branch.
           # This tag represents the packaging repository state for this release.
-          PACKAGE_REPO_TAG=$(git describe --tags --match 'debian/*' --abbrev=0 debian/latest)
+          PACKAGE_REPO_TAG=$(git describe --tags --match 'debian/*' --abbrev=0 ${{inputs.debian-branch}})
 
           SOURCE=$(grep-dctrl -n -s Source -r '' debian/control | head -n1)
 
@@ -235,7 +241,7 @@ jobs:
 
           git commit -a -m "Initial commit of new version ${newversion}"
 
-          git push origin debian/latest
+          git push origin ${{inputs.debian-branch}}
           git push origin debian/${version}
 
           git log --graph --oneline -n 10 --color=always
