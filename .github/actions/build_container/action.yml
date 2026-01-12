@@ -30,27 +30,27 @@ runs:
       shell: bash
       run: ./scripts/docker_deb_build.py --rebuild
 
-    - name: Checkout pkg-example at debian/latest and tags
-      uses: actions/checkout@v4
-      with:
-        repository: qualcomm-linux/pkg-example
-        ref: debian/latest
-        token: ${{inputs.token}}
-        path: ./pkg-example
-        fetch-depth: 0
-        fetch-tags: true
+#    - name: Checkout pkg-example at debian/latest and tags
+#      uses: actions/checkout@v4
+#      with:
+#        repository: qualcomm-linux/pkg-example
+#        ref: debian/latest
+#        token: ${{inputs.token}}
+#       path: ./pkg-example
+#       fetch-depth: 0
+#       fetch-tags: true
 
-    - name: Build example package for noble
-      shell: bash
-      run: |
-        mkdir -p build_noble
-        ./scripts/docker_deb_build.py --source-dir pkg-example --output-dir build_noble --distro noble
+#    - name: Build example package for noble
+#      shell: bash
+#      run: |
+#        mkdir -p build_noble
+#         ./scripts/docker_deb_build.py --source-dir pkg-example --output-dir build_noble --distro noble
 
-    - name: Build example package for questing
-      shell: bash
-      run: |
-        mkdir -p build_questing
-        ./scripts/docker_deb_build.py --source-dir pkg-example --output-dir build_questing --distro questing
+#    - name: Build example package for questing
+#      shell: bash
+#      run: |
+#        mkdir -p build_questing
+#        ./scripts/docker_deb_build.py --source-dir pkg-example --output-dir build_questing --distro questing
 
     # Don't push to GHCR if build was triggered by a PR
     - name: Push to GHCR
