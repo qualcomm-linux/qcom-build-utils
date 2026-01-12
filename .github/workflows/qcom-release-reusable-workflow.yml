@@ -153,6 +153,8 @@ jobs:
           MAIN_PKGS_JSON=$(printf '%s\n' "$MAIN_PKGS" | jq -c -R -s 'split("\n") | map(select(length>0))')
           DEV_PKGS_JSON=$(printf '%s\n' "$DEV_PKGS"  | jq -c -R -s 'split("\n") | map(select(length>0))')
 
+          #version: The complete version string for this release (e.g. 1.2.3-1)
+
           #src_repo : The upstream source repository name in github format (user/repo)
           #src_repo_tag : The tag in the upstream source repository that was used in the last promotion (e.g. v1.2.3)
           #src_repo_commit : The commit hash in the upstream source repository that corresponds to the src_repo_tag
@@ -165,6 +167,8 @@ jobs:
           cat > ../build/provenance.json << EOF
           {
             $SOURCE : {
+              "version": "${{ steps.changelog.outputs.version }}",
+
               "src_repo": "${{vars.UPSTREAM_REPO_GITHUB_NAME}}",
               "src_repo_tag": "$NEAREST_UPSTREAM_TAG",
               "src_repo_commit": "$NEAREST_UPSTREAM_COMMIT",
@@ -256,7 +260,7 @@ jobs:
           WORKFLOW_BUILD_ID="${{ github.run_id }}"
           WORKFLOW_RUN_ID="${{ github.run_attempt }}"
 
-          S3_BUCKET_PATH="${OWNER_NAME}/pkg/${CATEGORY_FOLDER}/${WORKFLOW_BUILD_ID}/${WORKFLOW_RUN_ID}/${REPO_NAME}/${SUITE_NAME}/${VERSION_NAME}/"
+          S3_BUCKET_PATH="${OWNER_NAME}/pkg/${CATEGORY_FOLDER}/${WORKFLOW_BUILD_ID}-${WORKFLOW_RUN_ID}/${REPO_NAME}/${SUITE_NAME}/${VERSION_NAME}/"
 
           echo "ORG_NAME=${OWNER_NAME}"
           echo "REPO_NAME=${REPO_NAME}"
