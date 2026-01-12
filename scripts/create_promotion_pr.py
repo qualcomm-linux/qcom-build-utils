@@ -17,6 +17,11 @@ from color_logger import logger
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Craft the content for a promotion PR and opoen it using GitHub CLI.")
 
+    parser.add_argument("--base-branch",
+                        required=False,
+                        default="debian/qcom-next",
+                        help="Base branch for the promotion PR.")
+
     parser.add_argument("--upstream-tag",
                         required=True,
                         help="Upstream tag corresponding to the version being promoted.")
@@ -32,13 +37,12 @@ def parse_arguments():
 def create_pr_title(normalized_version: str) -> str:
     return f"Promotion to {normalized_version}"
 
-def create_pr_body(upstream_tag: str, normalized_version: str) -> str:
+def create_pr_body(base_branch: str, upstream_tag: str, normalized_version: str) -> str:
     pr_body = f"""
 # This is an automated PR to test the promotion of this package repo to the upstream project version {normalized_version}.
 
-This PR merges the upstream changes from the upstream tag '{upstream_tag}' into the debian/latest branch, and updated the debian/changelog version to reflect this new version. Whatever was the distro version before (the part after the '-' in a version x.y.z-a), it has been reset to -1. 
-
-The upstream tag '{upstream_tag}' has already been merged into the upstream/latest branch, and this PR merges that branch into debian/latest.
+This PR merges the upstream changes from the upstream tag '{upstream_tag}' into the {base_branch} branch, and updated the debian/changelog version to reflect this new version. Whatever was the distro version before (the part after the '-' in a version x.y.z-a), it has been reset to -1. 
+The upstream tag '{upstream_tag}' has already been merged into the upstream/latest branch, and this PR merges that branch into {base_branch}.
 In other words, this repo already contains the upstream changes in the upstream/latest branch, but the debian packaging is not yet updated to reflect this new upstream version. This is what this PR is doing.
 
 The *build-debian-package.yml* workflow is triggered automatically in this PR to test the promotion by building the Debian package with the updated upstream code and packaging.
@@ -58,7 +62,7 @@ This generated diagram attemps to illustrate what happened and what will happen 
     special git wizardry happened to perform a special filtering of any potential upstream .github/ and debian/ folders have been filtered out,
     and only homonym folders from the debian/latest branch have been kept.
   - To its left, this 'debian/pr/{normalized_version}-1' branch was created during the promotion workflow and is the head branch of this PR.
-    It represents the merge of the upstream/latest branch into debian/latest.
+    It represents the merge of the upstream/latest branch into {base_branch}.
   - Note that an extra commit for updating the debian/changelog file to reflect the new version {normalized_version}-1 has been added on top of that merge.
 """
 
@@ -73,7 +77,7 @@ gitGraph:
   rotateCommitLabel: true
 ---
 gitGraph BT:
-  branch debian/latest   order: 1
+  branch {base_branch}   order: 1
   branch upstream-main   order: 4
   branch upstream/latest order: 3
   checkout main
@@ -86,7 +90,7 @@ gitGraph BT:
   checkout upstream/latest
   commit id: 'previous stuff'
   merge upstream-main id: 'Filtered .github/debian folders' tag: 'upstream/{normalized_version}'
-  checkout debian/latest
+  checkout {base_branch}
   commit
   commit
   commit
@@ -104,13 +108,13 @@ def main():
     logger.debug(f"Print of the arguments: {args}")
 
     pr_title = create_pr_title(args.normalized_version)
-    pr_body = create_pr_body(args.upstream_tag, args.normalized_version)
+    pr_body = create_pr_body(args.base_branch, args.upstream_tag, args.normalized_version)
     
     # Printing the pr body in a .md file for manual review:
     with open("promotion_pr_body.md", "w") as pr_body_file:
         pr_body_file.write(pr_body)
 
-    pr_creation_command = f"gh pr create --title '{pr_title}' --body-file promotion_pr_body.md --base debian/latest --head debian/pr/{args.normalized_version}-1"
+    pr_creation_command = f"gh pr create --title '{pr_title}' --body-file promotion_pr_body.md --base {args.base_branch} --head debian/pr/{args.normalized_version}-1"
     
     # Executing the PR creation command using GitHub CLI 
     subprocess.run(pr_creation_command, shell=True, check=True)

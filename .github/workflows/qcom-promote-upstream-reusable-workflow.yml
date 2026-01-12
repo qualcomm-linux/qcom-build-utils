@@ -248,5 +248,6 @@ jobs:
           gh auth login --with-token <<< "${{secrets.TOKEN}}"
 
           ../qcom-build-utils/scripts/create_promotion_pr.py \
+            --base-branch "${{inputs.debian-branch}}" \
             --upstream-tag "${{inputs.upstream-tag}}" \
             --normalized-version "${{env.NORMALIZED_VERSION}}"
