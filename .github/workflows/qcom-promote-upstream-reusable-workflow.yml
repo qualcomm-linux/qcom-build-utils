@@ -221,7 +221,7 @@ jobs:
             --distribution=UNRELEASED \
             --new-version=${{env.NORMALIZED_VERSION}}-1
 
-          git commit -a -s -m "Update changelog for ${{env.NORMALIZED_VERSION}}-1 release"
+          git commit -a -s -m "Update changelog version to ${{env.NORMALIZED_VERSION}}-1 and UNRELEASED suite"
 
       - name: Push Upstream/latest and debian PR Branch
         run: |
