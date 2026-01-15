@@ -355,11 +355,11 @@ cp -L /etc/resolv.conf "$ROOTFS_DIR/etc/resolv.conf"
 # Step 5: Set Hostname and /etc/hosts
 # ==============================================================================
 echo "[INFO] Configuring hostname and /etc/hosts..."
-echo "ubuntu" > "$ROOTFS_DIR/etc/hostname"
+echo "qcom" > "$ROOTFS_DIR/etc/hostname"
 
 cat <<EOF > "$ROOTFS_DIR/etc/hosts"
 127.0.0.1   localhost
-127.0.1.1   ubuntu
+127.0.1.1   qcom
 EOF
 
 chmod 644 "$ROOTFS_DIR/etc/hosts"
