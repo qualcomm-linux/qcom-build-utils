@@ -40,15 +40,22 @@ git checkout "$upstream"
 git reset "$debian_ref" -- :/:debian :/:.github
 tree=$(git write-tree)
 
-merge_commit_header="Merge upstream tag '$upstream' into Debian packaging branch '$debian_branch'"
+merge_commit_header="Merge '$upstream' into Debian packaging branch '$debian_branch'"
 
 merge_commit_body=$(cat <<EOF
-This commit pulls in upstream changes from tag '$upstream' into the Debian packaging branch.
+This commit pulls in upstream changes from '$upstream' into the
+Debian packaging branch.
 
-Since upstream project might have content of their own in their .github/ folder (because they have CI stuff on their side),
-it's important to NOT pick up .github/ folder from upstream, and only leave the .github/ folder from debian packaging branch.
+Since upstream project might have content of their own in their .github/
+folder (because they have CI stuff on their side), it's important to NOT
+pick up .github/ folder from upstream, and only leave the .github/
+folder from debian packaging branch.
 
-The same applies to debian/ folder if upstream has one (which is rare but possible).
+The same applies to debian/ folder if upstream has one (which is rare
+but possible).
+
+This commit was generated automatically by
+qcom-build-utils/scripts/merge_debian_packaging_upstream.
 EOF
 )
 
