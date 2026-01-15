@@ -18,7 +18,7 @@ set -e
 upstream="$1"
 
 if ! debian_ref="$(git symbolic-ref HEAD)"; then
-    echo "Function requires the Debian packaging branche to be checked out" >&2
+    echo "Function requires the Debian packaging branch to be checked out" >&2
     echo "Are you in a detached HEAD state?" >&2
     exit 1
 fi
