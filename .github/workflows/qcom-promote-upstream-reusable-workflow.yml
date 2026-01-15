@@ -216,10 +216,10 @@ jobs:
           export DEBEMAIL="${{vars.DEB_PKG_BOT_CI_EMAIL}}"
 
           # use ignore branch because we are not on default debian branch
-          gbp dch \
-            --ignore-branch \
+          dch \
             --distribution=UNRELEASED \
-            --new-version=${{env.NORMALIZED_VERSION}}-1
+            --newversion=${{env.NORMALIZED_VERSION}}-1 \
+            'New upstream release'
 
           git commit -a -s -m "Update changelog version to ${{env.NORMALIZED_VERSION}}-1 and UNRELEASED suite"
 
