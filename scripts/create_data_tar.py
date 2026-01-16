@@ -182,7 +182,7 @@ def main():
     # Create tarball named after the .changes file (e.g., pkg_1.0_arm64.tar.gz)
     try:
         base = os.path.basename(changes_path)
-        tar_name = re.sub(r'\\.changes$', '.tar.gz', base)
+        tar_name = re.sub(r'\.changes$', '.tar.gz', base)
         if tar_name == base:
             tar_name = base + '.tar.gz'
         tar_path = create_tar_of_data(work_dir, tar_name)
