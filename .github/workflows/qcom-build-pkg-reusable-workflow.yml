@@ -38,6 +38,11 @@ on:
         type: boolean
         default: false
 
+      is-prebuilt:
+        description: Specifies whether the package relies on a prebuilt bins/ tar archive as its source of binaries.
+        type: boolean
+        default: false
+
       runner:
         description: The runner to use for the build
         type: string
@@ -101,6 +106,7 @@ jobs:
           pkg-dir: package-repo
           build-dir: build-area
           run-lintian: ${{inputs.run-lintian}}
+          prebuilt: ${{inputs.is-prebuilt}}  
 
       - name: Run ABI (Application Binary Interface) Check
         if: ${{inputs.run-abi-checker == true}}

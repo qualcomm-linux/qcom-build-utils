@@ -19,6 +19,10 @@ inputs:
     description: Run lintian or not during the build
     default: false
 
+  prebuilt:
+    description: Set to true if the package uses binaries from a prebuilt bins/ tar archive.
+    default: false  
+
 runs:
   using: "composite"
   
@@ -42,6 +46,15 @@ runs:
     - name: Prepare Workspace Structure For The Build
       shell: bash
       run: |
+
+        if [[ "${{inputs.prebuilt}}" == "true" ]]; then
+          cd ./package-repo && source upstream.conf 
+          wget $ARTIFACTORY/$TAG/$DISTRO/$PACKAGE_NAME
+          tar -xvf $PACKAGE_NAME
+          rm -rf $PACKAGE_NAME
+          cd - 
+        fi
+
         echo "Listing the content of the workspace :"; tree
 
         mkdir -p ${{inputs.build-dir}}
@@ -78,15 +91,26 @@ runs:
         # ℹ️ chroot mode unshare is important to bypass privilege issues with the mounting
         # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
 
-        gbp buildpackage \
-          --git-ignore-branch \
-          --git-builder="sbuild --host=arm64 \
+        if [[ "${{inputs.prebuilt}}" == "true" ]]; then
+          sbuild --host=arm64 \
                                 --build=${{env.BUILD_ARCH}} \
                                 --dist=${{inputs.distro-codename}} \
                                 $lintian_flag \
                                 --build-dir ../${{inputs.build-dir}} \
                                 --build-dep-resolver=apt \
-                                $EXTRA_REPO"
+                                $EXTRA_REPO
+
+        else
+
+          gbp buildpackage \
+            --git-ignore-branch \
+            --git-builder="sbuild --host=arm64 \
+                                  --build=${{env.BUILD_ARCH}} \
+                                  --dist=${{inputs.distro-codename}} \
+                                  $lintian_flag \
+                                  --build-dir ../${{inputs.build-dir}} \
+                                  --build-dep-resolver=apt \
+                                  $EXTRA_REPO"
 
         RET=$?
 
