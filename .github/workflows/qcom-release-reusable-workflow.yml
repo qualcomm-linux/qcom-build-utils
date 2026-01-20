@@ -172,7 +172,7 @@ jobs:
 
           cat > ../build/provenance.json << EOF
           {
-            $SOURCE : {
+            "$SOURCE" : {
               "version": "${{ steps.changelog.outputs.version }}",
 
               "src_repo": "${{vars.UPSTREAM_REPO_GITHUB_NAME}}",
