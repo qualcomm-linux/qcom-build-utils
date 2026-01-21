@@ -55,6 +55,7 @@ jobs:
         shell: bash
 
     container:
+      # This docker image is built and published by the qualcomm-linux/docker_deb_build repo CI workflow
       image: ghcr.io/qualcomm-linux/pkg-builder:${{inputs.runner == 'ubuntu-latest' && 'amd64' || 'arm64'}}-${{inputs.distro-codename}}
       options: --privileged
       credentials:
