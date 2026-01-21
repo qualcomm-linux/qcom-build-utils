@@ -1,5 +1,0 @@
-autoconf automake autopoint autotools-dev bsdextrautils debhelper debugedit
-dh-autoreconf dh-strip-nondeterminism dwz file gettext gettext-base
-groff-base intltool-debian libarchive-zip-perl libdebhelper-perl libdw1t64
-libelf1t64 libfile-stripnondeterminism-perl libmagic-mgc
-libmagic1t64 libpipeline1 libsub-override-perl libtool libuchardet0 m4 man-db po-debconf
