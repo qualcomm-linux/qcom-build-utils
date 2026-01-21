@@ -11,16 +11,17 @@
 # Author: Bjordis Collaku <bcollaku@qti.qualcomm.com>
 # ===================================================
 
-kpath=$BUILD_TOP/qcom-next/arch/arm64/boot
+treedir=${1:-$BUILD_TOP/qcom-next/}
+kpath="$(cd "$treedir" && pwd)/arch/arm64/boot"
 
 # Clean previous build
 rm -rf $BUILD_TOP/out/*;
 
 # Make config
-cd $BUILD_TOP/qcom-next/
+cd $treedir
 make ARCH=arm64 defconfig qcom.config
 # Deploy boot config to out/
-cp $BUILD_TOP/qcom-next/.config $BUILD_TOP/out/
+cp $treedir/.config $BUILD_TOP/out/
 
 # Make kernel
 make ARCH=arm64 -j32;
