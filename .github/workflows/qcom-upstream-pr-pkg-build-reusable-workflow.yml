@@ -126,7 +126,7 @@ jobs:
           git remote add upstream-source ../upstream-repo
           git fetch upstream-source "+refs/tags/*:refs/tags/*"
 
-      - name: Merge Upstream PR Changes to Packaging Repo on top of debian/latest
+      - name: Merge Upstream PR Changes to Packaging Repo on top of debian/qcom-next
         run: |
           cd ./package-repo
 
@@ -134,7 +134,7 @@ jobs:
           git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
 
           git checkout upstream/latest
-          git checkout debian/latest
+          git checkout debian/qcom-next
           git checkout -b debian/upstream-pr
 
           version=$(dpkg-parsechangelog --show-field Version)
@@ -172,8 +172,8 @@ jobs:
           git merge \
             --allow-unrelated-histories \
             --signoff \
-            -m "Merge upstream/pr into debian/latest" \
-            -m "Filtered out .git, .github and debian from upstram, and preserved .github debian/latest" \
+            -m "Merge upstream/pr into debian/qcom-next" \
+            -m "Filtered out .git, .github and debian from upstram, and preserved .github debian/qcom-next" \
             upstream/latest
 
       - name: Promote Changelog
