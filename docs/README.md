@@ -29,7 +29,7 @@ For package repository maintainers looking to use these workflows:
 - **PKG_REPO_GITHUB_NAME Variable**: A repository variable set in the upstream repository that links it to its associated package repository
 - **Reusable Workflows**: Centralized workflow definitions in qcom-build-utils that are called from package repositories
 - **Composite Actions**: Modular steps that perform specific tasks like building packages or checking ABI compatibility
-- **Debian Branches**: Git branches following the `debian/` prefix convention (e.g., `debian/latest`, `debian/1.0.0-1`)
+- **Debian Branches**: Git branches following the `debian/` prefix convention (e.g., `debian/qcom-next`, `debian/1.0.0-1`)
 - **Upstream Branches**: Git branches following the `upstream/` prefix convention for tracking upstream source code
 
 ### Repository Linking

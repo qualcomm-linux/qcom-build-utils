@@ -60,7 +60,7 @@ This generated diagram attemps to illustrate what happened and what will happen 
   - To its left, the 'upstream/latest' branch lives is this repo, and represents a copy of the upstream repo (and it has already happened during the promotion workflow run).
     The commit tagged 'upstream/{normalized_version}' is a merge from the upstream tag {upstream_tag} commit where in addition,
     special git wizardry happened to perform a special filtering of any potential upstream .github/ and debian/ folders have been filtered out,
-    and only homonym folders from the debian/latest branch have been kept.
+    and only homonym folders from the debian/qcom-next branch have been kept.
   - To its left, this 'debian/pr/{normalized_version}-1' branch was created during the promotion workflow and is the head branch of this PR.
     It represents the merge of the upstream/latest branch into {base_branch}.
   - Note that an extra commit for updating the debian/changelog file to reflect the new version {normalized_version}-1 has been added on top of that merge.

@@ -46,12 +46,12 @@ flowchart TD
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `qcom-build-utils-ref` | string | Yes | - | The ref (branch/tag) of qcom-build-utils to use |
-| `debian-ref` | string | Yes | `debian/latest` | The debian branch/tag to build |
+| `debian-ref` | string | Yes | `debian/qcom-next` | The debian branch/tag to build |
 | `distro-codename` | string | No | `noble` | Ubuntu distribution codename (noble, jammy, questing, etc.) |
 | `run-lintian` | boolean | No | `false` | Whether to run lintian during build |
 | `run-abi-checker` | boolean | No | `false` | Whether to check ABI compatibility |
 | `push-to-repo` | boolean | No | `false` | Whether to push built package to repository |
-| `is-post-merge` | boolean | No | `false` | True if triggered by merge to debian/latest |
+| `is-post-merge` | boolean | No | `false` | True if triggered by merge to debian/qcom-next |
 | `runner` | string | No | `lecore-prd-u2404-arm64-xlrg-od-ephem` | GitHub runner to use |
 
 ### Secrets
@@ -100,7 +100,7 @@ jobs:
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
-      debian-ref: debian/latest
+      debian-ref: debian/qcom-next
       push-to-repo: true
       run-abi-checker: true
       is-post-merge: true
@@ -123,7 +123,7 @@ flowchart TD
     A[Workflow Called with upstream-tag] --> B[Normalize Tag Version<br/>v1.0.0 → 1.0.0]
     B --> C[Checkout qcom-build-utils]
     C --> D[Checkout Package Repository]
-    D --> E[Checkout debian/latest and upstream/latest]
+    D --> E[Checkout debian/qcom-next and upstream/latest]
     E --> F{Tag already exists?}
     F -->|Yes| G[Fail: Tag already integrated]
     F -->|No| H[Add Upstream Repository as Remote]
@@ -131,7 +131,7 @@ flowchart TD
     I --> J{upstream/latest exists?}
     J -->|No| K[Create upstream/latest from tag]
     J -->|Yes| L[Fast-forward merge to tag]
-    K --> M[Checkout debian/latest]
+    K --> M[Checkout debian/qcom-next]
     L --> M
     M --> N[Create debian/pr/version-1 branch]
     N --> O[Merge upstream tag into debian branch]
@@ -216,7 +216,7 @@ flowchart TD
     C --> D[Checkout Upstream PR Branch]
     D --> E[Tag PR as upstream/pr]
     E --> F[Add Upstream as Remote to Package Repo]
-    F --> G[Checkout debian/latest]
+    F --> G[Checkout debian/qcom-next]
     G --> H[Create debian/upstream-pr branch]
     H --> I[Parse Current Version]
     I --> J[Import PR with gbp<br/>Version: upstream~prNNN]
@@ -257,7 +257,7 @@ flowchart TD
 1. **Checkout Repositories**: Clone qcom-build-utils, package repo, and upstream PR
 2. **Tag Upstream PR**: Create `upstream/pr` tag on the PR branch
 3. **Add Remote**: Add upstream repo as remote to package repo
-4. **Merge PR Changes**: Create test branch and merge PR into debian/latest
+4. **Merge PR Changes**: Create test branch and merge PR into debian/qcom-next
 5. **Version Manipulation**: Create special version with `~pr{number}` suffix
 6. **Import with gbp**: Use git-buildpackage to import the PR
 7. **Promote Changelog**: Update changelog for test build

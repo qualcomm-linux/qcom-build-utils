@@ -48,16 +48,16 @@ Package repositories use a specific branch structure:
 ```mermaid
 gitGraph
     commit id: "Initial"
-    branch debian/latest
+    branch debian/qcom-next
     commit id: "Debian packaging"
     branch upstream/latest
     commit id: "Upstream v1.0.0"
-    checkout debian/latest
+    checkout debian/qcom-next
     merge upstream/latest tag: "Merge upstream"
     commit id: "Update changelog"
     branch debian/pr/1.1.0-1
     commit id: "Promote to 1.1.0"
-    checkout debian/latest
+    checkout debian/qcom-next
     merge debian/pr/1.1.0-1
     commit id: "debian/1.1.0-1" tag: "debian/1.1.0-1"
 ```
@@ -67,7 +67,7 @@ gitGraph
 | Branch | Purpose | Protected |
 |--------|---------|-----------|
 | `main` | Primary development branch | Yes |
-| `debian/latest` | Latest Debian packaging branch | Yes |
+| `debian/qcom-next` | Latest Debian packaging branch | Yes |
 | `debian/<version>` | Version-specific branches (created from tags) | No |
 | `debian/pr/<version>` | PR branches for version promotions | No |
 | `upstream/latest` | Latest upstream source (non-native packages) | No |
@@ -105,7 +105,7 @@ If you prefer to set up a repository manually instead of using the template:
    gh repo create qualcomm-linux/pkg-mypackage
    ```
 
-2. **Set up branch protection** for `debian/latest`:
+2. **Set up branch protection** for `debian/qcom-next`:
    - Require pull request reviews
    - Require status checks to pass
    - Require branches to be up to date
@@ -205,7 +205,7 @@ description: |
 
 on:
   pull_request_target:
-    branches: [ debian/latest ]
+    branches: [ debian/qcom-next ]
 
 permissions:
   contents: read
@@ -230,11 +230,11 @@ jobs:
 ```yaml
 name: Post-Merge
 description: |
-  Test that debian/latest builds after the merge. Once the build passes, push the new version to the staging repo
+  Test that debian/qcom-next builds after the merge. Once the build passes, push the new version to the staging repo
 
 on:
   push:
-    branches: [ debian/latest ]
+    branches: [ debian/qcom-next ]
 
 permissions:
   contents: read
@@ -245,7 +245,7 @@ jobs:
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
-      debian-ref: debian/latest
+      debian-ref: debian/qcom-next
       push-to-repo: true
       run-abi-checker: true
       is-post-merge: true
@@ -258,9 +258,9 @@ jobs:
 
 > **Note**: If you created your repository from pkg-template, the initial structure is already in place. You should customize the files and then commit your changes.
 
-1. Create `debian/latest` branch:
+1. Create `debian/qcom-next` branch:
    ```bash
-   git checkout -b debian/latest
+   git checkout -b debian/qcom-next
    ```
 
 2. Commit all files:
@@ -271,7 +271,7 @@ jobs:
 
 3. Push to remote:
    ```bash
-   git push origin debian/latest
+   git push origin debian/qcom-next
    ```
 
 ## Workflow Usage
@@ -282,11 +282,11 @@ The typical workflow for making changes:
 
 ```mermaid
 flowchart TD
-    A[Create feature branch<br/>from debian/latest] --> B[Make changes to<br/>debian/ or src/]
+    A[Create feature branch<br/>from debian/qcom-next] --> B[Make changes to<br/>debian/ or src/]
     B --> C[Update debian/changelog]
     C --> D[Commit changes]
     D --> E[Push branch]
-    E --> F[Open Pull Request<br/>to debian/latest]
+    E --> F[Open Pull Request<br/>to debian/qcom-next]
     F --> G[Pre-merge workflow runs]
     G --> H{Build succeeds?}
     H -->|No| I[Fix issues, push again]
@@ -302,7 +302,7 @@ flowchart TD
 #### 1. Create Feature Branch
 
 ```bash
-git checkout debian/latest
+git checkout debian/qcom-next
 git pull
 git checkout -b fix/my-change
 ```
@@ -317,7 +317,7 @@ Edit source code, Debian files, etc.
 export DEBFULLNAME="Your Name"
 export DEBEMAIL="your.email@qualcomm.com"
 
-gbp dch --debian-branch=debian/latest --new-version=1.0.1-1 --distribution=noble
+gbp dch --debian-branch=debian/qcom-next --new-version=1.0.1-1 --distribution=noble
 ```
 
 Or manually edit `debian/changelog`:
@@ -342,7 +342,7 @@ git push origin fix/my-change
 #### 5. Create Pull Request
 
 ```bash
-gh pr create --base debian/latest --title "Fix important bug"
+gh pr create --base debian/qcom-next --title "Fix important bug"
 ```
 
 #### 6. Wait for Pre-merge Checks
@@ -512,7 +512,7 @@ flowchart TD
     subgraph "Development"
         A[Developer creates feature branch] --> B[Make changes]
         B --> C[Update changelog]
-        C --> D[Open PR to debian/latest]
+        C --> D[Open PR to debian/qcom-next]
     end
     
     subgraph "Pre-Merge (PR Validation)"
@@ -614,7 +614,7 @@ override_dh_strip:
 **Solution**: 
 ```bash
 git checkout --theirs debian/changelog
-gbp dch --debian-branch=debian/latest --auto
+gbp dch --debian-branch=debian/qcom-next --auto
 git add debian/changelog
 git commit
 ```
@@ -648,7 +648,7 @@ Follow Debian versioning:
 
 ### 5. Branch Management
 
-- Keep `debian/latest` clean and working
+- Keep `debian/qcom-next` clean and working
 - Delete PR branches after merging
 - Use descriptive branch names
 

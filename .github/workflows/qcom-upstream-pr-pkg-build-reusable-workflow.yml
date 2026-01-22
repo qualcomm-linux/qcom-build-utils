@@ -149,9 +149,9 @@ jobs:
           echo "upstream_version=$upstream_version" >> $GITHUB_ENV
           echo "distro_revision=$distro_revision" >> $GITHUB_ENV
 
-          # Run gbp with --no-merge, this is because we do not want gbp to perform the final merging of upstream/latest into debian/latest
+          # Run gbp with --no-merge, this is because we do not want gbp to perform the final merging of upstream/latest into debian/qcom-next
           # This because in upstream/latest, the top commit is the one of the filtering of git, github and debian folder. gbp will complain
-          # the merge is unseccessful because we want to merge with debian/latest, which has a workflow in .github, resulting in a merge conflict
+          # the merge is unseccessful because we want to merge with debian/qcom-next, which has a workflow in .github, resulting in a merge conflict
           # where in one branch we deleted .github folder, and the other we add files. We will therefore take the matter in our own hands manually after.
 
           gbp import-orig \

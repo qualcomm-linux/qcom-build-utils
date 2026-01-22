@@ -19,7 +19,7 @@ graph TB
     
     subgraph "Package Repository (pkg-*)"
         PR[Pull Request]
-        PM[Push to debian/latest]
+        PM[Push to debian/qcom-next]
     end
     
     subgraph "qcom-build-utils"
@@ -159,7 +159,7 @@ pkg-mypackage/
 
 **Branch Structure**:
 - `main` - Primary development branch
-- `debian/latest` - Latest Debian packaging branch (build target)
+- `debian/qcom-next` - Latest Debian packaging branch (build target)
 - `debian/<version>` - Specific version branches
 - `upstream/latest` - Latest upstream source code (for non-native packages)
 - `upstream/<version>` - Specific upstream version tags
@@ -193,7 +193,7 @@ pkg-mypackage/
 
 ### Pre-merge Flow (Pull Requests)
 
-When a pull request is opened against `debian/latest` in a package repository:
+When a pull request is opened against `debian/qcom-next` in a package repository:
 
 ```mermaid
 sequenceDiagram
@@ -203,7 +203,7 @@ sequenceDiagram
     participant Build as build_package Action
     participant ABI as abi_checker Action
     
-    Dev->>PR: Opens PR to debian/latest
+    Dev->>PR: Opens PR to debian/qcom-next
     PR->>RW: Triggers pre-merge workflow
     RW->>Build: Build package for PR branch
     Build-->>RW: Build artifacts
@@ -217,7 +217,7 @@ sequenceDiagram
 ```yaml
 on:
   pull_request_target:
-    branches: [ debian/latest ]
+    branches: [ debian/qcom-next ]
 
 jobs:
   build:
@@ -232,7 +232,7 @@ jobs:
 
 ### Post-merge Flow (Merged PRs)
 
-When a PR is merged to `debian/latest`:
+When a PR is merged to `debian/qcom-next`:
 
 ```mermaid
 sequenceDiagram
@@ -244,9 +244,9 @@ sequenceDiagram
     participant Push as push_to_repo Action
     participant Repo as pkg-oss-staging-repo
     
-    Dev->>PM: Merges PR to debian/latest
+    Dev->>PM: Merges PR to debian/qcom-next
     PM->>RW: Triggers post-merge workflow
-    RW->>Build: Build package from debian/latest
+    RW->>Build: Build package from debian/qcom-next
     Build-->>RW: Build artifacts
     RW->>ABI: Check ABI compatibility
     ABI-->>RW: ABI check results
@@ -262,14 +262,14 @@ sequenceDiagram
 ```yaml
 on:
   push:
-    branches: [ debian/latest ]
+    branches: [ debian/qcom-next ]
 
 jobs:
   build:
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
-      debian-ref: debian/latest
+      debian-ref: debian/qcom-next
       push-to-repo: true
       run-abi-checker: true
       is-post-merge: true
@@ -314,7 +314,7 @@ sequenceDiagram
     Up->>RW: Triggers pkg-build-pr-check workflow
     RW->>Pkg: Clone packaging repo
     RW->>Up: Clone PR branch
-    RW->>Pkg: Merge upstream PR into debian/latest
+    RW->>Pkg: Merge upstream PR into debian/qcom-next
     RW->>Build: Build test package
     Build-->>RW: Build artifacts
     RW->>ABI: Check ABI compatibility

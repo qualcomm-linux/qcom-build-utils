@@ -13,10 +13,10 @@ on:
         required: true
 
       debian-ref:
-        description: The debian ref to build. For example branch "debian/latest" or tag "debian/1.0.0-1"
+        description: The debian ref to build. For example branch "debian/qcom-next" or tag "debian/1.0.0-1"
         type: string
         required: true
-        default: debian/latest
+        default: debian/qcom-next
 
       distro-codename:
         description: The distribution codename to build for. Ex noble, jammy, etc
@@ -34,7 +34,7 @@ on:
         default: false
 
       is-post-merge:
-        description: true if this build has been triggered by a merge into debian/latest. Will ensure PR branch is deleted
+        description: true if this build has been triggered by a merge into debian/qcom-next. Will ensure PR branch is deleted
         type: boolean
         default: false
 
