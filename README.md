@@ -1,23 +1,10 @@
-# Build debian package locally
-```
-./scripts/docker_deb_build.py --source-dir ./some-pkg-repo --output-dir ./some-pkg-build-dir
-```
+# Package builder
 
-The script docker_deb_build.py is a unified solution to build a debian package.
-It works both on a arm64 or x86_64 build host; it builds natively for arm64 on arm64, and cross compiles on x86
+The docker package build infra has been moved into its own repo:
 
-The docker image from docker/Dockerfile.{arch}.noble/questing is used for building. The first time the script is ran, the image will be built.
+www.github.com/qualcomm-linux/docker_pkg_build
 
-pro-tip : Clone this repo somewhere and add the script as some short (debb == debian build) alias in ~/.bashrc :
-
-```
-alias debb="<loc>/scripts/docker_deb_build.py"
-```
-
-To rebuild the image :
-```
-debb --rebuild
-```
+Checkout its README.md on  how to build packages locally
 
 # License
 
