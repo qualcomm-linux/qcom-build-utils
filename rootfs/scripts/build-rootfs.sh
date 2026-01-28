@@ -427,7 +427,7 @@ mount --bind /dev/pts "$ROOTFS_DIR/dev/pts"
 # Step 8: Enter chroot to Install Packages and Configure GRUB
 # ==============================================================================
 echo "[INFO] Entering chroot to install packages and configure GRUB..."
-env DISTRO="$DISTRO" CODENAME="$CODENAME" \
+env DISTRO="$DISTRO" CODENAME="$CODENAME" VARIANT="$VARIANT" \
     chroot "$ROOTFS_DIR" /bin/bash -c "
 set -e
 
@@ -439,6 +439,29 @@ apt-get install -y --no-install-recommends \
   wpasupplicant \
   iw \
   net-tools
+
+# --- Desktop variant handling (right after networking tools) ---
+# If VARIANT=desktop:
+#   - Debian  -> install gnome-core
+#   - Ubuntu  -> install ubuntu-desktop-minimal
+echo '[CHROOT] Evaluating desktop variant install...'
+variant_lc=\$(echo \"\${VARIANT}\" | tr '[:upper:]' '[:lower:]')
+distro_lc=\$(echo \"\${DISTRO}\" | tr '[:upper:]' '[:lower:]')
+
+if [ \"\${variant_lc}\" = \"desktop\" ]; then
+  echo \"[CHROOT] Desktop variant requested for distro '\${DISTRO}'.\"
+  apt-get update
+  if [ \"\${distro_lc}\" = \"debian\" ]; then
+    echo '[CHROOT] Installing gnome-core (Debian)...'
+    apt-get install -y gnome-core
+  elif [ \"\${distro_lc}\" = \"ubuntu\" ]; then
+    echo '[CHROOT] Installing ubuntu-desktop-minimal (Ubuntu)...'
+    apt-get install -y ubuntu-desktop-minimal
+  else
+    echo \"[CHROOT][WARN] Unknown distro '\${DISTRO}' for desktop variant; skipping desktop meta-package.\"
+  fi
+fi
+# --- End desktop variant handling ---
 
 echo '[CHROOT] Disabling unnecessary services...'
 ln -sf /dev/null /etc/systemd/system/systemd-networkd-wait-online.service
