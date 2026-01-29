@@ -29,17 +29,19 @@
 #     --seed seed_file \
 #     --kernel-package kernel.deb \
 #     --firmware firmware.deb \
-#     [--overlay package-manifest.json]
+#     [--overlay package-manifest.json] \
+#     [--variant desktop]
 #
 # ARGUMENTS:
 #   --product-conf <qcom-product.conf>     Required. Product configuration file.
-#   --seed <seed_file>                    Required. Seed file: one package per line (# comments allowed).
-#   --kernel-package <kernel.deb>         Required. Custom kernel package.
-#   --firmware <firmware.deb>             Required. Custom firmware package.
-#   --overlay <package-manifest.json>     Optional. JSON manifest specifying extra packages/apt sources.
+#   --seed <seed_file>                     Required. Seed file: one package per line (# comments allowed).
+#   --kernel-package <kernel.deb>          Required. Custom kernel package.
+#   --firmware <firmware.deb>              Required. Custom firmware package.
+#   --overlay <package-manifest.json>      Optional. JSON manifest specifying extra packages/apt sources.
+#   --variant <variant_name>               Optional. System variant (default: desktop).
 #
 # OUTPUT:
-#   rootfs.img                            Flashable ext4 rootfs image.
+#   rootfs.img                             Flashable ext4 rootfs image.
 #
 # REQUIREMENTS:
 #   - Run as root (auto-elevates with sudo if needed).
@@ -66,13 +68,14 @@ SEED=""
 MANIFEST=""          # internal name retained (overlay JSON)
 KERNEL_DEB=""
 FIRMWARE_DEB=""
+VARIANT_INPUT=""     # New variable to hold the variant argument
 USE_CONF=0
 USE_MANIFEST=0
 TARGET=""
 
 print_usage() {
     echo "Usage:"
-    echo "  $0 --product-conf <qcom-product.conf> --seed <seed_file> --kernel-package <kernel.deb> --firmware <firmware.deb> [--overlay <package-manifest.json>]"
+    echo "  $0 --product-conf <qcom-product.conf> --seed <seed_file> --kernel-package <kernel.deb> --firmware <firmware.deb> [--overlay <package-manifest.json>] [--variant <variant>]"
     echo
     echo "Arguments:"
     echo "  --product-conf   Required. qcom-product.conf"
@@ -80,6 +83,7 @@ print_usage() {
     echo "  --kernel-package Required. Kernel .deb"
     echo "  --firmware       Required. Firmware .deb"
     echo "  --overlay        Optional. package-manifest.json (same schema as current manifest)"
+    echo "  --variant        Optional. System variant (default: desktop)"
 }
 
 # Parse named options
@@ -96,6 +100,8 @@ while [[ $# -gt 0 ]]; do
             FIRMWARE_DEB="${2-}"; shift 2 ;;
         --overlay)
             MANIFEST="${2-}"; shift 2 ;;
+        --variant)
+            VARIANT_INPUT="${2-}"; shift 2 ;;
         -h|--help)
             print_usage
             exit 0
@@ -299,14 +305,16 @@ else
     CFG["DISTRO"]="ubuntu"
     CFG["CODENAME"]="questing"
     CFG["ARCH"]="arm64"
-    CFG["VARIANT"]="server"
+    # VARIANT Default will be handled below
 fi
 
 TARGET_PLATFORM="${CFG[QCOM_TARGET_PLATFORM]:-iot}"
 DISTRO="${CFG[DISTRO]:-ubuntu}"
 CODENAME="${CFG[CODENAME]:-questing}"
 ARCH="${CFG[ARCH]:-arm64}"
-VARIANT="${CFG[VARIANT]:-server}"
+
+# Changed: VARIANT is now sourced from CLI arg, defaulting to 'desktop'
+VARIANT="${VARIANT_INPUT:-desktop}"
 
 echo "[INFO] Build Source:"
 echo "  TARGET_PLATFORM=$TARGET_PLATFORM"
