@@ -28,7 +28,7 @@
 #     --product-conf qcom-product.conf \
 #     --seed seed_file \
 #     --kernel-package kernel.deb \
-#     --firmware firmware.deb \
+#     [--firmware firmware.deb] \
 #     [--overlay package-manifest.json] \
 #     [--variant desktop]
 #
@@ -36,7 +36,7 @@
 #   --product-conf <qcom-product.conf>     Required. Product configuration file.
 #   --seed <seed_file>                     Required. Seed file: one package per line (# comments allowed).
 #   --kernel-package <kernel.deb>          Required. Custom kernel package.
-#   --firmware <firmware.deb>              Required. Custom firmware package.
+#   --firmware <firmware.deb>              Optional. Custom firmware package.
 #   --overlay <package-manifest.json>      Optional. JSON manifest specifying extra packages/apt sources.
 #   --variant <variant_name>               Optional. System variant (default: desktop).
 #
@@ -75,13 +75,13 @@ TARGET=""
 
 print_usage() {
     echo "Usage:"
-    echo "  $0 --product-conf <qcom-product.conf> --seed <seed_file> --kernel-package <kernel.deb> --firmware <firmware.deb> [--overlay <package-manifest.json>] [--variant <variant>]"
+    echo "  $0 --product-conf <qcom-product.conf> --seed <seed_file> --kernel-package <kernel.deb> [--firmware <firmware.deb>] [--overlay <package-manifest.json>] [--variant <variant>]"
     echo
     echo "Arguments:"
     echo "  --product-conf   Required. qcom-product.conf"
     echo "  --seed           Required. Seed file (one package per line; supports # comments)"
     echo "  --kernel-package Required. Kernel .deb"
-    echo "  --firmware       Required. Firmware .deb"
+    echo "  --firmware       Optional. Firmware .deb"
     echo "  --overlay        Optional. package-manifest.json (same schema as current manifest)"
     echo "  --variant        Optional. System variant (default: desktop)"
 }
@@ -115,7 +115,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate required args
-if [[ -z "${CONF}" || -z "${SEED}" || -z "${KERNEL_DEB}" || -z "${FIRMWARE_DEB}" ]]; then
+if [[ -z "${CONF}" || -z "${SEED}" || -z "${KERNEL_DEB}" ]]; then
     echo "[ERROR] Missing required argument(s)."
     print_usage
     exit 1
@@ -130,7 +130,9 @@ fi
 [[ -f "$CONF" ]] || { echo "[ERROR] Config file not found: $CONF"; exit 1; }
 [[ -f "$SEED" ]] || { echo "[ERROR] Seed file not found: $SEED"; exit 1; }
 [[ -f "$KERNEL_DEB" ]] || { echo "[ERROR] Kernel package not found: $KERNEL_DEB"; exit 1; }
-[[ -f "$FIRMWARE_DEB" ]] || { echo "[ERROR] Firmware package not found: $FIRMWARE_DEB"; exit 1; }
+if [[ -n "$FIRMWARE_DEB" ]]; then
+    [[ -f "$FIRMWARE_DEB" ]] || { echo "[ERROR] Firmware package not found: $FIRMWARE_DEB"; exit 1; }
+fi
 if [[ "$USE_MANIFEST" -eq 1 && -n "$MANIFEST" ]]; then
     [[ -f "$MANIFEST" ]] || { echo "[ERROR] Manifest/overlay file not found: $MANIFEST"; exit 1; }
 fi
@@ -353,7 +355,9 @@ fi
 # ==============================================================================
 echo "[INFO] Copying kernel and firmware packages into rootfs..."
 cp "$KERNEL_DEB" "$ROOTFS_DIR/"
-cp "$FIRMWARE_DEB" "$ROOTFS_DIR/"
+if [[ -n "$FIRMWARE_DEB" ]]; then
+    cp "$FIRMWARE_DEB" "$ROOTFS_DIR/"
+fi
 
 echo "[INFO] Replacing /etc/resolv.conf with host copy for apt inside chroot..."
 rm -f "$ROOTFS_DIR/etc/resolv.conf"
@@ -434,6 +438,14 @@ mount --bind /dev/pts "$ROOTFS_DIR/dev/pts"
 # ==============================================================================
 # Step 8: Enter chroot to Install Packages and Configure GRUB
 # ==============================================================================
+
+CMD_FW_INSTALL=""
+if [[ -n "$FIRMWARE_DEB" ]]; then
+    CMD_FW_INSTALL="dpkg -i /$(basename "$FIRMWARE_DEB")"
+else
+    CMD_FW_INSTALL="echo '[CHROOT] Skipping firmware installation.'"
+fi
+
 echo "[INFO] Entering chroot to install packages and configure GRUB..."
 env DISTRO="$DISTRO" CODENAME="$CODENAME" VARIANT="$VARIANT" \
     chroot "$ROOTFS_DIR" /bin/bash -c "
@@ -479,7 +491,7 @@ echo '[CHROOT] Capturing base package list...'
 dpkg-query -W -f='\${Package} \${Version}\n' > /tmp/\${CODENAME}_base.manifest
 
 echo '[CHROOT] Installing custom firmware and kernel...'
-dpkg -i /$(basename "$FIRMWARE_DEB")
+$CMD_FW_INSTALL
 yes \"\" | dpkg -i /$(basename "$KERNEL_DEB")
 
 adduser --disabled-password --gecos '' qcom
