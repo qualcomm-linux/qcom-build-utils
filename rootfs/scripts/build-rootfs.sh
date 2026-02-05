@@ -533,12 +533,6 @@ rm -f /tmp/\${CODENAME}_post.manifest /tmp/sorted_base.manifest /tmp/sorted_post
 echo '[CHROOT] Base package list preserved as /tmp/\${CODENAME}_base.manifest'
 echo '[CHROOT] Custom installed packages saved to /tmp/packages_\${DATE}.manifest'
 
-echo '[CHROOT] Detecting installed kernel version...'
-
-kernel_ver=$(basename "$KERNEL_DEB" \
-  | sed 's|^linux-kernel-\(.*\)-arm64\.deb$|\1|' \
-  | sed 's|-[0-9][0-9]*-[0-9][0-9]*$||')
-
 echo '[CHROOT] Generating grub.cfg via update-grub...'
 update-grub
 
