@@ -206,6 +206,8 @@ _seed_to_debootstrap_include() {
         passwd
         systemd-sysv
         apt
+        grub-common
+        grub2-commong
     )
 
     for p in "${required_pkgs[@]}"; do
@@ -510,16 +512,26 @@ kernel_ver=$(basename "$KERNEL_DEB" \
   | sed 's|^linux-kernel-\(.*\)-arm64\.deb$|\1|' \
   | sed 's|-[0-9][0-9]*-[0-9][0-9]*$||')
 
-echo '[CHROOT] Writing GRUB configuration for single DTB-agnostic entry...'
-tee /boot/grub.cfg > /dev/null <<GRUBCFG
-set timeout=5
+echo '[CHROOT] Configuring /etc/default/grub...'
+cat <<EOF > /etc/default/grub
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=5
+GRUB_DISTRIBUTOR=\`lsb_release -i -s 2> /dev/null || echo Debian\`
 
-menuentry \"\${DISTRO} \${CODENAME}\" {
-    search --no-floppy --label system --set=root
-    linux /boot/vmlinuz-\$kernel_ver earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel
-    initrd /boot/initrd.img-\$kernel_ver
-}
-GRUBCFG
+# 1. CRITICAL HARDWARE SETTINGS (Applies to Normal AND Recovery)
+# These are required for the board to physically boot and show output.
+GRUB_CMDLINE_LINUX="earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel"
+
+# 2. OPTIONAL UX SETTINGS (Applies to Normal only)
+# Leave empty so Recovery Mode gives you full verbose logs without extra noise.
+GRUB_CMDLINE_LINUX_DEFAULT=""
+
+# 3. Use LABEL=system instead of UUID (Required for generic images)
+GRUB_DISABLE_LINUX_UUID=true
+EOF
+
+echo '[CHROOT] Generating grub.cfg via update-grub...'
+update-grub
 "
 
 # ==============================================================================
