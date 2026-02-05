@@ -448,6 +448,12 @@ GRUB_DEFAULT=0
 GRUB_TIMEOUT=5
 GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
 
+# --- DUAL OUTPUT CONFIGURATION ---
+# "serial"  -> Outputs menu to the serial port
+# "console" -> Outputs menu to the attached display (HDMI/DP) in text mode
+GRUB_TERMINAL="serial console"
+GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"
+
 # Kernel parameters applied to BOTH Normal and Recovery boot modes
 # (Critical hardware settings: console, rootfs, clocks, EFI)
 GRUB_CMDLINE_LINUX="earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel"
