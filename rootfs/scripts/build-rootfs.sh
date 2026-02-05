@@ -542,8 +542,23 @@ kernel_ver=$(basename "$KERNEL_DEB" \
 echo '[CHROOT] Generating grub.cfg via update-grub...'
 update-grub
 
-# Ensure compatibility with bootloaders expecting the legacy path
-ln -sf /boot/grub/grub.cfg /boot/grub.cfg
+# ==============================================================================
+# POST-PROCESSING: GRUB Configuration Cleanup & Standardization
+# ==============================================================================
+
+# 1. Enforce Generic Partition Search
+# Replace host-detected UUIDs with stable Label searching to ensure
+# the image boots on any storage medium.
+sed -i 's/search --no-floppy --fs-uuid --set=root .*/search --no-floppy --label system --set=root/g' /boot/grub/grub.cfg
+
+# 2. Clean Kernel Command Line
+# Remove the host-detected root device (e.g., root=/dev/nvme0n1p1) to prevent
+# conflicts with our 'root=LABEL=system' argument.
+sed -i 's/root=\/dev\/[^ ]* //g' /boot/grub/grub.cfg
+
+# 3. Legacy Compatibility
+# Create a relative symlink for bootloaders expecting the old path.
+ln -sf grub/grub.cfg /boot/grub.cfg
 "
 
 # ==============================================================================
