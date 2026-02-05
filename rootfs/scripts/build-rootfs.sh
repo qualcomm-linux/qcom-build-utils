@@ -436,20 +436,27 @@ mount --bind /dev/pts "$ROOTFS_DIR/dev/pts"
 # ==============================================================================
 # Step 7.5: Configure GRUB defaults
 # ==============================================================================
-echo "[INFO] configuring /etc/default/grub..."
+echo "[INFO] Configuring /etc/default/grub..."
 
-cat <<EOF > "$ROOTFS_DIR/etc/default/grub"
+# Ensure target directories exist before writing configuration
+mkdir -p "$ROOTFS_DIR/boot/grub"
+mkdir -p "$ROOTFS_DIR/etc/default"
+
+# Write GRUB defaults using quoted heredoc to prevent host-side expansion
+cat <<'EOF' > "$ROOTFS_DIR/etc/default/grub"
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=5
-GRUB_DISTRIBUTOR=\`lsb_release -i -s 2> /dev/null || echo Debian\`
+GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
 
-# Critical hardware settings (Applies to Normal and Recovery modes)
+# Kernel parameters applied to BOTH Normal and Recovery boot modes
+# (Critical hardware settings: console, rootfs, clocks, EFI)
 GRUB_CMDLINE_LINUX="earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused efi=noruntime rootwait ignore_loglevel"
 
-# Optional UX settings (Applies to Normal mode only)
+# Kernel parameters applied ONLY to Normal boot mode
+# (UX settings: quiet, splash, etc. - Left empty for verbose output)
 GRUB_CMDLINE_LINUX_DEFAULT=""
 
-# Force filesystem label usage for generic image portability
+# Disable UUIDs to support generic filesystem images
 GRUB_DISABLE_LINUX_UUID=true
 EOF
 
