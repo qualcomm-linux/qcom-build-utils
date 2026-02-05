@@ -533,11 +533,8 @@ rm -f /tmp/\${CODENAME}_post.manifest /tmp/sorted_base.manifest /tmp/sorted_post
 echo '[CHROOT] Base package list preserved as /tmp/\${CODENAME}_base.manifest'
 echo '[CHROOT] Custom installed packages saved to /tmp/packages_\${DATE}.manifest'
 
-echo '[CHROOT] Generating grub.cfg via update-grub...'
-update-grub
-
 # ==============================================================================
-# POST-PROCESSING: GRUB Configuration Cleanup & Standardization
+# GRUB Configuration Cleanup & Standardization
 # ==============================================================================
 
 # 1. Enforce Generic Partition Search
