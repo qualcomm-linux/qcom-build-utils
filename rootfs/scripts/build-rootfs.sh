@@ -207,7 +207,7 @@ _seed_to_debootstrap_include() {
         systemd-sysv
         apt
         grub-common
-        grub2-commong
+        grub2-common
     )
 
     for p in "${required_pkgs[@]}"; do
