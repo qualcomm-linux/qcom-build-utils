@@ -73,7 +73,7 @@ fi
 # NOTE: Do this ONLY if uname -r for this kernel will also include the suffix.
 #BASE_KERNEL_VERSION="$PKG_KERNEL_VERSION"
 
-DEB_DIR="linux-kernel-$PKG_KERNEL_VERSION-arm64-dbg"
+DEB_DIR="linux-kernel-debug-$PKG_KERNEL_VERSION-arm64"
 DEB_PACKAGE="$DEB_DIR.deb"
 
 IMAGE="$OUT_DIR/Image"
@@ -141,8 +141,7 @@ cp "$OUT_DIR"/*.dtb "$DEB_DIR/lib/firmware/$BASE_KERNEL_VERSION/device-tree/"
 echo "Creating control file..."
 # Create control file
 cat <<EOF > "$DEB_DIR/DEBIAN/control"
-Package: linux-kernel-$PKG_KERNEL_VERSION
-Source: x1e80100
+Package: linux-kernel-debug-$PKG_KERNEL_VERSION
 Version: $PKG_KERNEL_VERSION
 Architecture: arm64
 Maintainer: Bjordis Collaku <bcollaku@quicinc.com>
@@ -163,7 +162,7 @@ current_kernel_version=\$(uname -r)
 echo "Starting cleanup of existing kernel products matching version \$kernel_version..."
 
 # Check for the same kernel package already installed
-existing_kernel_package="linux-kernel-\$kernel_version"
+existing_kernel_package="linux-kernel-debug-\$kernel_version"
 if dpkg-query -W -f='${Status}' "$existing_kernel_package" 2>/dev/null | grep -q "install ok installed"; then
     echo "Detected existing Linux kernel package: \$existing_kernel_package"
     echo "Please uninstall the existing kernel package before proceeding with the installation of the new kernel:"
