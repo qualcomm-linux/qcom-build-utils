@@ -73,7 +73,7 @@ fi
 # NOTE: Do this ONLY if uname -r for this kernel will also include the suffix.
 #BASE_KERNEL_VERSION="$PKG_KERNEL_VERSION"
 
-DEB_DIR="linux-kernel-$PKG_KERNEL_VERSION-arm64"
+DEB_DIR="linux-kernel-$PKG_KERNEL_VERSION-arm64-dbg"
 DEB_PACKAGE="$DEB_DIR.deb"
 
 IMAGE="$OUT_DIR/Image"
