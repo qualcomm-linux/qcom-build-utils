@@ -19,7 +19,7 @@ rm -rf $BUILD_TOP/out/*;
 
 # Make config
 cd $treedir
-make ARCH=arm64 defconfig qcom.config
+make ARCH=arm64 defconfig qcom.config debug.config
 # Deploy boot config to out/
 cp $treedir/.config $BUILD_TOP/out/
 
