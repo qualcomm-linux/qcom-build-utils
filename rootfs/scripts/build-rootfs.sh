@@ -568,6 +568,32 @@ sed -i 's/root=\/dev\/[^ ]* //g' /boot/grub/grub.cfg
 # 3. Legacy Compatibility
 # Create a relative symlink for bootloaders expecting the old path.
 ln -sf grub/grub.cfg /boot/grub.cfg
+
+# ==============================================================================
+# Device Tree Configuration for Debian platforms
+# ==============================================================================
+
+if [ \"\${distro_lc}\" = \"debian\" ]; then
+    echo '[INFO][CHROOT] Debian target detected. Configuring platform Device Tree...'
+
+    # Locate the platform Device Tree Blob (DTB) in standard library or firmware paths
+    DTB_PATH=\$(find /usr/lib /lib/firmware -name \"glymur-crd.dtb\" -print -quit)
+
+    if [ -n \"\$DTB_PATH\" ]; then
+        echo \"[INFO][CHROOT] Platform DTB resolved: \$DTB_PATH\"
+        
+        # Ensure DTB is accessible in the bootloader's filesystem scope
+        ln -sf \"\$DTB_PATH\" /boot/dtb
+        
+        # Inject the devicetree directive into the generated GRUB configuration.
+        # This appends the command immediately following the 'initrd' load.
+        sed -i \"/^[[:space:]]*initrd/a \    devicetree /boot/dtb\" /boot/grub/grub.cfg
+        
+        echo '[SUCCESS][CHROOT] Device Tree directive injected into /boot/grub/grub.cfg'
+    else
+        echo '[WARN][CHROOT] Target DTB (glymur-crd.dtb) not found. Skipping injection.'
+    fi
+fi
 "
 
 # ==============================================================================
