@@ -21,7 +21,7 @@
 #
 # Embedded bootstrap config behavior:
 #   - Search root filesystem by label "system"
-#   - Chainload rootfs GRUB config: ($root)/boot/grub/grub.cfg (or /boot/grub.cfg)
+#   - Chainload rootfs GRUB config: ($root)/boot/grub/grub.cfg
 #
 # Usage:
 #   ./build-efi-esp.sh [--sector-size <size>] [--esp-size-mb <mb>] [--no-install]
@@ -212,10 +212,8 @@ search --no-floppy --label ${ROOT_LABEL} --set=root
 if [ -e (\$root)/boot/grub/grub.cfg ]; then
   set prefix=(\$root)/boot/grub
   configfile (\$root)/boot/grub/grub.cfg
-elif [ -e (\$root)/boot/grub.cfg ]; then
-  configfile (\$root)/boot/grub.cfg
 else
-  echo 'ERROR: Rootfs found but no GRUB config at /boot/grub/grub.cfg or /boot/grub.cfg'
+  echo 'ERROR: Rootfs found but no GRUB config at /boot/grub/grub.cfg'
   echo 'Dropping to GRUB shell.'
 fi
 EOF
