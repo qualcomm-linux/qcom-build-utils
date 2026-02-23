@@ -565,10 +565,6 @@ sed -i 's/search --no-floppy --fs-uuid --set=root .*/search --no-floppy --label 
 # conflicts with our 'root=LABEL=system' argument.
 sed -i 's/root=\/dev\/[^ ]* //g' /boot/grub/grub.cfg
 
-# 3. Legacy Compatibility
-# Create a relative symlink for bootloaders expecting the old path.
-ln -sf grub/grub.cfg /boot/grub.cfg
-
 # ==============================================================================
 # Device Tree Configuration for Debian platforms
 # ==============================================================================
