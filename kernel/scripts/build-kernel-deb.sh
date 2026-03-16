@@ -80,6 +80,7 @@ IMAGE="$OUT_DIR/Image"
 CONFIG="$OUT_DIR/.config"
 MODULES="$OUT_DIR/modules/lib/modules/$BASE_KERNEL_VERSION"
 DTB="$OUT_DIR/*.dtb"
+DTBO="$OUT_DIR/*.dtbo"
 
 # Print required kernel products
 echo "============================================================"
@@ -137,6 +138,13 @@ cp -rap "$MODULES" "$DEB_DIR/lib/modules/"
 
 echo "Copying device tree blobs to /boot/dtbs..."
 cp "$OUT_DIR"/*.dtb "$DEB_DIR/lib/firmware/$BASE_KERNEL_VERSION/device-tree/"
+
+if [ -n "$(ls -A $DTBO 2>/dev/null)" ]; then
+    echo "Copying device tree blobs overlay to /boot/dtbos..."
+    cp "$OUT_DIR"/*.dtbo "$DEB_DIR/lib/firmware/$BASE_KERNEL_VERSION/device-tree/"
+else
+    echo "No .dtbo files found, skipping DTB overlay copy."
+fi
 
 echo "Creating control file..."
 # Create control file

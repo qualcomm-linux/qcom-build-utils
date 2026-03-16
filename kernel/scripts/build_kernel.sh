@@ -34,5 +34,5 @@ make ARCH=arm64 modules
 # Deploy kernel modules to out/
 make ARCH=arm64 modules_install INSTALL_MOD_PATH=$BUILD_TOP/out/modules INSTALL_MOD_STRIP=1
 
-# Deploy ALL device tree blobs (*.dtb) to out/ (recursively)
-find "$kpath/dts" -type f -name '*.dtb' -print0 | xargs -0 -I{} cp "{}" "$BUILD_TOP/out/"
+# Deploy all Qualcomm platform device tree blobs (*.dtb) and device tree blobs overlay (*.dtbo) to out/ (recursively)
+find "$kpath/dts/qcom" -type f \( -name '*.dtb' -o -name '*.dtbo' \) -print0 | xargs -0 -I{} cp "{}" "$BUILD_TOP/out/"
