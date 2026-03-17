@@ -1,6 +1,13 @@
 name: Build Debian Package
 description: |
-  This Github Actions builds the package
+  This Github Actions builds the package.
+  Supports two build modes, selected automatically or explicitly:
+  - Source build: Uses git-buildpackage (gbp) to build from source.
+  - Prebuilt binary: Downloads a binary tarball from Artifactory (defined in
+    upstream.conf) and packages it directly with sbuild, bypassing gbp.
+  Auto-detection: if prebuilt is left empty (default), the action checks whether
+  upstream.conf exists in the package directory. If found, prebuilt mode is used;
+  otherwise source build mode is used.
 
 inputs:
   distro-codename:
@@ -18,6 +25,17 @@ inputs:
   run-lintian:
     description: Run lintian or not during the build
     default: false
+
+  prebuilt:
+    description: |
+      Controls the build mode:
+        "true"  — Force prebuilt binary mode: reads upstream.conf, downloads tarball, runs sbuild.
+        "false" — Force source build mode: runs gbp buildpackage.
+        ""      — Auto-detect (default): uses prebuilt mode if upstream.conf exists in pkg-dir,
+                  otherwise uses source build mode.
+      upstream.conf must export: ARTIFACTORY, TAG, DISTRO, PACKAGE_NAME.
+      Optionally export PACKAGE_SHA256 for checksum verification.
+    default: ""
 
 runs:
   using: "composite"
@@ -38,6 +56,74 @@ runs:
           echo "Unsupported architecture: ${{ runner.arch }}"
           exit 1
         fi
+
+    - name: Detect Package Type
+      shell: bash
+      run: |
+        if [[ "${{inputs.prebuilt}}" == "true" ]]; then
+          echo "PREBUILT_MODE=true" >> $GITHUB_ENV
+          echo "ℹ️ Build mode: prebuilt (explicitly set)"
+        elif [[ "${{inputs.prebuilt}}" == "false" ]]; then
+          echo "PREBUILT_MODE=false" >> $GITHUB_ENV
+          echo "ℹ️ Build mode: source (explicitly set)"
+        else
+          # Auto-detect based on presence of upstream.conf in the package directory
+          if [[ -f "${{inputs.pkg-dir}}/upstream.conf" ]]; then
+            echo "PREBUILT_MODE=true" >> $GITHUB_ENV
+            echo "ℹ️ Build mode: prebuilt (auto-detected: upstream.conf found in ${{inputs.pkg-dir}})"
+          else
+            echo "PREBUILT_MODE=false" >> $GITHUB_ENV
+            echo "ℹ️ Build mode: source (auto-detected: no upstream.conf in ${{inputs.pkg-dir}})"
+          fi
+        fi
+
+    - name: Download Prebuilt Binary Archive
+      if: ${{ env.PREBUILT_MODE == 'true' }}
+      shell: bash
+      run: |
+        UPSTREAM_CONF="${{inputs.pkg-dir}}/upstream.conf"
+
+        if [[ ! -f "$UPSTREAM_CONF" ]]; then
+          echo "❌ upstream.conf not found at $UPSTREAM_CONF"
+          echo "   This file is required when prebuilt=true."
+          echo "   It must export: ARTIFACTORY, TAG, DISTRO, PACKAGE_NAME"
+          exit 1
+        fi
+
+        echo "ℹ️ Sourcing $UPSTREAM_CONF"
+        source "$UPSTREAM_CONF"
+
+        # Validate all required variables are set after sourcing
+        for var in ARTIFACTORY TAG DISTRO PACKAGE_NAME; do
+          if [[ -z "${!var}" ]]; then
+            echo "❌ Required variable '$var' is not set in upstream.conf"
+            exit 1
+          fi
+        done
+
+        DOWNLOAD_URL="${ARTIFACTORY}/${TAG}/${DISTRO}/${PACKAGE_NAME}"
+
+        echo "ℹ️ Downloading prebuilt binary archive:"
+        echo "   URL  : $DOWNLOAD_URL"
+        echo "   Tag  : $TAG"
+        echo "   File : $PACKAGE_NAME"
+
+        curl --fail --show-error --location \
+             --output "${{inputs.pkg-dir}}/$PACKAGE_NAME" \
+             "$DOWNLOAD_URL"
+
+        if [[ -n "$PACKAGE_SHA256" ]]; then
+          echo "ℹ️ Verifying SHA256 checksum..."
+          echo "$PACKAGE_SHA256  ${{inputs.pkg-dir}}/$PACKAGE_NAME" | sha256sum --check
+          echo "✅ Checksum verified"
+        else
+          echo "⚠️ No PACKAGE_SHA256 defined in upstream.conf — skipping checksum verification"
+        fi
+
+        echo "ℹ️ Extracting $PACKAGE_NAME into ${{inputs.pkg-dir}}/"
+        tar -xf "${{inputs.pkg-dir}}/$PACKAGE_NAME" -C "${{inputs.pkg-dir}}"
+        rm -f "${{inputs.pkg-dir}}/$PACKAGE_NAME"
+        echo "✅ Prebuilt archive extracted successfully"
 
     - name: Prepare Workspace Structure For The Build
       shell: bash
@@ -74,21 +160,36 @@ runs:
 
         set +e
 
-        # ℹ️ --git-ignore-branch is necessary because the debian branch actually checked out can be any (ex, debian/1.0.0) because we can build any previous tag 
-        # ℹ️ chroot mode unshare is important to bypass privilege issues with the mounting
-        # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
+        if [[ "$PREBUILT_MODE" == "true" ]]; then
+          # ℹ️ Prebuilt mode: invoke sbuild directly — no gbp wrapper needed since
+          # the binary content is not tracked in git history.
+          # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
+          sbuild --no-clean-source \
+                 --host=arm64 \
+                 --build=${{env.BUILD_ARCH}} \
+                 --dist=${{inputs.distro-codename}} \
+                 $lintian_flag \
+                 --build-dir ../${{inputs.build-dir}} \
+                 --build-dep-resolver=apt \
+                 $EXTRA_REPO
 
-        gbp buildpackage \
-          --git-no-pristine-tar \
-          --git-ignore-branch \
-          --git-builder="sbuild --no-clean-source \
-                                --host=arm64 \
-                                --build=${{env.BUILD_ARCH}} \
-                                --dist=${{inputs.distro-codename}} \
-                                $lintian_flag \
-                                --build-dir ../${{inputs.build-dir}} \
-                                --build-dep-resolver=apt \
-                                $EXTRA_REPO"
+        else
+          # ℹ️ Source build mode: use gbp buildpackage.
+          # --git-ignore-branch is necessary because the debian branch actually checked out can be any (ex, debian/1.0.0) because we can build any previous tag
+          # ℹ️ chroot mode unshare is important to bypass privilege issues with the mounting
+          # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
+          gbp buildpackage \
+            --git-no-pristine-tar \
+            --git-ignore-branch \
+            --git-builder="sbuild --no-clean-source \
+                                  --host=arm64 \
+                                  --build=${{env.BUILD_ARCH}} \
+                                  --dist=${{inputs.distro-codename}} \
+                                  $lintian_flag \
+                                  --build-dir ../${{inputs.build-dir}} \
+                                  --build-dep-resolver=apt \
+                                  $EXTRA_REPO"
+        fi
 
         RET=$?
 

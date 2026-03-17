@@ -38,6 +38,17 @@ on:
         type: boolean
         default: false
 
+      is-prebuilt:
+        description: |
+          Controls the build mode passed to the build_package action:
+            "true"  — Force prebuilt binary mode.
+            "false" — Force source build mode.
+            ""      — Auto-detect (default): prebuilt if upstream.conf exists in the repo, else source.
+          Leaving this unset is recommended for use with pkg-template so that the same workflow
+          works for both source and binary packages without modification.
+        type: string
+        default: ""
+
 permissions:
   contents: read
 
@@ -92,6 +103,7 @@ jobs:
           pkg-dir: package-repo
           build-dir: build-area
           run-lintian: ${{inputs.run-lintian}}
+          prebuilt: ${{inputs.is-prebuilt}}
 
       - name: Run ABI (Application Binary Interface) Check
         if: ${{inputs.run-abi-checker == true}}
