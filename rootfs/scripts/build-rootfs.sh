@@ -471,6 +471,40 @@ GRUB_DISABLE_LINUX_UUID=true
 EOF
 
 # ==============================================================================
+# Step 7.6: Create first-boot rootfs resize service
+# ==============================================================================
+echo "[INFO] Creating first-boot rootfs resize service..."
+
+mkdir -p "$ROOTFS_DIR/usr/local/sbin"
+cat > "$ROOTFS_DIR/usr/local/sbin/rootfs-resize.sh" << 'EOF'
+#!/bin/bash
+set -e
+ROOT_DEVICE=$(findmnt -n -o SOURCE /)
+resize2fs "$ROOT_DEVICE"
+EOF
+chmod +x "$ROOTFS_DIR/usr/local/sbin/rootfs-resize.sh"
+
+mkdir -p "$ROOTFS_DIR/etc/systemd/system"
+cat > "$ROOTFS_DIR/etc/systemd/system/rootfs-resize.service" << 'EOF'
+[Unit]
+Description=Resize root filesystem to fill block device on first boot
+After=local-fs.target
+ConditionPathExists=/etc/rootfs-resize-pending
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rootfs-resize.sh
+ExecStartPost=/bin/rm -f /etc/rootfs-resize-pending
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Create the flag file that triggers the service on first boot
+touch "$ROOTFS_DIR/etc/rootfs-resize-pending"
+
+# ==============================================================================
 # Step 8: Enter chroot to Install Packages and Configure GRUB
 # ==============================================================================
 
@@ -494,6 +528,10 @@ apt-get install -y --no-install-recommends \
   wpasupplicant \
   iw \
   net-tools
+
+echo '[CHROOT] Installing and enabling time synchronization (systemd-timesyncd)...'
+apt-get install -y --no-install-recommends systemd-timesyncd
+systemctl enable systemd-timesyncd
 
 # --- Desktop variant handling (right after networking tools) ---
 # If VARIANT=desktop:
@@ -521,6 +559,9 @@ fi
 echo '[CHROOT] Disabling unnecessary services...'
 ln -sf /dev/null /etc/systemd/system/systemd-networkd-wait-online.service
 ln -sf /dev/null /etc/systemd/system/dev-disk-by\\\\x2dlabel-UEFI.device
+
+echo '[CHROOT] Enabling first-boot rootfs resize service...'
+systemctl enable rootfs-resize.service
 
 echo '[CHROOT] Capturing base package list...'
 dpkg-query -W -f='\${Package} \${Version}\n' > /tmp/\${CODENAME}_base.manifest
@@ -600,6 +641,12 @@ umount -l "$ROOTFS_DIR/dev/pts"
 umount -l "$ROOTFS_DIR/dev"
 umount -l "$ROOTFS_DIR/sys"
 umount -l "$ROOTFS_DIR/proc"
+
+# ==============================================================================
+# Step 9.5: Cleanup staging apt sources from rootfs
+# ==============================================================================
+echo "[INFO] Cleaning up staging apt sources from rootfs..."
+rm -f "$ROOTFS_DIR/etc/apt/sources.list.d/pkg-oss-staging-repo.list"
 
 # ==============================================================================
 # Step 10: Create ext4 rootfs image and write contents
