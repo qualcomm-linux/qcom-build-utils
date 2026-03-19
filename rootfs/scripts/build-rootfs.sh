@@ -210,6 +210,7 @@ _seed_to_debootstrap_include() {
         apt
         grub-common
         grub2-common
+        zstd
     )
 
     for p in "${required_pkgs[@]}"; do
