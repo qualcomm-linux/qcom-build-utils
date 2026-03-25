@@ -26,24 +26,26 @@ on:
       run-lintian:
         description: Run lintian or not during the build
         type: boolean
-        default: false
+        default: true
 
       run-abi-checker:
         description: Run the ABI checker or not
         type: boolean
         default: false
 
-      is-post-merge:
-        description: true if this build has been triggered by a merge into debian/qcom-next. Will ensure PR branch is deleted
-        type: boolean
-        default: false
+      is-prebuilt:
+        description: |
+          Controls the build mode passed to the build_package action:
+            "true"  — Force prebuilt binary mode.
+            "false" — Force source build mode.
+            ""      — Auto-detect (default): prebuilt if upstream.conf exists in the repo, else source.
+          Leaving this unset is recommended for use with pkg-template so that the same workflow
+          works for both source and binary packages without modification.
+        type: string
+        default: ""
 
 permissions:
   contents: read
-
-env:
-  REPO_URL: https://qualcomm-linux.github.io/pkg-oss-staging-repo/
-  REPO_NAME: qualcomm-linux/pkg-oss-staging-repo
 
 jobs:
   build-debian-package:
@@ -92,17 +94,10 @@ jobs:
           pkg-dir: package-repo
           build-dir: build-area
           run-lintian: ${{inputs.run-lintian}}
+          prebuilt: ${{inputs.is-prebuilt}}
 
       - name: Run ABI (Application Binary Interface) Check
         if: ${{inputs.run-abi-checker == true}}
         uses: ./qcom-build-utils/.github/actions/abi_checker
         with:
-          distro-codename: ${{inputs.distro-codename}}
-
-      - name: Push package to repo
-        if: ${{inputs.is-post-merge == true}}
-        uses: ./qcom-build-utils/.github/actions/push_to_repo
-        with:
-          distro-codename: ${{inputs.distro-codename}}
-          force-override: false
-          token: ${{secrets.DEB_PKG_BOT_CI_TOKEN}}
+          apt-repository: "deb [arch=arm64 trusted=yes] https://qartifactory-edge.qualcomm.com/artifactory/qsc-deb-releases ${{inputs.distro-codename}} main"

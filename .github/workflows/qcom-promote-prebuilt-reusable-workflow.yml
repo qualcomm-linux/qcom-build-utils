@@ -1,0 +1,267 @@
+name: Qualcomm Prebuilt Binary Promotion Reusable Workflow
+description: |
+  This reusable workflow promotes a binary package repo to a new Artifactory release.
+  Unlike the source-based qcom-promote-upstream-reusable-workflow, this workflow does
+  not interact with any upstream git repository. Instead it:
+    1. Reads the current upstream.conf from the packaging branch.
+    2. Verifies the new tarball actually exists on Artifactory before making any changes.
+    3. Updates upstream.conf with the new TAG (and optionally PACKAGE_NAME).
+    4. Bumps debian/changelog to the new version.
+    5. Pushes a debian/pr/<version> branch and opens a PR.
+
+on:
+  workflow_call:
+    inputs:
+
+      qcom-build-utils-ref:
+        description: The ref name that was used to invoke this reusable workflow
+        type: string
+        required: true
+
+      debian-branch:
+        description: The debian branch to apply the promotion to. For example "debian/qcom-next"
+        type: string
+        required: false
+        default: debian/qcom-next
+
+      new-tag:
+        description: |
+          The new Artifactory TAG value to promote to (e.g. 251030.2).
+          This updates the TAG field in upstream.conf.
+        type: string
+        required: true
+
+      new-package-name:
+        description: |
+          The new tarball filename if it has changed.
+          If omitted, the existing PACKAGE_NAME in upstream.conf is kept unchanged.
+        type: string
+        required: false
+        default: ""
+
+      new-debian-version:
+        description: |
+          The new debian changelog version.
+          If omitted, the version is automatically derived from the PACKAGE_NAME by
+          extracting the version number between the first and second underscore
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote-prebuilt:
+
+    runs-on: ubuntu-24.04-arm
+
+    defaults:
+      run:
+        shell: bash
+
+    container:
+      # This docker image is built and published by the qualcomm-linux/docker_deb_build repo CI workflow
+      image: ghcr.io/qualcomm-linux/pkg-builder:arm64-noble
+      credentials:
+        username: ${{ vars.DEB_PKG_BOT_CI_USERNAME }}
+        password: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
+
+    steps:
+
+      - name: Checkout qcom-build-utils
+        uses: actions/checkout@v4
+        with:
+          repository: qualcomm-linux/qcom-build-utils
+          ref: ${{inputs.qcom-build-utils-ref}}
+          path: ./qcom-build-utils
+          fetch-depth: 1
+          sparse-checkout: |
+            .github
+            scripts
+
+      - name: Checkout Packaging Repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{secrets.DEB_PKG_BOT_CI_TOKEN}}
+          path: ./package-repo
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Validate and Read Current upstream.conf
+        run: |
+          cd ./package-repo
+
+          git checkout ${{inputs.debian-branch}}
+
+          if [[ ! -f "upstream.conf" ]]; then
+            echo "❌ upstream.conf not found in the repository root."
+            echo "   upstream.conf must export: ARTIFACTORY, TAG, DISTRO, PACKAGE_NAME"
+            exit 1
+          fi
+
+          source upstream.conf
+
+          for var in ARTIFACTORY TAG DISTRO PACKAGE_NAME; do
+            if [[ -z "${!var}" ]]; then
+              echo "❌ Required variable '$var' is not set in upstream.conf"
+              exit 1
+            fi
+          done
+
+          echo "ℹ️ Current upstream.conf:"
+          echo "   ARTIFACTORY  : $ARTIFACTORY"
+          echo "   TAG          : $TAG"
+          echo "   DISTRO       : $DISTRO"
+          echo "   PACKAGE_NAME : $PACKAGE_NAME"
+
+          if [[ "$TAG" == "${{inputs.new-tag}}" ]]; then
+            echo "❌ The new-tag '${{inputs.new-tag}}' is identical to the current TAG '$TAG' in upstream.conf."
+            echo "   Nothing to promote."
+            exit 1
+          fi
+
+          echo "CURRENT_TAG=$TAG"             >> $GITHUB_ENV
+          echo "CURRENT_PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
+          echo "ARTIFACTORY=$ARTIFACTORY"     >> $GITHUB_ENV
+          echo "DISTRO=$DISTRO"               >> $GITHUB_ENV
+
+      - name: Resolve New Package Name and Debian Version
+        run: |
+          # Determine the effective new PACKAGE_NAME
+          if [[ -n "${{inputs.new-package-name}}" ]]; then
+            NEW_PACKAGE_NAME="${{inputs.new-package-name}}"
+            echo "ℹ️ Using provided new-package-name: $NEW_PACKAGE_NAME"
+          else
+            NEW_PACKAGE_NAME="${{env.CURRENT_PACKAGE_NAME}}"
+            echo "ℹ️ No new-package-name provided, keeping current: $NEW_PACKAGE_NAME"
+          fi
+          echo "NEW_PACKAGE_NAME=$NEW_PACKAGE_NAME" >> $GITHUB_ENV
+
+          # Determine the debian changelog version
+          if [[ -n "${{inputs.new-debian-version}}" ]]; then
+            NEW_DEBIAN_VERSION="${{inputs.new-debian-version}}"
+            echo "ℹ️ Using provided new-debian-version: $NEW_DEBIAN_VERSION"
+          else
+            # Derive version from PACKAGE_NAME: extract the part between the first and second underscore.
+            # e.g. qcom-adreno_1.838.2_armv8-2a.tar.gz -> 1.838.2 -> 1.838.2-1
+            DERIVED_VERSION=$(echo "$NEW_PACKAGE_NAME" | sed -n 's/^[^_]*_\([^_]*\)_.*/\1/p')
+            if [[ -z "$DERIVED_VERSION" ]]; then
+              echo "❌ Could not derive a debian version from PACKAGE_NAME '$NEW_PACKAGE_NAME'."
+              echo "   Expected format: <source>_<version>_<arch>.tar.gz (e.g. qcom-adreno_1.838.2_armv8-2a.tar.gz)"
+              echo "   Please provide new-debian-version explicitly."
+              exit 1
+            fi
+            NEW_DEBIAN_VERSION="${DERIVED_VERSION}-1"
+            echo "ℹ️ Derived debian version from PACKAGE_NAME: $NEW_DEBIAN_VERSION"
+          fi
+          echo "NEW_DEBIAN_VERSION=$NEW_DEBIAN_VERSION" >> $GITHUB_ENV
+
+          # Sanitize version for use as a git branch name (~ is valid in git but confusing; replace with -)
+          BRANCH_VERSION=$(echo "$NEW_DEBIAN_VERSION" | tr '~' '-')
+          echo "PR_BRANCH=debian/pr/${BRANCH_VERSION}" >> $GITHUB_ENV
+
+          echo "ℹ️ Promotion summary:"
+          echo "   TAG          : ${{env.CURRENT_TAG}} → ${{inputs.new-tag}}"
+          echo "   PACKAGE_NAME : ${{env.CURRENT_PACKAGE_NAME}} → $NEW_PACKAGE_NAME"
+          echo "   Debian ver   : $NEW_DEBIAN_VERSION"
+          echo "   PR branch    : debian/pr/${BRANCH_VERSION}"
+
+      - name: Verify New Tarball Exists on Artifactory
+        run: |
+          DOWNLOAD_URL="${{env.ARTIFACTORY}}/${{inputs.new-tag}}/${{env.DISTRO}}/${{env.NEW_PACKAGE_NAME}}"
+          echo "ℹ️ Verifying tarball exists at: $DOWNLOAD_URL"
+
+          if curl --head --fail --silent --show-error "$DOWNLOAD_URL"; then
+            echo "✅ Tarball confirmed available on Artifactory"
+          else
+            echo "❌ Tarball not found at: $DOWNLOAD_URL"
+            echo "   Please verify that new-tag and new-package-name are correct."
+            exit 1
+          fi
+
+      - name: Create Promotion Branch and Update upstream.conf
+        run: |
+          cd ./package-repo
+
+          git config user.name "${{vars.DEB_PKG_BOT_CI_NAME}}"
+          git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
+
+          git checkout -b ${{env.PR_BRANCH}}
+
+          # Update TAG in upstream.conf
+          sed -i "s|^export TAG=.*|export TAG=\"${{inputs.new-tag}}\"|" upstream.conf
+
+          # Update PACKAGE_NAME in upstream.conf only if it changed
+          if [[ "${{env.NEW_PACKAGE_NAME}}" != "${{env.CURRENT_PACKAGE_NAME}}" ]]; then
+            sed -i "s|^export PACKAGE_NAME=.*|export PACKAGE_NAME=\"${{env.NEW_PACKAGE_NAME}}\"|" upstream.conf
+          fi
+
+          echo "ℹ️ Updated upstream.conf:"
+          cat upstream.conf | sed 's/^/   /'
+
+      - name: Bump Debian Changelog
+        run: |
+          cd ./package-repo
+
+          export DEBFULLNAME="${{vars.DEB_PKG_BOT_CI_NAME}}"
+          export DEBEMAIL="${{vars.DEB_PKG_BOT_CI_EMAIL}}"
+
+          dch \
+            --newversion="${{env.NEW_DEBIAN_VERSION}}" \
+            --distribution=UNRELEASED \
+            "New upstream release (Artifactory tag: ${{inputs.new-tag}})"
+
+          echo "ℹ️ Updated debian/changelog (first 5 lines):"
+          head -5 debian/changelog | sed 's/^/   /'
+
+      - name: Commit and Push Promotion Branch
+        run: |
+          cd ./package-repo
+
+          git add upstream.conf debian/changelog
+          git commit -s -m "Promote to Artifactory tag ${{inputs.new-tag}} (version ${{env.NEW_DEBIAN_VERSION}})"
+
+          git push origin ${{env.PR_BRANCH}}
+
+          git log --graph --oneline -n 5 --color=always
+
+      - name: Open Promotion PR
+        run: |
+          cd ./package-repo
+
+          gh auth login --with-token <<< "${{secrets.DEB_PKG_BOT_CI_TOKEN}}"
+
+          PR_TITLE="Promotion to ${{env.NEW_DEBIAN_VERSION}} (Artifactory tag: ${{inputs.new-tag}})"
+
+          PR_BODY=$(cat <<EOF
+          ## Automated Prebuilt Binary Promotion PR
+
+          This PR promotes the package to a new Artifactory binary release.
+
+          ### Changes
+
+          | Field | Old | New |
+          |---|---|---|
+          | Artifactory TAG | \`${{env.CURRENT_TAG}}\` | \`${{inputs.new-tag}}\` |
+          | PACKAGE_NAME | \`${{env.CURRENT_PACKAGE_NAME}}\` | \`${{env.NEW_PACKAGE_NAME}}\` |
+          | Debian version | (previous) | \`${{env.NEW_DEBIAN_VERSION}}\` |
+
+          ### Tarball verified at
+          \`${{env.ARTIFACTORY}}/${{inputs.new-tag}}/${{env.DISTRO}}/${{env.NEW_PACKAGE_NAME}}\`
+
+          ### What happens next
+          1. The **PR Pre and Post Merge Build** workflow is triggered automatically on this PR
+             to verify the new binary tarball can be downloaded from Artifactory and packaged successfully.
+          2. Review the build results. If the build fails, check that the Artifactory tag and
+             package name are correct, and push additional commits to this branch if needed.
+          3. Once satisfied, click **Merge** to finalize the promotion and push the package to the staging repo.
+          EOF
+          )
+
+          gh pr create \
+            --title "$PR_TITLE" \
+            --body "$PR_BODY" \
+            --base ${{inputs.debian-branch}} \
+            --head ${{env.PR_BRANCH}}

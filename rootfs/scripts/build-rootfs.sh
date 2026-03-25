@@ -256,6 +256,28 @@ image_preprocessing() {
         }
     fi
 
+
+    # Update debootstrap for resolute distro, latest tag: 1.0.142
+    if [[ "${CODENAME}" = "resolute" ]]; then
+        echo "[INFO][preprocess] Updating debootstrap to support resolute distro (v1.0.142)..."
+        DEBOOTSTRAP_TMP=$(mktemp -d)
+        git clone --branch 1.0.142 --depth 1 \
+            https://salsa.debian.org/installer-team/debootstrap.git \
+            "$DEBOOTSTRAP_TMP/debootstrap" || {
+            echo "[ERROR][preprocess] Failed to clone debootstrap repository."
+            rm -rf "$DEBOOTSTRAP_TMP"
+            exit 1
+        }
+        (cd "$DEBOOTSTRAP_TMP/debootstrap" && make install) || {
+            echo "[ERROR][preprocess] Failed to install debootstrap."
+            rm -rf "$DEBOOTSTRAP_TMP"
+            exit 1
+        }
+        rm -rf "$DEBOOTSTRAP_TMP"
+        echo "[INFO][preprocess] debootstrap version: $(debootstrap --version)"
+    fi
+
+
     # NOTE: ARM64-only assumption: host is arm64 and target ARCH is arm64.
     if [[ "${ARCH}" != "arm64" ]]; then
         echo "[ERROR][preprocess] This commit assumes ARCH=arm64 only. Current ARCH=$ARCH"

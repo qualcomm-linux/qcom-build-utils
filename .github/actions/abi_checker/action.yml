@@ -5,8 +5,8 @@ description: |
 
 inputs:
 
-  distro-codename:
-    description: The distribution codename to build for. Ex noble, jammy, etc
+  apt-repository:
+    description: The apt repository to use for downloading the previous version of the package. For example "deb [arch=arm64 trusted=yes] https://qualcomm-linux.github.io/pkg-oss-staging-repo noble/stable main"
     required: true
 
 runs:
@@ -20,32 +20,11 @@ runs:
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation list-versions \
-          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{inputs.distro-codename}}/stable main" \
+          --apt-config "${{inputs.apt-repository}}" \
           --package-name ${{env.BUILT_PACKAGE_NAME}}
 
         RET=$?
         set -e
-
-    # TODO modify the ABI checker script to remove the logic that downloads the newest version of the package
-    # in order to simplify the code.
-    - name : Download Latest Version Of The Built Package From PPA To Compare ABI Against
-      if: false # Disable for now
-      shell: bash
-      run: |
-        set +e
-        ./qcom-build-utils/scripts/ppa_interface.py \
-          --operation download \
-          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{inputs.distro-codename}}/stable main" \
-          --package-name ${{env.BUILT_PACKAGE_NAME}}
-
-        RET=$?
-        set -e
-
-        if (( RET == 0 )); then
-          echo "✅ Successfully downloaded latest version"
-        fi
-
-        # TODO deal with other return values
 
     - name: ABI Check
       shell: bash
@@ -54,7 +33,7 @@ runs:
 
         ./qcom-build-utils/scripts/deb_abi_checker.py \
           --new-package-dir ./build-area \
-          --apt-server-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{inputs.distro-codename}}/stable main" \
+          --apt-server-config "${{inputs.apt-repository}}" \
           --result-file ./results.txt
 
         RET=$?

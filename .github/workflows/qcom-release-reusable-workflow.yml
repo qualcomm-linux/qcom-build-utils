@@ -124,18 +124,6 @@ jobs:
 
           cd package-repo
 
-          NEAREST_UPSTREAM_BRANCH_TAG=$(git describe --tags --match 'upstream/*' --abbrev=0)
-          NEAREST_UPSTREAM_COMMIT=$(git rev-list -n 1 "$NEAREST_UPSTREAM_BRANCH_TAG")
-          NEAREST_UPSTREAM_TAG=$(git ls-remote --tags "https://github.com/${{vars.UPSTREAM_REPO_GITHUB_NAME}}.git" | \
-            awk -v commit="$NEAREST_UPSTREAM_COMMIT" '$1 == commit && $2 ~ /refs\/tags\// { sub("refs/tags/", "", $2); print $2 }' | head -n1)
-
-          # Now, translate the upstream/* tag to the upstream tag it represents in the upstream repo
-
-
-          # Get the nearest reachable debian/* tag from inputs.debian-branch.
-          # This tag represents the packaging repository state for this release.
-          PACKAGE_REPO_TAG=$(git describe --tags --match 'debian/*' --abbrev=0 ${{inputs.debian-branch}})
-
           SOURCE=$(grep-dctrl -n -s Source -r '' debian/control | head -n1)
 
           # Collect all binary package names from debian/control
@@ -150,22 +138,66 @@ jobs:
           MAIN_PKGS_JSON=$(printf '%s\n' "$MAIN_PKGS" | jq -c -R -s 'split("\n") | map(select(length>0))')
           DEV_PKGS_JSON=$(printf '%s\n' "$DEV_PKGS"  | jq -c -R -s 'split("\n") | map(select(length>0))')
 
-          #version: The complete version string for this release (e.g. 1.2.3-1)
+          # Get the nearest reachable debian/* tag from inputs.debian-branch.
+          # This tag represents the packaging repository state for this release.
+          PACKAGE_REPO_TAG=$(git describe --tags --match 'debian/*' --abbrev=0 ${{inputs.debian-branch}})
 
-          #src_repo : The upstream source repository name in github format (user/repo)
-          #src_repo_tag : The tag in the upstream source repository that was used in the last promotion (e.g. v1.2.3)
-          #src_repo_commit : The commit hash in the upstream source repository that corresponds to the src_repo_tag
-          
-          #pkg_repo : The packaging repository name in github format (user/repo)
-          #pkg_repo_tag : The tag in the packaging repository that corresponds to this release (e.g. debian/1.2.3-1)
-          #pkg_repo_commit : The commit hash in the packaging repository that corresponds to the pkg_repo_tag
-          #pkg_repo_upstream_tag : The upstream/* tag in the packaging repository that was used for this release (e.g. upstream/v1.2.3).
+          if [[ -f "upstream.conf" ]]; then
+            # ── Prebuilt binary package ──────────────────────────────────────────────
+            # No upstream git repo; source is an Artifactory binary tarball.
+            # Read Artifactory metadata from upstream.conf for provenance.
+            echo "ℹ️ upstream.conf found — generating provenance for prebuilt binary package"
+            source upstream.conf
 
-          cat > ../build/provenance.json << EOF
+            cat > ../build/provenance.json << EOF
           {
             "$SOURCE" : {
               "version": "${{ steps.changelog.outputs.version }}",
 
+              "src_type": "prebuilt-binary",
+              "src_artifactory": "$ARTIFACTORY",
+              "src_tag": "$TAG",
+              "src_distro": "$DISTRO",
+              "src_package_name": "$PACKAGE_NAME",
+
+              "pkg_repo": "${{ github.repository }}",
+              "pkg_repo_tag": "$PACKAGE_REPO_TAG",
+              "pkg_repo_commit": "$(git rev-parse HEAD)",
+
+              "packages": $MAIN_PKGS_JSON,
+              "dev-packages": $DEV_PKGS_JSON,
+
+              "build_timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+              "workflow_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}-${{ github.run_attempt }}"
+            }
+          }
+          EOF
+
+          else
+            # ── Source package ───────────────────────────────────────────────────────
+            # Upstream is a git repository; resolve the upstream tag and commit.
+            echo "ℹ️ No upstream.conf — generating provenance for source package"
+
+            NEAREST_UPSTREAM_BRANCH_TAG=$(git describe --tags --match 'upstream/*' --abbrev=0)
+            NEAREST_UPSTREAM_COMMIT=$(git rev-list -n 1 "$NEAREST_UPSTREAM_BRANCH_TAG")
+            NEAREST_UPSTREAM_TAG=$(git ls-remote --tags "https://github.com/${{vars.UPSTREAM_REPO_GITHUB_NAME}}.git" | \
+              awk -v commit="$NEAREST_UPSTREAM_COMMIT" '$1 == commit && $2 ~ /refs\/tags\// { sub("refs/tags/", "", $2); print $2 }' | head -n1)
+
+            #version: The complete version string for this release (e.g. 1.2.3-1)
+            #src_repo : The upstream source repository name in github format (user/repo)
+            #src_repo_tag : The tag in the upstream source repository that was used in the last promotion (e.g. v1.2.3)
+            #src_repo_commit : The commit hash in the upstream source repository that corresponds to the src_repo_tag
+            #pkg_repo : The packaging repository name in github format (user/repo)
+            #pkg_repo_tag : The tag in the packaging repository that corresponds to this release (e.g. debian/1.2.3-1)
+            #pkg_repo_commit : The commit hash in the packaging repository that corresponds to the pkg_repo_tag
+            #pkg_repo_upstream_tag : The upstream/* tag in the packaging repository that was used for this release (e.g. upstream/v1.2.3).
+
+            cat > ../build/provenance.json << EOF
+          {
+            "$SOURCE" : {
+              "version": "${{ steps.changelog.outputs.version }}",
+
+              "src_type": "source",
               "src_repo": "${{vars.UPSTREAM_REPO_GITHUB_NAME}}",
               "src_repo_tag": "$NEAREST_UPSTREAM_TAG",
               "src_repo_commit": "$NEAREST_UPSTREAM_COMMIT",
@@ -183,6 +215,8 @@ jobs:
             }
           }
           EOF
+
+          fi
 
           echo "Content of the provenance file:"
           cat ../build/provenance.json | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
