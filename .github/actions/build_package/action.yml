@@ -158,20 +158,66 @@ runs:
           EXTRA_REPO=""
         fi
 
+        # Resolve the build output directory to an absolute path now, before any
+        # subsequent cd operations might change the working directory.
+        BUILD_DIR_ABS=$(realpath "../${{inputs.build-dir}}")
+
         set +e
 
         if [[ "$PREBUILT_MODE" == "true" ]]; then
-          # ℹ️ Prebuilt mode: invoke sbuild directly — no gbp wrapper needed since
-          # the binary content is not tracked in git history.
-          # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
-          sbuild --no-clean-source \
-                 --host=arm64 \
-                 --build=${{env.BUILD_ARCH}} \
-                 --dist=${{inputs.distro-codename}} \
-                 $lintian_flag \
-                 --build-dir ../${{inputs.build-dir}} \
-                 --build-dep-resolver=apt \
-                 $EXTRA_REPO
+          if grep -q 'quilt' ./debian/source/format; then
+            # ℹ️ Prebuilt mode + 3.0 (quilt) source format:
+            # sbuild cannot build a quilt package without a .dsc and an upstream
+            # orig tarball.  Replicate the same logic used by docker_deb_build.py
+            # when --skip-gbp is passed (make_source_pkg_cmd):
+            #   1. Create an upstream orig tarball from the source tree (excluding
+            #      debian/ and .git/).
+            #   2. Run dpkg-source -b to produce the .dsc + debian tarball.
+            #   3. Pass the resulting .dsc to sbuild for the binary build.
+            PKG=$(dpkg-parsechangelog -l ./debian/changelog -S Source)
+            VER=$(dpkg-parsechangelog -l ./debian/changelog -S Version)
+            # Strip the debian revision to get the upstream version (e.g. '1.855.2-1' -> '1.855.2').
+            UPSTREAM_VER=$(echo "$VER" | sed 's/-[^-]*$//')
+            SRC_ABS=$(realpath .)
+            WORK_DIR=$(dirname "$SRC_ABS")
+
+            echo "[source-pkg] Package: $PKG  Version: $VER  Upstream: $UPSTREAM_VER"
+            echo "[source-pkg] Creating orig tarball: ${WORK_DIR}/${PKG}_${UPSTREAM_VER}.orig.tar.gz (may take a while for large trees)"
+            tar czf "${WORK_DIR}/${PKG}_${UPSTREAM_VER}.orig.tar.gz" \
+                --exclude=./debian --exclude=./.git \
+                -C "$SRC_ABS" .
+
+            echo "[source-pkg] Running dpkg-source -b ..."
+            cd "$WORK_DIR"
+            dpkg-source -b "$SRC_ABS"
+
+            DSC_FILE=$(ls "${WORK_DIR}/${PKG}_${VER}.dsc" 2>/dev/null | head -1)
+            [ -n "$DSC_FILE" ] || { echo "ERROR: .dsc not found after dpkg-source -b"; exit 1; }
+            echo "[source-pkg] Source package ready: $DSC_FILE"
+
+            # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
+            sbuild --no-clean-source \
+                   --host=arm64 \
+                   --build=${{env.BUILD_ARCH}} \
+                   --dist=${{inputs.distro-codename}} \
+                   $lintian_flag \
+                   --build-dir "$BUILD_DIR_ABS" \
+                   --build-dep-resolver=apt \
+                   $EXTRA_REPO \
+                   "$DSC_FILE"
+          else
+            # ℹ️ Prebuilt mode + native source format: invoke sbuild directly —
+            # no gbp wrapper or orig tarball needed.
+            # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
+            sbuild --no-clean-source \
+                   --host=arm64 \
+                   --build=${{env.BUILD_ARCH}} \
+                   --dist=${{inputs.distro-codename}} \
+                   $lintian_flag \
+                   --build-dir "$BUILD_DIR_ABS" \
+                   --build-dep-resolver=apt \
+                   $EXTRA_REPO
+          fi
 
         else
           # ℹ️ Source build mode: use gbp buildpackage.
@@ -186,7 +232,7 @@ runs:
                                   --build=${{env.BUILD_ARCH}} \
                                   --dist=${{inputs.distro-codename}} \
                                   $lintian_flag \
-                                  --build-dir ../${{inputs.build-dir}} \
+                                  --build-dir $BUILD_DIR_ABS \
                                   --build-dep-resolver=apt \
                                   $EXTRA_REPO"
         fi
@@ -196,7 +242,7 @@ runs:
         if (( RET == 0 )); then
           echo "✅ Successfully built package"
         else
-          BUILD_LOG=$(find ../${{inputs.build-dir}} -maxdepth 1 -name "*.build" ! -type l)
+          BUILD_LOG=$(find "$BUILD_DIR_ABS" -maxdepth 1 -name "*.build" ! -type l)
 
           if [[ -n "$BUILD_LOG" ]]; then
             tail -n 500 "$BUILD_LOG"
