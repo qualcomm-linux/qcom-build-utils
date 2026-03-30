@@ -59,7 +59,7 @@
 #     (B) --dtb-src     DTBs read from the given directory.
 #
 #   Steps:
-#     1. Clone qcom-dtb-metadata and reset to the pinned commit.
+#     1. Clone qcom-dtb-metadata and reset to the pinned commit (overrideable via --metadata-commit).
 #     2. Set up fit_image/ staging directory with ITS, DTS, and DTBs.
 #     3. Compile qcom-metadata.dts → qcom-metadata.dtb  (via dtc).
 #     4. Copy qcom-next-fitimage.its.
@@ -74,6 +74,7 @@
 #     sudo ./build-dtb-image.sh \
 #         --fit-image \
 #         (--kernel-deb <path/to/kernel.deb> | --dtb-src <path/to/dtb/dir>) \
+#         [--metadata-commit <commit|tag|ref>] \
 #         [--size <MB>] [--out <file>]
 #
 # ─────────────────────────────────────────────────────────────────────────────
@@ -99,6 +100,10 @@
 #
 #   --size / -size
 #              FAT image size in MB (integer > 0, default: 4)
+#
+#   --metadata-commit / -metadata-commit
+#              [Optional] Override the qcom-dtb-metadata commit/tag/ref used
+#              in --fit-image mode (default: the pinned commit in the script).
 #
 #   --out / -out
 #              Output image filename (default: dtb.bin)
@@ -156,7 +161,7 @@ LOOP_DEV=""            # Loop device used for the FAT image
 # FIT DTB image mode (OFF by default)
 BUILD_FIT_DTB=0
 FIT_WORK_DIR=""        # Temporary working directory for FIT build artefacts
-METADATA_COMMIT="5d24fea316a512f85acf7a4528a118ce52223530" # Pinned commit for qcom-dtb-metadata, ensures reproducible builds.
+METADATA_COMMIT="5d24fea316a512f85acf7a4528a118ce52223530" # Default pinned commit for qcom-dtb-metadata.
 
 # ---------------------------- Helper Functions -------------------------------
 
@@ -176,6 +181,9 @@ Usage: $0 (--kernel-deb <kernel.deb> | --dtb-src <path>) --manifest <file> [--si
                              instead of a plain combined-dtb.dtb.
 
   --size,      -size         FAT image size in MB (default: 4)
+
+  --metadata-commit, -metadata-commit
+                             [Optional] Override qcom-dtb-metadata commit/ref (default: ${METADATA_COMMIT})
 
   --out,       -out          Output image filename (default: dtb.bin)
 
@@ -261,6 +269,10 @@ while [[ $# -gt 0 ]]; do
         -fit-image|--fit-image)
             BUILD_FIT_DTB=1
             shift 1
+            ;;
+        -metadata-commit|--metadata-commit)
+            METADATA_COMMIT="${2:-}"
+            shift 2
             ;;
         -out|--out)
             DTB_BIN="${2:-}"
@@ -479,7 +491,7 @@ else
     DTB_METADATA_DIR="${FIT_WORK_DIR}/qcom-dtb-metadata"
     git clone https://github.com/qualcomm-linux/qcom-dtb-metadata.git \
         "${DTB_METADATA_DIR}"
-    echo "[INFO] Reset qcom-dtb-metadata to commit ${METADATA_COMMIT}"
+    echo "[INFO] Reset qcom-dtb-metadata to commit/ref: ${METADATA_COMMIT}"
     git -C "${DTB_METADATA_DIR}" reset --hard "${METADATA_COMMIT}"
 
     # -----------------------------------------------------------------------
