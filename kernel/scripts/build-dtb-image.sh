@@ -504,9 +504,27 @@ else
     DTB_STAGE="${FIT_STAGE}/arch/arm64/boot/dts/qcom"
     mkdir -p "${DTB_STAGE}"
 
-    # Copy DTBs from the resolved DTB source directory
+    # Copy DTBs from the resolved DTB source directory.
+    # DTBs may be nested under vendor subdirectories (e.g. qcom/), so use
+    # find -L (follow symlinks) rather than a flat glob to collect them all
+    # into the staging dir flat — the ITS file references them by basename
+    # under arch/arm64/boot/dts/qcom/.
     echo "[INFO] Copying DTBs from ${DTB_SRC} ..."
-    cp -rap "${DTB_SRC}"/*.dtb* "${DTB_STAGE}/"
+    dtb_count=0
+    while IFS= read -r dtb; do
+        cp -p "${dtb}" "${DTB_STAGE}/"
+        (( dtb_count++ )) || true
+    done < <(find -L "${DTB_SRC}" \( -name '*.dtb' -o -name '*.dtbo' \) -type f)
+
+    if (( dtb_count == 0 )); then
+        echo "[ERROR] No DTB files found under ${DTB_SRC}" >&2
+        echo "        Verify the kernel package was built with DTB support" >&2
+        echo "        and that lib/firmware/*/device-tree resolves correctly." >&2
+        exit 1
+    fi
+    echo "[INFO] Staged ${dtb_count} DTB file(s) to ${DTB_STAGE}"
+    echo "[INFO] Staged DTBs:"
+    ls "${DTB_STAGE}"/*.dtb 2>/dev/null | xargs -n1 basename | sort | sed 's/^/        /'
 
     # -----------------------------------------------------------------------
     # Step 4. Compile qcom-metadata.dts → qcom-metadata.dtb
