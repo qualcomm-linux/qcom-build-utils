@@ -551,6 +551,10 @@ echo '[CHROOT] Installing custom firmware and kernel...'
 $CMD_FW_INSTALL
 yes \"\" | dpkg -i /$(basename "$KERNEL_DEB")
 
+# Run update-grub explicitly: the zz-update-grub hook skips it in a chroot
+# because systemd is not running (/run/systemd/system absent).
+update-grub
+
 adduser --disabled-password --gecos '' qcom
 echo 'qcom:qcom' | chpasswd
 usermod -aG sudo qcom
