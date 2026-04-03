@@ -19,10 +19,11 @@
 #         - Provide a Debian kernel package (.deb) as input.
 #         - The script extracts the .deb via `dpkg-deb -R` into a temp directory.
 #         - DTBs are expected to be present under:
-#             $DEB_DIR/lib/firmware/$BASE_KERNEL_VERSION/device-tree
+#             $DEB_DIR/usr/lib/firmware/$BASE_KERNEL_VERSION/device-tree  (usrmerge layout)
+#             $DEB_DIR/lib/firmware/$BASE_KERNEL_VERSION/device-tree       (legacy layout)
 #           where $BASE_KERNEL_VERSION can be anything.
-#         - The script assumes there is exactly ONE:
-#             $DEB_DIR/lib/firmware/*/device-tree
+#         - The script assumes there is exactly ONE device-tree directory across
+#           both search paths.
 #
 #     (B) DTB source directory mode (dev/kernel-tree mode)
 #         - Provide the DTB source directory directly (e.g. a kernel build tree):
@@ -171,7 +172,9 @@ usage() {
 Usage: $0 (--kernel-deb <kernel.deb> | --dtb-src <path>) --manifest <file> [--size <MB>] [--out <file>]
 
   --kernel-deb, -kernel-deb  Path to Debian kernel package (.deb). DTBs read from:
-                             <extract>/lib/firmware/*/device-tree  (must be exactly one)
+                             <extract>/usr/lib/firmware/*/device-tree  (usrmerge layout)
+                             <extract>/lib/firmware/*/device-tree       (legacy layout)
+                             Exactly one device-tree directory must be found.
 
   --dtb-src,   -dtb-src      Path to DTB source directory
                              (e.g. arch/arm64/boot/dts/qcom)
@@ -361,13 +364,21 @@ if [[ -n "${KERNEL_DEB}" ]]; then
     echo "[INFO] Extracting kernel .deb to: ${DEB_DIR}"
     dpkg-deb -R "${KERNEL_DEB}" "${DEB_DIR}"
 
-    # Locate exactly one device-tree directory under lib/firmware/*/device-tree
+    # Locate exactly one device-tree directory.
+    # Modern packages (usrmerge / pkg-linux-qcom) install the compat symlink under
+    # usr/lib/firmware/<KVER>/device-tree; legacy packages used lib/firmware/.
+    # Check usr/lib/firmware/ first; fall back to lib/firmware/.
     shopt -s nullglob
-    dt_dirs=( "${DEB_DIR}/lib/firmware"/*/device-tree )
+    dt_dirs=( "${DEB_DIR}/usr/lib/firmware"/*/device-tree )
+    if (( ${#dt_dirs[@]} == 0 )); then
+        dt_dirs=( "${DEB_DIR}/lib/firmware"/*/device-tree )
+    fi
     shopt -u nullglob
 
     if (( ${#dt_dirs[@]} == 0 )); then
-        echo "[ERROR] No DTB directory found at '${DEB_DIR}/lib/firmware/*/device-tree'." >&2
+        echo "[ERROR] No DTB directory found under:" >&2
+        echo "        '${DEB_DIR}/usr/lib/firmware/*/device-tree'" >&2
+        echo "        '${DEB_DIR}/lib/firmware/*/device-tree'" >&2
         exit 1
     fi
     if (( ${#dt_dirs[@]} > 1 )); then
@@ -519,7 +530,7 @@ else
     if (( dtb_count == 0 )); then
         echo "[ERROR] No DTB files found under ${DTB_SRC}" >&2
         echo "        Verify the kernel package was built with DTB support" >&2
-        echo "        and that lib/firmware/*/device-tree resolves correctly." >&2
+        echo "        and that usr/lib/firmware/*/device-tree resolves correctly." >&2
         exit 1
     fi
     echo "[INFO] Staged ${dtb_count} DTB file(s) to ${DTB_STAGE}"
