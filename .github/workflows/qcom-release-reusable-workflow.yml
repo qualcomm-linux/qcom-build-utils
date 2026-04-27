@@ -88,16 +88,21 @@ jobs:
       # The commit that represents the release is created in this step and shall only contain the changelog change from UNRELEASED to unstable.
       - name: Changelog suite name change
         id: changelog
+        env:
+          DEBIAN_BRANCH: ${{ inputs.debian-branch }}
+          DISTRO_CODENAME: ${{ inputs.distro-codename }}
+          BOT_NAME: ${{ vars.DEB_PKG_BOT_CI_NAME }}
+          BOT_EMAIL: ${{ vars.DEB_PKG_BOT_CI_EMAIL }}
         run: |
           cd ./package-repo
 
-          git config user.name "${{vars.DEB_PKG_BOT_CI_NAME}}"
-          git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
+          git config user.name "${BOT_NAME}"
+          git config user.email "${BOT_EMAIL}"
 
-          export DEBFULLNAME="${{vars.DEB_PKG_BOT_CI_NAME}}"
-          export DEBEMAIL="${{vars.DEB_PKG_BOT_CI_EMAIL}}"
+          export DEBFULLNAME="${BOT_NAME}"
+          export DEBEMAIL="${BOT_EMAIL}"
 
-          git checkout ${{inputs.debian-branch}}
+          git checkout "${DEBIAN_BRANCH}"
 
           echo "Initial changelog content:"
           cat debian/changelog | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
@@ -121,11 +126,17 @@ jobs:
 
           git commit -a -m "debian/changelog: Release version ${version} for suite 'unstable'"
 
-          git tag ${{inputs.distro-codename}}/${version}
+          git tag "${DISTRO_CODENAME}/${version}"
 
           git log --graph --oneline -n 10 --color=always
 
       - name: Create provenance file
+        env:
+          DISTRO_CODENAME: ${{ inputs.distro-codename }}
+          DEBIAN_BRANCH: ${{ inputs.debian-branch }}
+          UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO_GITHUB_NAME }}
+          PKG_VERSION: ${{ steps.changelog.outputs.version }}
+          PKG_REPO: ${{ github.repository }}
         run: |
           mkdir build
 
@@ -136,18 +147,11 @@ jobs:
           # Collect all binary package names from debian/control
           ALL_PKGS=$(grep-dctrl -n -s Package -r '' debian/control | sort -u)
 
-          # Collect dev packages (Section: libdevel)
-          DEV_PKGS=$(grep-dctrl -n -F Section -e libdevel -s Package debian/control | sort -u) || true
-
-          # Compute MAIN = ALL - DEV (using comm on sorted lists)
-          MAIN_PKGS=$(comm -23 <(printf '%s\n' "$ALL_PKGS") <(printf '%s\n' "$DEV_PKGS"))
-
-          MAIN_PKGS_JSON=$(printf '%s\n' "$MAIN_PKGS" | jq -c -R -s 'split("\n") | map(select(length>0))')
-          DEV_PKGS_JSON=$(printf '%s\n' "$DEV_PKGS"  | jq -c -R -s 'split("\n") | map(select(length>0))')
+          ALL_PKGS_JSON=$(printf '%s\n' "$ALL_PKGS" | jq -c -R -s 'split("\n") | map(select(length>0))')
 
           # Get the nearest reachable <distro-codename>/* tag from inputs.debian-branch.
           # This tag represents the packaging repository state for this release.
-          PACKAGE_REPO_TAG=$(git describe --tags --match '${{inputs.distro-codename}}/*' --abbrev=0 ${{inputs.debian-branch}})
+          PACKAGE_REPO_TAG=$(git describe --tags --match "${DISTRO_CODENAME}/*" --abbrev=0 "${DEBIAN_BRANCH}")
 
           if [[ -f "upstream.conf" ]]; then
             # ── Prebuilt binary package ──────────────────────────────────────────────
@@ -159,23 +163,19 @@ jobs:
             cat > ../build/provenance.json << EOF
           {
             "$SOURCE" : {
-              "version": "${{ steps.changelog.outputs.version }}",
+              "source_pkg_version": "${PKG_VERSION}",
 
-              "src_type": "prebuilt-binary",
-              "src_artifactory": "$ARTIFACTORY",
-              "src_tag": "$TAG",
+              "upstream_type": "prebuilt_binary",
+              "upstream_repo": "$ARTIFACTORY",
+              "upstream_repo_tag": "$TAG",
               "src_distro": "$DISTRO",
               "src_package_name": "$PACKAGE_NAME",
 
-              "pkg_repo": "${{ github.repository }}",
+              "pkg_repo": "${PKG_REPO}",
               "pkg_repo_tag": "$PACKAGE_REPO_TAG",
               "pkg_repo_commit": "$(git rev-parse HEAD)",
 
-              "packages": $MAIN_PKGS_JSON,
-              "dev-packages": $DEV_PKGS_JSON,
-
-              "build_timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-              "workflow_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}-${{ github.run_attempt }}"
+              "binary_pkgs": $ALL_PKGS_JSON
             }
           }
           EOF
@@ -187,38 +187,36 @@ jobs:
 
             NEAREST_UPSTREAM_BRANCH_TAG=$(git describe --tags --match 'upstream/*' --abbrev=0)
             NEAREST_UPSTREAM_COMMIT=$(git rev-list -n 1 "$NEAREST_UPSTREAM_BRANCH_TAG")
-            NEAREST_UPSTREAM_TAG=$(git ls-remote --tags "https://github.com/${{vars.UPSTREAM_REPO_GITHUB_NAME}}.git" | \
+            NEAREST_UPSTREAM_TAG=$(git ls-remote --tags "https://github.com/${UPSTREAM_REPO}.git" | \
               awk -v commit="$NEAREST_UPSTREAM_COMMIT" '$1 == commit && $2 ~ /refs\/tags\// { sub("refs/tags/", "", $2); print $2 }' | head -n1)
 
-            #version: The complete version string for this release (e.g. 1.2.3-1)
-            #src_repo : The upstream source repository name in github format (user/repo)
-            #src_repo_tag : The tag in the upstream source repository that was used in the last promotion (e.g. v1.2.3)
-            #src_repo_commit : The commit hash in the upstream source repository that corresponds to the src_repo_tag
-            #pkg_repo : The packaging repository name in github format (user/repo)
-            #pkg_repo_tag : The tag in the packaging repository that corresponds to this release (e.g. noble/1.2.3-1)
-            #pkg_repo_commit : The commit hash in the packaging repository that corresponds to the pkg_repo_tag
-            #pkg_repo_upstream_tag : The upstream/* tag in the packaging repository that was used for this release (e.g. upstream/v1.2.3).
+            #source_pkg_version : The complete version string for this release (e.g. 1.2.3-1)
+            #upstream_type      : The type of upstream source ("source" for git repos)
+            #upstream_repo      : The upstream source repository name in github format (user/repo)
+            #upstream_repo_tag  : The tag in the upstream source repository that was used in the last promotion (e.g. v1.2.3)
+            #upstream_repo_commit : The commit hash in the upstream source repository that corresponds to the upstream_repo_tag
+            #pkg_repo           : The packaging repository name in github format (user/repo)
+            #pkg_repo_tag       : The tag in the packaging repository that corresponds to this release (e.g. noble/1.2.3-1)
+            #pkg_repo_commit    : The commit hash in the packaging repository that corresponds to the pkg_repo_tag
+            #pkg_repo_upstream_tag : The upstream/* tag in the packaging repository that was used for this release (e.g. upstream/v1.2.3)
+            #binary_pkgs        : List of all binary packages produced by this source package
 
             cat > ../build/provenance.json << EOF
           {
             "$SOURCE" : {
-              "version": "${{ steps.changelog.outputs.version }}",
+              "source_pkg_version": "${PKG_VERSION}",
 
-              "src_type": "source",
-              "src_repo": "${{vars.UPSTREAM_REPO_GITHUB_NAME}}",
-              "src_repo_tag": "$NEAREST_UPSTREAM_TAG",
-              "src_repo_commit": "$NEAREST_UPSTREAM_COMMIT",
+              "upstream_type": "source",
+              "upstream_repo": "${UPSTREAM_REPO}",
+              "upstream_repo_tag": "$NEAREST_UPSTREAM_TAG",
+              "upstream_repo_commit": "$NEAREST_UPSTREAM_COMMIT",
 
-              "pkg_repo": "${{ github.repository }}",
+              "pkg_repo": "${PKG_REPO}",
               "pkg_repo_tag": "$PACKAGE_REPO_TAG",
               "pkg_repo_commit": "$(git rev-parse HEAD)",
               "pkg_repo_upstream_tag": "$NEAREST_UPSTREAM_BRANCH_TAG",
 
-              "packages": $MAIN_PKGS_JSON,
-              "dev-packages": $DEV_PKGS_JSON,
-
-              "build_timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-              "workflow_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}-${{ github.run_attempt }}"
+              "binary_pkgs": $ALL_PKGS_JSON
             }
           }
           EOF
@@ -239,6 +237,9 @@ jobs:
       # that bumps the version for the next development cycle and sets the suite back to UNRELEASED
       - name: Commit changelog suite change
         working-directory: ./package-repo
+        env:
+          DEBIAN_BRANCH: ${{ inputs.debian-branch }}
+          DISTRO_CODENAME: ${{ inputs.distro-codename }}
         run: |
           version=$(dpkg-parsechangelog --show-field Version)
 
@@ -263,10 +264,62 @@ jobs:
 
           git commit -a -m "Initial commit of new version ${newversion}"
 
-          git push origin ${{inputs.debian-branch}}
-          git push origin ${{inputs.distro-codename}}/${version}
+          git push origin "${DEBIAN_BRANCH}"
+          git push origin "${DISTRO_CODENAME}/${version}"
 
           git log --graph --oneline -n 10 --color=always
+
+      # Push the provenance entry for this release into qualcomm-linux/qcom-distro-artifacts.
+      # The repo is organised as <suite>/provenance.json. If a provenance file already exists for
+      # the suite, the new package entry is merged into it (updating the key if it already exists,
+      # adding it if it is new). A retry loop handles the rare case where two concurrent releases
+      # push to the same suite file at the same time.
+      - name: Push provenance to qcom-distro-artifacts
+        if: ${{ inputs.test-run == false }}
+        env:
+          GH_PAT: ${{ secrets.PAT }}
+          SUITE: ${{ inputs.distro-codename }}
+          BOT_NAME: ${{ vars.DEB_PKG_BOT_CI_NAME }}
+          BOT_EMAIL: ${{ vars.DEB_PKG_BOT_CI_EMAIL }}
+        run: |
+          git clone "https://x-access-token:${GH_PAT}@github.com/qualcomm-linux/qcom-distro-artifacts.git" ./qcom-distro-artifacts
+
+          cd qcom-distro-artifacts
+
+          git config user.name "${BOT_NAME}"
+          git config user.email "${BOT_EMAIL}"
+
+          mkdir -p "${SUITE}"
+
+          SUITE_PROVENANCE="${SUITE}/provenance.json"
+          NEW_PROVENANCE="../build/provenance.json"
+
+          if [[ -f "${SUITE_PROVENANCE}" ]]; then
+            # Merge: update the existing package entry or add a new one.
+            # jq '*' performs a shallow object merge, so each top-level source-package key
+            # is either added or replaced with the new release data.
+            jq -s --indent 2 '.[0] * .[1]' "${SUITE_PROVENANCE}" "${NEW_PROVENANCE}" > /tmp/merged_provenance.json
+            mv /tmp/merged_provenance.json "${SUITE_PROVENANCE}"
+          else
+            cp "${NEW_PROVENANCE}" "${SUITE_PROVENANCE}"
+          fi
+
+          git add "${SUITE_PROVENANCE}"
+
+          if git diff --cached --quiet; then
+            echo "Provenance unchanged, nothing to commit"
+          else
+            SOURCE_PKG=$(jq -r 'keys[0]' "${NEW_PROVENANCE}")
+            VERSION=$(jq -r '.[keys[0]].source_pkg_version' "${NEW_PROVENANCE}")
+            git commit -m "provenance: update ${SOURCE_PKG} ${VERSION} for ${SUITE}"
+
+            # Retry up to 3 times to handle concurrent pushes from parallel releases
+            for attempt in 1 2 3; do
+              git push origin main && break
+              echo "Push attempt ${attempt} failed, rebasing and retrying..."
+              git pull --rebase origin main
+            done
+          fi
 
       - name: Prepare build logs for upload
         working-directory: ./build/
