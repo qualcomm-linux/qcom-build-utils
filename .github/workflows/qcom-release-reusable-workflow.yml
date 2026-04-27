@@ -81,8 +81,10 @@ jobs:
           fetch-tags: true
 
       # Take the latest changelog entry and change the suite name from UNRELEASED to unstable and set timestamp and tag
-      # the inputs.debian-branch branch to debian/<version> where <version> is the version from the changelog. It is conceptually
-      # important that the changelog entry suite is UNRELEASED at any point except in the commit that represents the release.
+      # the inputs.debian-branch branch to <distro-codename>/<version> (e.g. noble/1.0.0-1) where <version> is the version
+      # from the changelog. Using the distro-codename as the tag prefix ensures uniqueness when the same upstream version is
+      # released to multiple distribution branches (e.g. noble, trixie). It is conceptually important that the changelog entry
+      # suite is UNRELEASED at any point except in the commit that represents the release.
       # The commit that represents the release is created in this step and shall only contain the changelog change from UNRELEASED to unstable.
       - name: Changelog suite name change
         id: changelog
@@ -119,7 +121,7 @@ jobs:
 
           git commit -a -m "debian/changelog: Release version ${version} for suite 'unstable'"
 
-          git tag debian/${version}
+          git tag ${{inputs.distro-codename}}/${version}
 
           git log --graph --oneline -n 10 --color=always
 
@@ -143,9 +145,9 @@ jobs:
           MAIN_PKGS_JSON=$(printf '%s\n' "$MAIN_PKGS" | jq -c -R -s 'split("\n") | map(select(length>0))')
           DEV_PKGS_JSON=$(printf '%s\n' "$DEV_PKGS"  | jq -c -R -s 'split("\n") | map(select(length>0))')
 
-          # Get the nearest reachable debian/* tag from inputs.debian-branch.
+          # Get the nearest reachable <distro-codename>/* tag from inputs.debian-branch.
           # This tag represents the packaging repository state for this release.
-          PACKAGE_REPO_TAG=$(git describe --tags --match 'debian/*' --abbrev=0 ${{inputs.debian-branch}})
+          PACKAGE_REPO_TAG=$(git describe --tags --match '${{inputs.distro-codename}}/*' --abbrev=0 ${{inputs.debian-branch}})
 
           if [[ -f "upstream.conf" ]]; then
             # ── Prebuilt binary package ──────────────────────────────────────────────
@@ -193,7 +195,7 @@ jobs:
             #src_repo_tag : The tag in the upstream source repository that was used in the last promotion (e.g. v1.2.3)
             #src_repo_commit : The commit hash in the upstream source repository that corresponds to the src_repo_tag
             #pkg_repo : The packaging repository name in github format (user/repo)
-            #pkg_repo_tag : The tag in the packaging repository that corresponds to this release (e.g. debian/1.2.3-1)
+            #pkg_repo_tag : The tag in the packaging repository that corresponds to this release (e.g. noble/1.2.3-1)
             #pkg_repo_commit : The commit hash in the packaging repository that corresponds to the pkg_repo_tag
             #pkg_repo_upstream_tag : The upstream/* tag in the packaging repository that was used for this release (e.g. upstream/v1.2.3).
 
@@ -262,7 +264,7 @@ jobs:
           git commit -a -m "Initial commit of new version ${newversion}"
 
           git push origin ${{inputs.debian-branch}}
-          git push origin debian/${version}
+          git push origin ${{inputs.distro-codename}}/${version}
 
           git log --graph --oneline -n 10 --color=always
 
