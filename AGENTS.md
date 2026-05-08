@@ -2,113 +2,79 @@
 
 ## Purpose
 
-`qcom-build-utils` is the shared CI/CD backbone for Qualcomm Linux Debian packaging.
-It centralizes reusable GitHub workflows, composite actions, and helper scripts used by
-many external repositories (especially `pkg-*` repos and upstream source repos).
+`qcom-build-utils` is the shared workflow and helper repository for Qualcomm Linux package repos.
+It owns the reusable GitHub workflows that package repositories call, plus the local helper scripts
+those workflows need for source-package preparation, installability testing, release git handling,
+and other packaging automation.
 
-When editing this repository, optimize for:
+## Current Debusine Architecture
 
-- interface stability,
-- backward compatibility,
-- minimal and reviewable diffs,
-- docs that stay in sync with behavior.
+- Package repos call `qcom-build-pkg-reusable-workflow.yml` and `qcom-release-reusable-workflow.yml`.
+- Those workflows now use `qualcomm-linux/debusine-action` for Debusine-specific operations such as:
+  - importing the `.dsc` artifact
+  - starting Debusine workflows
+- `qcom-build-utils` still owns the local orchestration around that:
+  - generating the source package
+  - preparing the Debusine child workspace and pipeline inputs
+  - polling Debusine work requests with richer diagnostics
+  - validating installability from the Debusine CI workspace
+  - preparing/pushing release git state
+- The Debusine builder images (`ghcr.io/qualcomm-linux/debusine-pkg-builder:<suite>`) are consumed
+  here, but are published from `qualcomm-linux/debusine-action`, not from this repository.
 
-## Repository Layout
+## Important Workflows
 
-- `.github/workflows/`: reusable workflows called via `workflow_call`
-- `.github/actions/`: composite actions used by reusable workflows
-- `scripts/`: Python and shell helpers (ABI/APT/promotion helpers)
-- `kernel/scripts/`: kernel image and `.deb` build scripts
-- `bootloader/`: EFI/ESP image build script
-- `rootfs/scripts/`: rootfs build script
-- `docs/`: workflow/action/integration documentation
+- `.github/workflows/qcom-build-pkg-reusable-workflow.yml`
+  - main package build/test entrypoint for package repos
+- `.github/workflows/qcom-release-reusable-workflow.yml`
+  - release entrypoint built on top of the Debusine build/test path
+- `.github/workflows/qcom-promote-upstream-reusable-workflow.yml`
+  - upstream-to-packaging promotion flow
+- `.github/workflows/qcom-upstream-pr-pkg-build-reusable-workflow.yml`
+  - validate upstream PRs against the Debian packaging build
 
-## Treat These as Public Interfaces
+## Important Helper Scripts
 
-Changes in these paths can affect many downstream repos and should be handled carefully:
+The `scripts/ci/` directory is still active. Do not remove or bypass these without checking call
+sites in the reusable workflows:
 
-- `.github/workflows/*.yml`
-- `.github/actions/*/action.yml`
-- `scripts/deb_abi_checker.py`
-- `scripts/ppa_interface.py`
-- `scripts/ppa_organizer.py`
-- `scripts/merge_debian_packaging_upstream`
+- `generate-source-package`
+- `prepare-release`
+- `prepare-debusine-build`
+- `poll-debusine-workflow`
+- `prepare-test`
+- `prepare-debusine-release`
+- `push-release`
+- `generate-apt-config`
+- `next_qcom_version`, `next_qcom_version.py`, `next_qcom_version_test.py`
+- `poll_workflow.py`
 
-For interface paths above, avoid breaking changes unless the request explicitly calls for one.
+## Do Not Reintroduce
 
-## Working Rules for Agents
+These older Debusine-era artifacts were intentionally removed and should stay gone unless there is a
+clear design change:
 
-1. Keep scope tight to the user request; avoid opportunistic refactors.
-2. Preserve existing workflow/action inputs, outputs, secrets, and env names when possible.
-3. Prefer additive changes over renames/removals for workflow contracts.
-4. Keep shell/YAML changes easy to diff; avoid reformatting unrelated blocks.
-5. If behavior changes, update docs in the same change set.
-6. Call out compatibility impact explicitly in your handoff.
+- local Debusine wrapper workflows such as `qcom-debusine-reusable-workflow.yml`
+- local Debusine image publishing workflows and `Dockerfiles/debusine-builder/`
+- stale `*.old` workflow snapshots
+- unused Incus-era helpers such as `scripts/ci/build`, `scripts/ci/prepare-debusine`, and
+  `scripts/ci/release`
 
-## Workflow & Action Conventions
+## Editing Guidance
 
-- Reusable workflows are consumed through `workflow_call`; input names are contract surface.
-- Most package builds are ARM64-targeted and run in `ghcr.io/qualcomm-linux/pkg-builder:*` containers.
-- `build_package` supports both source and prebuilt modes (via `upstream.conf`); maintain both paths.
-- Source builds rely on Debian packaging conventions (`debian/changelog`, `gbp`, `sbuild`).
-- Promotion/release workflows rely on branch/tag naming patterns (`debian/*`, `upstream/*`, `<distro>/<version>`).
+- Prefer keeping package-repo callers thin; put shared behavior in the reusable workflows here.
+- Keep Debusine-specific implementation inside `debusine-action` unless `qcom-build-utils` truly
+  needs local orchestration around it.
+- Before deleting anything under `scripts/ci/`, search for live references from workflows first.
+- When changing workflow contracts, check the synced package-repo templates and `pkg-example`.
+- Preserve the current split of responsibilities:
+  - `qcom-build-utils` orchestrates package-repo behavior
+  - `debusine-action` owns Debusine action logic and builder-image publication
 
-## Script Conventions
+## Validation Expectations
 
-### Python (`scripts/*.py`)
+For changes that touch the active Debusine build/release path:
 
-- Keep existing CLI flags/defaults stable unless explicitly requested.
-- Preserve return/exit semantics where consumers may depend on them.
-- For ABI checker work, preserve bitmask meanings in `deb_abi_checker.py`.
-- Keep logging actionable and consistent with `color_logger` patterns.
-
-### Shell (`scripts/*`, `kernel/scripts/*`, `bootloader/*`, `rootfs/scripts/*`)
-
-- Keep scripts fail-fast with clear error text.
-- Preserve required environment variable names and command-line interfaces.
-- Avoid introducing bash-specific features into scripts that are intended to be portable unless already bash-based.
-
-## Documentation Sync Expectations
-
-When functionality changes, update matching docs:
-
-- Reusable workflows: `docs/reusable-workflows.md`
-- Composite actions: `docs/github-actions.md` and `docs/actions/*.md`
-- High-level behavior/integration: `README.md`, `docs/workflow-architecture.md`, `docs/package-repo-integration.md`
-- Script CLI behavior: `scripts/README.md`
-
-If docs are intentionally deferred, state that clearly in the final handoff.
-
-## Validation Checklist
-
-Run the smallest relevant checks for touched files:
-
-- YAML/workflow/action edits:
-  - verify syntax/indentation,
-  - verify referenced input/secret/env names stay consistent.
-- Python edits:
-  - `python3 -m py_compile scripts/*.py`
-- Shell edits:
-  - `bash -n <script>` for each modified shell script.
-- Docs-only edits:
-  - verify file paths, workflow/action names, and examples remain accurate.
-
-If end-to-end CI cannot be run locally, explicitly list what was validated and what remains unverified.
-
-## Common Pitfalls
-
-- Breaking reusable workflow inputs consumed by external repositories.
-- Modifying ABI checker return semantics without coordinating consumers.
-- Updating behavior but leaving docs/examples stale.
-- Assuming x86-only behavior in ARM64-targeted workflow paths.
-- Mixing unrelated cleanups into contract-sensitive files.
-
-## PR/Change Handoff Guidance
-
-When handing off changes, include:
-
-- what interface (if any) changed,
-- downstream impact/risk,
-- validation performed,
-- any required repository variables/secrets relevant to the change
-  (for example `PKG_REPO_GITHUB_NAME`, `UPSTREAM_REPO_GITHUB_NAME`, PAT/token expectations).
+1. validate the edited scripts and workflow YAML locally
+2. push the relevant branch if needed
+3. confirm behavior with an end-to-end `pkg-example` run
