@@ -9,9 +9,9 @@ Reusable workflows are defined in `.github/workflows/` and are designed to be ca
 ## Available Workflows
 
 1. [qcom-build-pkg-reusable-workflow](#qcom-build-pkg-reusable-workflow)
-2. [qcom-promote-upstream-reusable-workflow](#qcom-promote-upstream-reusable-workflow)
-3. [qcom-upstream-pr-pkg-build-reusable-workflow](#qcom-upstream-pr-pkg-build-reusable-workflow)
-4. [qcom-container-build-and-upload](#qcom-container-build-and-upload)
+2. [qcom-release-reusable-workflow](#qcom-release-reusable-workflow)
+3. [qcom-promote-upstream-reusable-workflow](#qcom-promote-upstream-reusable-workflow)
+4. [qcom-upstream-pr-pkg-build-reusable-workflow](#qcom-upstream-pr-pkg-build-reusable-workflow)
 5. [qcom-preflight-checks](#qcom-preflight-checks)
 
 ---
@@ -20,25 +20,20 @@ Reusable workflows are defined in `.github/workflows/` and are designed to be ca
 
 **File**: `.github/workflows/qcom-build-pkg-reusable-workflow.yml`
 
-**Purpose**: The main workflow for building Debian packages from package repositories. This workflow is called by both pre-merge and post-merge workflows in package repositories.
+**Purpose**: Build a package through a hybrid flow: Debian suites are built and tested through Debusine, while Ubuntu codenames keep using the local `pkg-builder` + composite-action path.
 
 ### Workflow Diagram
 
 ```mermaid
 flowchart TD
-    A[Workflow Called] --> B[Checkout qcom-build-utils]
-    B --> C[Checkout Package Repository]
-    C --> D[Build Debian Package<br/>build_package action]
-    D --> E{run-abi-checker?}
-    E -->|Yes| F[Run ABI Checker<br/>abi_checker action]
-    E -->|No| G{push-to-repo?}
-    F --> G
-    G -->|Yes| H[Push to Repository<br/>push_to_repo action]
-    G -->|No| I{is-post-merge?}
-    H --> I
-    I -->|Yes| J[Create debian/version tag]
-    I -->|No| K[End]
-    J --> K
+    A[Workflow Called] --> B[Resolve suite family]
+    B -->|Debian| C[Checkout debusine-action helpers]
+    C --> D[Generate source package + build in Debusine]
+    D --> E[Test installability from Debusine workspace]
+    B -->|Ubuntu| F[Run local pkg-builder build]
+    F --> G[Optional ABI check]
+    E --> H[Expose outputs]
+    G --> H
 ```
 
 ### Inputs
@@ -46,45 +41,42 @@ flowchart TD
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `qcom-build-utils-ref` | string | Yes | - | The ref (branch/tag) of qcom-build-utils to use |
-| `debian-ref` | string | Yes | `debian/qcom-next` | The debian branch/tag to build |
-| `distro-codename` | string | No | `noble` | Ubuntu distribution codename (noble, jammy, questing, etc.) |
-| `run-lintian` | boolean | No | `false` | Whether to run lintian during build |
-| `run-abi-checker` | boolean | No | `false` | Whether to check ABI compatibility |
-| `push-to-repo` | boolean | No | `false` | Whether to push built package to repository |
-| `is-post-merge` | boolean | No | `false` | True if triggered by merge to debian/qcom-next |
-| `runner` | string | No | `lecore-prd-u2404-arm64-xlrg-od-ephem` | GitHub runner to use |
+| `debian-ref` | string | Yes | `debian/qcom-next` | The package-repository ref to check out and build |
+| `suite` | string | No | `""` | Preferred modern input for the distribution codename or Debian suite |
+| `distro-codename` | string | No | `""` | Backward-compatible alias for older callers |
+| `run-lintian` | boolean | No | `true` | Used by the Ubuntu/pkg-builder path |
+| `run-abi-checker` | boolean | No | `false` | Used by the Ubuntu/pkg-builder path |
+| `is-prebuilt` | string | No | `""` | Passed through to the Ubuntu/pkg-builder `build_package` action |
+| `job-index` | string | No | `"0"` | Optional matrix index used to keep Debusine child workspace names unique |
+| `release` | boolean | No | `false` | Whether to prepare the release bundle before generating the Debian release source package |
 
-### Environment Variables
+### Secrets
 
-- `REPO_URL`: `https://qualcomm-linux.github.io/pkg-oss-staging-repo/`
-- `REPO_NAME`: `qualcomm-linux/pkg-oss-staging-repo`
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `DEBUSINE_USER` | Debian only | Debusine user used by the Debian test gate |
+| `DEBUSINE_TOKEN` | Debian only | Debusine token used to create the child workspace and submit the Debian source package |
+
+### Outputs
+
+| Output | Description |
+|--------|-------------|
+| `target_suite` | The resolved suite/codename actually used by the workflow |
+| `workspace` | Debusine child workspace name |
+| `workspace_url` | Debusine web URL for that child workspace |
+| `srcpkg_name` | Source package name |
+| `srcpkg_version` | Source package version |
 
 ### Workflow Steps
 
-1. **Checkout qcom-build-utils**: Sparse checkout of `.github` and `scripts` directories
-2. **Checkout Package Repository**: Full checkout with tags for version information
-3. **Build Debian Package**: Uses `build_package` composite action
-4. **Run ABI Checker** (conditional): Compares ABI with repository version
-5. **Push to Repository** (conditional): Uploads package to staging repository
-6. **Tag Version** (post-merge only): Creates `debian/{version}` git tag
+1. **Resolve suite family**: Normalize the caller input and decide whether the run is Debian or Ubuntu
+2. **Debian path**: Check out `debusine-action/lib`, optionally prepare a release bundle, generate a source package, submit it to Debusine, and run installability checks from the Debusine CI workspace
+3. **Ubuntu path**: Run the old local `pkg-builder` flow with `build_package` and optional `abi_checker`
+4. **Publish Outputs**: Expose consistent source-package metadata; Debusine workspace outputs are populated only for Debian runs
 
 ### Usage Examples
 
-#### Pre-merge (PR) Build
-
-```yaml
-jobs:
-  build:
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@development
-    with:
-      qcom-build-utils-ref: development
-      debian-ref: ${{github.head_ref}}
-      run-abi-checker: true
-      push-to-repo: false
-      is-post-merge: false
-```
-
-#### Post-merge Build and Publish
+#### Manual build from a packaging ref
 
 ```yaml
 jobs:
@@ -93,9 +85,103 @@ jobs:
     with:
       qcom-build-utils-ref: development
       debian-ref: debian/qcom-next
-      push-to-repo: true
-      run-abi-checker: true
-      is-post-merge: true
+      suite: trixie
+```
+
+#### Matrix-safe caller
+
+```yaml
+jobs:
+  build-matrix:
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@development
+    with:
+      qcom-build-utils-ref: development
+      debian-ref: refs/heads/${{ matrix.target_branch }}
+      suite: ${{ matrix.suite }}
+      job-index: ${{ strategy.job-index }}
+```
+
+This workflow is the low-level build/test primitive used directly by package
+repositories.
+
+---
+
+## qcom-release-reusable-workflow
+
+**File**: `.github/workflows/qcom-release-reusable-workflow.yml`
+
+**Purpose**: Release through a hybrid flow: Debian suites use Debusine build/test/publish, while Ubuntu codenames keep the older local `pkg-builder` + S3 release process.
+
+### Workflow Diagram
+
+```mermaid
+flowchart TD
+    A[Workflow Called] --> B[Resolve suite family]
+    B -->|Debian| C[Prepare release bundle + build/test in Debusine]
+    C --> D{test-run?}
+    D -->|true| E[Stop after validation]
+    D -->|false| F[Publish CI workspace to Debusine prod]
+    F --> G[Push release tag and reopen development]
+    B -->|Ubuntu| H[Run local release/tag/provenance flow]
+    H --> I[Build in pkg-builder]
+    I --> J[Upload artifacts to S3]
+```
+
+### Inputs
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `qcom-build-utils-ref` | string | Yes | - | The ref (branch/tag) of qcom-build-utils to invoke |
+| `debian-branch` | string | No | `debian/qcom-next` | The packaging branch to release from |
+| `distro-codename` | string | No | `noble` | Distribution codename or Debian suite to build/test/release |
+| `test-run` | boolean | No | `true` | Debian: stop after Debusine build/test. Ubuntu: keep the older release flow and upload to the test S3 location |
+
+### Secrets
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `PAT` | Yes | GitHub token used to check out and push the packaging repository |
+| `DEBUSINE_USER` | Debian only | Debusine user used for CI workspace apt access during the Debian test gate |
+| `DEBUSINE_TOKEN` | Debian only | Debusine CI token used for the Debian build workspace and test gate |
+| `DEBUSINE_RELEASE_TOKEN` | Debian publish only | Separate Debusine production token used only for the Debian publish step |
+
+### Outputs
+
+| Output | Description |
+|--------|-------------|
+| `workspace` | Debusine child workspace name for Debian releases; empty for Ubuntu |
+| `workspace_url` | Debusine web URL for that child workspace for Debian releases; empty for Ubuntu |
+| `srcpkg_name` | Source package name prepared for release |
+| `srcpkg_version` | Source package version prepared for release |
+| `complete_version` | Alias for `srcpkg_version` |
+
+### Workflow Steps
+
+1. **Resolve suite family**: Decide whether the release follows the Debian or Ubuntu branch
+2. **Debian branch**: Reuse `qcom-build-pkg-reusable-workflow` with `release=true`, then optionally publish to Debusine prod and push git state
+3. **Ubuntu branch**: Restore the earlier local release flow with changelog/tag handling, provenance generation, local `pkg-builder` build, and S3 upload
+
+### Caller Requirements
+
+- Debian callers should pass `DEBUSINE_RELEASE_TOKEN` when they want the reusable workflow to publish to Debusine prod
+- Ubuntu callers do not use the Debusine secrets, but still need `PAT` for the release git/S3/dispatch flow
+
+### Usage Example
+
+```yaml
+jobs:
+  release:
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-release-reusable-workflow.yml@development
+    with:
+      qcom-build-utils-ref: development
+      distro-codename: trixie
+      debian-branch: debian/qcom-next
+      test-run: false
+    secrets:
+      PAT: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
+      DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+      DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+      DEBUSINE_RELEASE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}
 ```
 
 ---

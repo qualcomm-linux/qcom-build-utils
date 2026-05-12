@@ -71,11 +71,21 @@ Package repositories call these workflows from their own `.github/workflows/` di
 
 | Workflow | Purpose |
 |----------|---------|
-| **qcom-build-pkg-reusable-workflow** | Main Debian package build — used for both pre-merge (PR) and post-merge builds. Orchestrates build, ABI check, and repository push. |
+| **qcom-build-pkg-reusable-workflow** | Main package build workflow — routes Debian suites through Debusine and Ubuntu codenames through the local pkg-builder path. |
 | **qcom-promote-upstream-reusable-workflow** | Promotes a new upstream release into a package repo — merges upstream code, updates changelog, and creates a PR. |
 | **qcom-upstream-pr-pkg-build-reusable-workflow** | Validates that PRs in an upstream repo won't break the Debian package build. Called from the upstream repo. |
-| **qcom-release-reusable-workflow** | Triggers a formal release — finalizes the changelog, builds packages, uploads to S3, and notifies downstream consumers. |
+| **qcom-release-reusable-workflow** | Triggers a formal release — Debian suites use Debusine publish, Ubuntu codenames keep the local pkg-builder/S3 release path. |
 | **qcom-preflight-checks** | Security and quality gates — runs repolinter, semgrep, license checks, and dependency review. |
+
+## Builder Images
+
+`qcom-build-utils` consumes two image families:
+
+- `ghcr.io/qualcomm-linux/debusine-pkg-builder:{suite}` for Debian suites routed through Debusine
+- `ghcr.io/qualcomm-linux/pkg-builder:{codename}` for Ubuntu codenames routed through the local build path
+
+The Debusine-specific helper scripts used by the Debian path are checked out from
+`qualcomm-linux/debusine-action` at runtime.
 
 ## Composite Actions
 
@@ -132,9 +142,9 @@ See [pkg-example](https://github.com/qualcomm-linux/pkg-example) for a complete 
 
 | Component | Details |
 |-----------|---------|
-| **Container images** | `ghcr.io/qualcomm-linux/pkg-builder:{arch}-{distro}` — pre-built for `arm64`/`amd64` across `noble`, `questing`, `resolute`, `trixie`, `sid` |
+| **Container images** | `ghcr.io/qualcomm-linux/debusine-pkg-builder:{suite}` for Debian/Debusine execution and `ghcr.io/qualcomm-linux/pkg-builder:{codename}` for Ubuntu/pkg-builder execution |
 | **Staging APT repo** | [pkg-oss-staging-repo](https://github.com/qualcomm-linux/pkg-oss-staging-repo) served via GitHub Pages |
-| **Runners** | Self-hosted ARM64 runners (`lecore-prd-u2404-arm64-xlrg-od-ephem`) |
+| **Runners** | `ubuntu-latest` for the Debian Debusine path and ARM pkg-builder runners for the local Ubuntu build/release path |
 | **Artifact storage** | S3 for release builds |
 
 ## Build & Utility Scripts

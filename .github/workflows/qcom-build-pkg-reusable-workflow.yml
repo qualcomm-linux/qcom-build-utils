@@ -1,8 +1,9 @@
 name: Qualcomm Build Debian Package Reusable Workflow
 description: |
-  This reusable workflow is called by debian-packaging repos to offer a consistent build process.
-  Package repos will adhere to  a git-buildpackage structure and contain the small "build-debian-package.yml"
-  caller workflow in its .github/workflows folder.
+  This reusable workflow is called by debian-packaging repos to offer a consistent
+  build-and-test process.
+  Debian suites use the Debusine build service, while Ubuntu codenames keep using
+  the local pkg-builder container flow.
 
 on:
   workflow_call:
@@ -18,61 +19,146 @@ on:
         required: true
         default: debian/qcom-next
 
-      distro-codename:
-        description: The distribution codename to build for. Ex noble, jammy, etc
+      suite:
+        description: The distribution codename or Debian suite to build for. Preferred input for newer callers.
         type: string
-        default: noble
+        default: ""
+
+      distro-codename:
+        description: Legacy alias for suite, kept for backward compatibility with older callers.
+        type: string
+        default: ""
 
       run-lintian:
-        description: Run lintian or not during the build
+        description: Run lintian or not during the Ubuntu pkg-builder build path
         type: boolean
         default: true
 
       run-abi-checker:
-        description: Run the ABI checker or not
+        description: Run the ABI checker or not during the Ubuntu pkg-builder build path
         type: boolean
         default: false
 
       is-prebuilt:
         description: |
-          Controls the build mode passed to the build_package action:
+          Controls the build mode passed to the Ubuntu build_package action:
             "true"  — Force prebuilt binary mode.
             "false" — Force source build mode.
             ""      — Auto-detect (default): prebuilt if upstream.conf exists in the repo, else source.
-          Leaving this unset is recommended for use with pkg-template so that the same workflow
-          works for both source and binary packages without modification.
         type: string
         default: ""
+
+      job-index:
+        description: Uniquely identifying index for matrix-expanded callers so Debusine child workspaces stay distinct
+        type: string
+        default: "0"
+
+      release:
+        description: Prepare a release bundle (finalizes changelog, creates git bundle for push-release) for the Debian Debusine path
+        type: boolean
+        default: false
+
+    secrets:
+      DEBUSINE_USER:
+        required: false
+      DEBUSINE_TOKEN:
+        required: false
+
+    outputs:
+      target_suite:
+        description: The resolved suite/codename actually used by the workflow
+        value: ${{ jobs.finalize.outputs.target_suite }}
+      workspace:
+        description: Debusine workspace ID for Debian builds; empty for Ubuntu builds
+        value: ${{ jobs.finalize.outputs.workspace }}
+      workspace_url:
+        description: Debusine workspace URL for Debian builds; empty for Ubuntu builds
+        value: ${{ jobs.finalize.outputs.workspace_url }}
+      srcpkg_name:
+        description: Source package name
+        value: ${{ jobs.finalize.outputs.srcpkg_name }}
+      srcpkg_version:
+        description: Source package version
+        value: ${{ jobs.finalize.outputs.srcpkg_version }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.release && 'release' || github.run_id }}
 
 permissions:
   contents: read
   packages: read
 
+env:
+  DEBUSINE_ACTION_REF: main
+
 jobs:
-  build-debian-package:
+  resolve:
+    name: Resolve suite family
+    runs-on: ubuntu-latest
+    outputs:
+      family: ${{ steps.resolve.outputs.family }}
+      target_suite: ${{ steps.resolve.outputs.target_suite }}
+      debian_builder_suite: ${{ steps.resolve.outputs.debian_builder_suite }}
+    steps:
+      - name: Classify suite
+        id: resolve
+        shell: bash
+        env:
+          SUITE_INPUT: ${{ inputs.suite }}
+          DISTRO_CODENAME_INPUT: ${{ inputs.distro-codename }}
+        run: |
+          set -euo pipefail
 
+          if [[ -n "$SUITE_INPUT" ]]; then
+            target_suite="$SUITE_INPUT"
+          elif [[ -n "$DISTRO_CODENAME_INPUT" ]]; then
+            target_suite="$DISTRO_CODENAME_INPUT"
+          else
+            target_suite=unstable
+          fi
+
+          case "$target_suite" in
+            trixie|sid|unstable|bookworm|forky)
+              family=debian
+              ;;
+            *)
+              family=ubuntu
+              ;;
+          esac
+
+          debian_builder_suite="$target_suite"
+          if [[ "$target_suite" == "unstable" ]]; then
+            debian_builder_suite=sid
+          fi
+
+          echo "family=$family" >> "$GITHUB_OUTPUT"
+          echo "target_suite=$target_suite" >> "$GITHUB_OUTPUT"
+          echo "debian_builder_suite=$debian_builder_suite" >> "$GITHUB_OUTPUT"
+
+  ubuntu-build:
+    name: Build (Ubuntu)
+    if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
+    needs: resolve
     runs-on: ubuntu-24.04-arm
-
+    outputs:
+      srcpkg_name: ${{ steps.metadata.outputs.srcpkg_name }}
+      srcpkg_version: ${{ steps.metadata.outputs.srcpkg_version }}
     defaults:
       run:
         shell: bash
-
     container:
-      # This docker image is built and published by the qualcomm-linux/docker_deb_build repo CI workflow
-      image: ghcr.io/qualcomm-linux/pkg-builder:${{inputs.distro-codename}}
+      image: ghcr.io/qualcomm-linux/pkg-builder:${{ needs.resolve.outputs.target_suite }}
       options: --privileged
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-
     steps:
-
       - name: Checkout qcom-build-utils
         uses: actions/checkout@v5
         with:
           repository: qualcomm-linux/qcom-build-utils
-          ref: ${{inputs.qcom-build-utils-ref}}
-          path: ./qcom-build-utils
+          ref: ${{ inputs.qcom-build-utils-ref }}
+          path: qcom-build-utils
           fetch-depth: 1
           sparse-checkout: |
             .github
@@ -81,22 +167,225 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v5
         with:
-          ref: ${{inputs.debian-ref}}
-          path: ./package-repo
-          fetch-depth: 0 # <- Important for the tags fetching to work
-          fetch-tags: true # <- Important
+          ref: ${{ inputs.debian-ref }}
+          path: package-repo
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Collect source package metadata
+        id: metadata
+        run: |
+          cd package-repo
+          echo "srcpkg_name=$(dpkg-parsechangelog --show-field Source)" >> "$GITHUB_OUTPUT"
+          echo "srcpkg_version=$(dpkg-parsechangelog --show-field Version)" >> "$GITHUB_OUTPUT"
 
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package
         with:
-          distro-codename: ${{inputs.distro-codename}}
+          distro-codename: ${{ needs.resolve.outputs.target_suite }}
           pkg-dir: package-repo
           build-dir: build-area
-          run-lintian: ${{inputs.run-lintian}}
-          prebuilt: ${{inputs.is-prebuilt}}
+          run-lintian: ${{ inputs.run-lintian }}
+          prebuilt: ${{ inputs.is-prebuilt }}
 
       - name: Run ABI (Application Binary Interface) Check
-        if: ${{inputs.run-abi-checker == true}}
+        if: ${{ inputs.run-abi-checker }}
         uses: ./qcom-build-utils/.github/actions/abi_checker
         with:
-          apt-repository: "deb [arch=arm64 trusted=yes] https://qartifactory-edge.qualcomm.com/artifactory/qsc-deb-releases ${{inputs.distro-codename}} main"
+          apt-repository: "deb [arch=arm64 trusted=yes] https://qartifactory-edge.qualcomm.com/artifactory/qsc-deb-releases ${{ needs.resolve.outputs.target_suite }} main"
+
+  debian-build:
+    name: Build (Debian)
+    if: ${{ needs.resolve.outputs.family == 'debian' }}
+    needs: resolve
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ needs.resolve.outputs.debian_builder_suite }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      workspace: ${{ steps.prepare-debusine.outputs.workspace }}
+      workspace_url: ${{ steps.prepare-debusine.outputs.workspace_url }}
+      srcpkg_name: ${{ steps.generate-source-package.outputs.srcpkg_name }}
+      srcpkg_version: ${{ steps.generate-source-package.outputs.srcpkg_version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Require Debusine token
+        env:
+          DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+        run: |
+          if [ -z "$DEBUSINE_TOKEN" ]; then
+            echo "DEBUSINE_TOKEN is required for Debian/Debusine builds" >&2
+            exit 1
+          fi
+
+      - name: Checkout debusine-action helpers
+        uses: actions/checkout@v5
+        with:
+          repository: qualcomm-linux/debusine-action
+          ref: ${{ env.DEBUSINE_ACTION_REF }}
+          path: debusine-action
+          fetch-depth: 1
+          sparse-checkout: |
+            lib
+
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.debian-ref }}
+          path: srcpkg
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Prepare release
+        if: ${{ inputs.release }}
+        env:
+          SUITE_INPUT: ${{ needs.resolve.outputs.target_suite }}
+        run: |
+          set -ex
+          echo "::group::Prepare release"
+          SUITE="$SUITE_INPUT" debusine-action/lib/prepare-release
+          echo "::endgroup::"
+
+      - name: Generate source package
+        id: generate-source-package
+        env:
+          SUITE_INPUT: ${{ needs.resolve.outputs.target_suite }}
+        run: |
+          set -ex
+          SUITE="$SUITE_INPUT" debusine-action/lib/generate-source-package
+
+      - name: Build in Debusine
+        id: prepare-debusine
+        env:
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          JOB_INDEX: ${{ inputs.job-index }}
+          DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
+          DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
+          DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+          DEBUSINE_PARENT_WORKSPACE: ci
+          SUITE: ${{ needs.resolve.outputs.target_suite }}
+        run: |
+          set -euxo pipefail
+          debusine-action/lib/build
+          cat output >> "$GITHUB_OUTPUT"
+          workspace=$(sed -n 's/^workspace=//p' output)
+          echo "workspace_url=https://${DEBUSINE_HOST}/${DEBUSINE_SCOPE}/${workspace}/" >> "$GITHUB_OUTPUT"
+
+      - name: Note Debusine workspace URL
+        run: |
+          echo "Debusine Workspace URL: ${{ steps.prepare-debusine.outputs.workspace_url }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload release bundle
+        if: ${{ inputs.release }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-bundle
+          path: release.bundle
+          if-no-files-found: error
+
+  debian-test:
+    name: Test (Debian)
+    if: ${{ needs.resolve.outputs.family == 'debian' }}
+    needs:
+      - resolve
+      - debian-build
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ needs.resolve.outputs.debian_builder_suite }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Require Debusine credentials
+        env:
+          DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+          DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+        run: |
+          if [ -z "$DEBUSINE_USER" ] || [ -z "$DEBUSINE_TOKEN" ]; then
+            echo "DEBUSINE_USER and DEBUSINE_TOKEN are required for Debian/Debusine tests" >&2
+            exit 1
+          fi
+
+      - name: Checkout debusine-action helpers
+        uses: actions/checkout@v5
+        with:
+          repository: qualcomm-linux/debusine-action
+          ref: ${{ env.DEBUSINE_ACTION_REF }}
+          path: debusine-action
+          fetch-depth: 1
+          sparse-checkout: |
+            lib
+
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.debian-ref }}
+          path: srcpkg
+          fetch-depth: 1
+
+      - name: Validate installability from Debusine CI workspace
+        env:
+          DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
+          DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
+          DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+          DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+          DEBUSINE_WORKSPACE: ${{ needs.debian-build.outputs.workspace }}
+          SUITE: ${{ needs.resolve.outputs.target_suite }}
+        run: |
+          set -euxo pipefail
+
+          debusine-action/lib/generate-apt-config
+          install -d /etc/apt/sources.list.d /etc/apt/auth.conf.d
+          install -m 0644 debusine-ci.sources /etc/apt/sources.list.d/debusine-ci.sources
+          install -m 0600 debusine-ci-auth.conf /etc/apt/auth.conf.d/debusine-ci-auth.conf
+          apt-get update
+
+          packages=$(grep-dctrl -n -s Package -r '' srcpkg/debian/control | sort -u | paste -sd ' ' -)
+          if [ -z "$packages" ]; then
+            echo "No binary packages found in srcpkg/debian/control" >&2
+            exit 1
+          fi
+
+          env DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y $packages
+
+  finalize:
+    name: Finalize outputs
+    needs:
+      - resolve
+      - ubuntu-build
+      - debian-build
+      - debian-test
+    runs-on: ubuntu-latest
+    outputs:
+      target_suite: ${{ steps.select.outputs.target_suite }}
+      workspace: ${{ steps.select.outputs.workspace }}
+      workspace_url: ${{ steps.select.outputs.workspace_url }}
+      srcpkg_name: ${{ steps.select.outputs.srcpkg_name }}
+      srcpkg_version: ${{ steps.select.outputs.srcpkg_version }}
+    steps:
+      - name: Select workflow outputs
+        id: select
+        shell: bash
+        run: |
+          if [[ "${{ needs.resolve.outputs.family }}" == "debian" ]]; then
+            echo "target_suite=${{ needs.resolve.outputs.target_suite }}" >> "$GITHUB_OUTPUT"
+            echo "workspace=${{ needs.debian-build.outputs.workspace }}" >> "$GITHUB_OUTPUT"
+            echo "workspace_url=${{ needs.debian-build.outputs.workspace_url }}" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_name=${{ needs.debian-build.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_version=${{ needs.debian-build.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "target_suite=${{ needs.resolve.outputs.target_suite }}" >> "$GITHUB_OUTPUT"
+            echo "workspace=" >> "$GITHUB_OUTPUT"
+            echo "workspace_url=" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_name=${{ needs.ubuntu-build.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_version=${{ needs.ubuntu-build.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
+          fi

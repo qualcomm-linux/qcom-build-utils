@@ -1,0 +1,50 @@
+name: Promote New Prebuilt Binary Version
+
+on:
+  workflow_dispatch:
+    inputs:
+
+      debian-branch:
+        description: The debian branch to apply the promotion to. For example "debian/qcom-next"
+        type: string
+        required: false
+        default: debian/qcom-next
+
+      new-tag:
+        description: |
+          The new Artifactory TAG to promote to (e.g. 251030.2).
+          This is the TAG field in upstream.conf.
+        type: string
+        required: true
+
+      new-package-name:
+        description: |
+          The new tarball filename if it has changed (e.g. qcom-adreno_1.838.2_armv8-2a.tar.gz).
+          Leave empty to keep the current PACKAGE_NAME in upstream.conf unchanged.
+        type: string
+        required: false
+        default: ""
+
+      new-debian-version:
+        description: |
+          The new debian changelog version (e.g. 1.838.2~251030 or 1.838.2-1).
+          If omitted, the version is automatically derived from the PACKAGE_NAME
+          (e.g. qcom-adreno_1.838.2_armv8-2a.tar.gz -> 1.838.2-1).
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote:
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-promote-prebuilt-reusable-workflow.yml@dev/pkg-bin
+    with:
+      qcom-build-utils-ref: dev/pkg-bin
+      debian-branch: ${{inputs.debian-branch}}
+      new-tag: ${{inputs.new-tag}}
+      new-package-name: ${{inputs.new-package-name}}
+      new-debian-version: ${{inputs.new-debian-version}}
+    secrets: inherit

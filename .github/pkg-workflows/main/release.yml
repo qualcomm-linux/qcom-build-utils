@@ -1,0 +1,53 @@
+name: Release Version
+description: |
+  Release a new package version.
+  This workflow is manually triggered via workflow_dispatch.
+
+on:
+  workflow_dispatch:
+    inputs:
+
+      distro-codename:
+        description: The distribution codename or Debian suite to release for. Ex noble, questing, resolute, trixie, bookworm, sid, unstable
+        type: choice
+        default: noble
+        options:
+          - noble
+          - questing
+          - resolute
+          - unstable
+          - forky
+          - trixie
+          - bookworm
+          - sid
+
+      debian-branch:
+        description: The debian branch to use to execute the release from. For example branch "debian/qcom-next"
+        type: string
+        required: false
+        default: debian/qcom-next
+
+      test-run:
+        description: |
+          Debian suites: if true, stop after the Debusine build and installability test.
+          Ubuntu codenames: preserve the previous release flow, including upload to the test S3 location.
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  release:
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-release-reusable-workflow.yml@main
+    with:
+      qcom-build-utils-ref: main
+      distro-codename: ${{ github.event.inputs.distro-codename }}
+      debian-branch: ${{ github.event.inputs.debian-branch }}
+      test-run: ${{ github.event.inputs.test-run == 'true' && true || false }}
+    secrets:
+      PAT: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
+      DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+      DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+      DEBUSINE_RELEASE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}

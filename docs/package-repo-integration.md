@@ -245,6 +245,23 @@ jobs:
       is-post-merge: true
 ```
 
+#### Hybrid release caller
+
+The release caller remains a thin package-repo entrypoint that invokes the
+`qcom-build-utils` reusable workflow directly, while the suite-family routing
+stays encapsulated inside `qcom-build-utils`.
+
+For Debian suites, it uses a separate secret model from the build callers:
+
+- `DEBUSINE_TOKEN`: repository or organization secret for CI workspace build/test access
+- `DEBUSINE_RELEASE_TOKEN`: separate repository or organization secret used only for the final Debusine prod publish step
+
+Package repositories pass `DEBUSINE_RELEASE_TOKEN` directly to
+`qcom-release-reusable-workflow.yml` as a named secret so the reusable workflow
+can publish the successful Debusine CI workspace and push the release git state
+without expanding the caller workflow. Ubuntu releases keep using the older
+local `pkg-builder` + S3 path and do not use those Debusine secrets.
+
 #### Step 4: Initial Commit
 
 > **Note**: If you created your repository from pkg-template, the initial structure is already in place. You should customize the files and then commit your changes.

@@ -28,11 +28,17 @@ The qcom-build-utils repository provides four main composite actions:
 
 ### Action Location
 
-All actions are referenced relative to the qcom-build-utils checkout:
+Composite actions are referenced relative to the qcom-build-utils checkout:
 
 ```yaml
 uses: ./qcom-build-utils/.github/actions/{action_name}
 ```
+
+The reusable build/release workflows are hybrid:
+
+- Debian suites check out `qualcomm-linux/debusine-action` and invoke its `lib/`
+  helper scripts directly
+- Ubuntu codenames keep using the local `pkg-builder` + composite-action path
 
 ### Error Handling
 

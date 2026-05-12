@@ -1,0 +1,33 @@
+name: Promote New Upstream Version
+
+on:
+  workflow_dispatch:
+    inputs:
+
+      debian-branch:
+        description: The debian branch to apply the promotion to. For example branch "debian/qcom-next"
+        type: string
+        required: false
+        default: debian/qcom-next
+
+      upstream-tag:
+        description: The upstream tag to promote this package repo to. Eg, v1.1.0 or 1.2.0, depending on the versioning style
+        type: string
+        required: true
+
+permissions:
+  contents: write
+  packages: read
+  pull-requests: write
+
+jobs:
+  promote:
+
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-promote-upstream-reusable-workflow.yml@main
+    with:
+      qcom-build-utils-ref: main
+      debian-branch: ${{inputs.debian-branch}}
+      upstream-tag: ${{inputs.upstream-tag}}
+      upstream-repo: ${{vars.UPSTREAM_REPO_GITHUB_NAME}}
+    secrets:
+      PAT: ${{secrets.DEB_PKG_BOT_CI_TOKEN}} # If the source repo is private, this secret is necessary to be provided in the repo
