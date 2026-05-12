@@ -42,8 +42,7 @@ flowchart TD
 |-----------|------|----------|---------|-------------|
 | `qcom-build-utils-ref` | string | Yes | - | The ref (branch/tag) of qcom-build-utils to use |
 | `debian-ref` | string | Yes | `debian/qcom-next` | The package-repository ref to check out and build |
-| `suite` | string | No | `""` | Preferred modern input for the distribution codename or Debian suite |
-| `distro-codename` | string | No | `""` | Backward-compatible alias for older callers |
+| `suite` | string | No | `unstable` | Distribution codename or Debian suite |
 | `run-lintian` | boolean | No | `true` | Used by the Ubuntu/pkg-builder path |
 | `run-abi-checker` | boolean | No | `false` | Used by the Ubuntu/pkg-builder path |
 | `is-prebuilt` | string | No | `""` | Passed through to the Ubuntu/pkg-builder `build_package` action |
@@ -133,7 +132,7 @@ flowchart TD
 |-----------|------|----------|---------|-------------|
 | `qcom-build-utils-ref` | string | Yes | - | The ref (branch/tag) of qcom-build-utils to invoke |
 | `debian-branch` | string | No | `debian/qcom-next` | The packaging branch to release from |
-| `distro-codename` | string | No | `noble` | Distribution codename or Debian suite to build/test/release |
+| `suite` | string | No | `noble` | Distribution codename or Debian suite to build/test/release |
 | `test-run` | boolean | No | `true` | Debian: stop after Debusine build/test. Ubuntu: keep the older release flow and upload to the test S3 location |
 
 ### Secrets
@@ -174,7 +173,7 @@ jobs:
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-release-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
-      distro-codename: trixie
+      suite: trixie
       debian-branch: debian/qcom-next
       test-run: false
     secrets:
@@ -310,7 +309,7 @@ flowchart TD
 | `pkg-repo` | string | Yes | - | The package repository to test against |
 | `pr-number` | number | Yes | - | The PR number in upstream repo |
 | `run-lintian` | boolean | No | `false` | Whether to run lintian |
-| `distro-codename` | string | No | `noble` | Distribution codename |
+| `suite` | string | No | `noble` | Distribution codename or Debian suite |
 | `runner` | string | No | `ubuntu-latest` | Runner to use |
 
 ### Environment Variables

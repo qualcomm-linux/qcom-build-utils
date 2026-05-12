@@ -10,8 +10,8 @@ description: |
   otherwise source build mode is used.
 
 inputs:
-  distro-codename:
-    description: The distribution codename to build for. Ex noble, questing, etc
+  suite:
+    description: The distribution codename or Debian suite to build for. Ex noble, questing, trixie, etc
     required: true
 
   pkg-dir:
@@ -197,7 +197,7 @@ runs:
             sbuild --no-clean-source \
                    --host=arm64 \
                    --build=${{env.BUILD_ARCH}} \
-                   --dist=${{inputs.distro-codename}} \
+                   --dist=${{inputs.suite}} \
                    $lintian_flag \
                    --build-dir "$BUILD_DIR_ABS" \
                    --build-dep-resolver=apt \
@@ -209,7 +209,7 @@ runs:
             sbuild --no-clean-source \
                    --host=arm64 \
                    --build=${{env.BUILD_ARCH}} \
-                   --dist=${{inputs.distro-codename}} \
+                   --dist=${{inputs.suite}} \
                    $lintian_flag \
                    --build-dir "$BUILD_DIR_ABS" \
                    --build-dep-resolver=apt
@@ -225,12 +225,12 @@ runs:
             --git-ignore-branch \
             --git-builder="sbuild --no-clean-source \
                                   --dpkg-source-opt="--extend-diff-ignore=^\\.github" \
-                                  --host=arm64 \
-                                  --build=${{env.BUILD_ARCH}} \
-                                  --dist=${{inputs.distro-codename}} \
-                                  $lintian_flag \
-                                  --build-dir $BUILD_DIR_ABS \
-                                  --build-dep-resolver=apt"
+                                   --host=arm64 \
+                                   --build=${{env.BUILD_ARCH}} \
+                                   --dist=${{inputs.suite}} \
+                                   $lintian_flag \
+                                   --build-dir $BUILD_DIR_ABS \
+                                   --build-dep-resolver=apt"
         fi
 
         RET=$?

@@ -18,7 +18,7 @@ on:
         required: false
         default: debian/qcom-next
 
-      distro-codename:
+      suite:
         description: The distribution codename or Debian suite to build and release for. Ex noble, questing, resolute, trixie, sid
         type: string
         default: noble
@@ -80,7 +80,7 @@ jobs:
         id: resolve
         shell: bash
         env:
-          TARGET_SUITE: ${{ inputs.distro-codename }}
+          TARGET_SUITE: ${{ inputs.suite }}
         run: |
           set -euo pipefail
 
@@ -109,7 +109,7 @@ jobs:
     with:
       qcom-build-utils-ref: ${{ inputs.qcom-build-utils-ref }}
       debian-ref: ${{ inputs.debian-branch }}
-      suite: ${{ inputs.distro-codename }}
+      suite: ${{ inputs.suite }}
       release: true
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
@@ -176,7 +176,7 @@ jobs:
           DEBUSINE_TARGET_WORKSPACE: prod
           SRCPKG_NAME: ${{ needs.debian-build.outputs.srcpkg_name }}
           SRCPKG_VERSION: ${{ needs.debian-build.outputs.srcpkg_version }}
-          SUITE: ${{ inputs.distro-codename }}
+          SUITE: ${{ inputs.suite }}
         run: |
           set -euxo pipefail
 
@@ -201,7 +201,7 @@ jobs:
       run:
         shell: bash
     container:
-      image: ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.distro-codename }}
+      image: ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite }}
       options: --privileged
       credentials:
         username: ${{ github.actor }}
@@ -237,7 +237,7 @@ jobs:
         id: changelog
         env:
           DEBIAN_BRANCH: ${{ inputs.debian-branch }}
-          DISTRO_CODENAME: ${{ inputs.distro-codename }}
+          DISTRO_CODENAME: ${{ inputs.suite }}
           BOT_NAME: ${{ vars.DEB_PKG_BOT_CI_NAME }}
           BOT_EMAIL: ${{ vars.DEB_PKG_BOT_CI_EMAIL }}
         run: |
@@ -277,7 +277,7 @@ jobs:
 
       - name: Create provenance file
         env:
-          DISTRO_CODENAME: ${{ inputs.distro-codename }}
+          DISTRO_CODENAME: ${{ inputs.suite }}
           DEBIAN_BRANCH: ${{ inputs.debian-branch }}
           UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO_GITHUB_NAME }}
           PKG_VERSION: ${{ steps.changelog.outputs.version }}
@@ -351,7 +351,7 @@ jobs:
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package
         with:
-          distro-codename: ${{ inputs.distro-codename }}
+          suite: ${{ inputs.suite }}
           pkg-dir: package-repo
           build-dir: build
 
@@ -359,7 +359,7 @@ jobs:
         working-directory: ./package-repo
         env:
           DEBIAN_BRANCH: ${{ inputs.debian-branch }}
-          DISTRO_CODENAME: ${{ inputs.distro-codename }}
+          DISTRO_CODENAME: ${{ inputs.suite }}
         run: |
           version=$(dpkg-parsechangelog --show-field Version)
 
@@ -392,7 +392,7 @@ jobs:
         if: ${{ !inputs.test-run }}
         env:
           GH_PAT: ${{ secrets.PAT }}
-          SUITE: ${{ inputs.distro-codename }}
+          SUITE: ${{ inputs.suite }}
           BOT_NAME: ${{ vars.DEB_PKG_BOT_CI_NAME }}
           BOT_EMAIL: ${{ vars.DEB_PKG_BOT_CI_EMAIL }}
         run: |
@@ -468,7 +468,7 @@ jobs:
           OWNER_NAME="${{ github.repository_owner }}"
           REPO_NAME="${{ github.event.repository.name }}"
           CATEGORY_FOLDER="${{ inputs.test-run == true && 'test' || 'proposed' }}"
-          SUITE_NAME="${{ inputs.distro-codename }}"
+          SUITE_NAME="${{ inputs.suite }}"
           VERSION_NAME="${{ needs.ubuntu-pkg-release.outputs.complete_version }}"
           WORKFLOW_BUILD_ID="${{ github.run_id }}"
           WORKFLOW_RUN_ID="${{ github.run_attempt }}"

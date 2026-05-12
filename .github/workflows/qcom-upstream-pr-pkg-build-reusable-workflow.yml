@@ -34,8 +34,8 @@ on:
         type: boolean
         default: false
 
-      distro-codename:
-        description: The distribution codename to build for. Ex noble, jammy, etc
+      suite:
+        description: The distribution codename or Debian suite to build for. Ex noble, questing, resolute, trixie, sid, unstable
         type: string
         default: noble
 
@@ -61,7 +61,7 @@ jobs:
 
     container:
       # This docker image is built and published by the qualcomm-linux/docker_deb_build repo CI workflow
-      image: ghcr.io/qualcomm-linux/pkg-builder:${{inputs.distro-codename}}
+      image: ghcr.io/qualcomm-linux/pkg-builder:${{inputs.suite}}
       options: --privileged
       credentials:
         username: ${{ github.actor }}
@@ -183,7 +183,7 @@ jobs:
           # use -b to ignore new version is less than current version. This happens because of the ~pr#
           gbp dch \
             --ignore-branch \
-            --distribution=${{inputs.distro-codename}} \
+            --distribution=${{inputs.suite}} \
             --new-version=${{env.upstream_version}}~pr${{inputs.pr-number}}-${{env.distro_revision}} \
             --dch-opt="-b"
 
@@ -192,7 +192,7 @@ jobs:
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package
         with:
-          distro-codename: ${{inputs.distro-codename}}
+          suite: ${{inputs.suite}}
           pkg-dir: package-repo
           build-dir: build-area
           run-lintian: ${{inputs.run-lintian}}
@@ -201,4 +201,4 @@ jobs:
         if: true
         uses: ./qcom-build-utils/.github/actions/abi_checker
         with:
-          distro-codename: ${{inputs.distro-codename}}
+          distro-codename: ${{inputs.suite}}

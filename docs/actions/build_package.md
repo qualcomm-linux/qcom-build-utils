@@ -8,7 +8,7 @@
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `distro-codename` | Yes | - | Ubuntu distribution codename (noble, questing, jammy, etc.) |
+| `suite` | Yes | - | Distribution codename or Debian suite (noble, questing, trixie, etc.) |
 | `pkg-dir` | Yes | - | Directory containing the Debian package source |
 | `build-dir` | Yes | - | Directory where build artifacts will be placed |
 | `run-lintian` | No | `false` | Whether to run lintian quality checks |
@@ -57,7 +57,7 @@ gbp buildpackage \
   --git-ignore-branch \
   --git-builder="sbuild --host=arm64 \
                         --build=${BUILD_ARCH} \
-                        --dist=${distro-codename} \
+                        --dist=${suite} \
                         ${lintian_flag} \
                         --build-dir ../${build-dir} \
                         --build-dep-resolver=apt \
@@ -91,7 +91,7 @@ After successful build, the following artifacts are created in `build-dir`:
 - name: Build Debian Package
   uses: ./qcom-build-utils/.github/actions/build_package
   with:
-    distro-codename: noble
+    suite: noble
     pkg-dir: package-repo
     build-dir: build-area
     run-lintian: true

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
 
-      distro-codename:
+      suite:
         description: The distribution codename or Debian suite to release for. Ex noble, questing, resolute, trixie, bookworm, sid, unstable
         type: choice
         default: noble
@@ -43,7 +43,7 @@ jobs:
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-release-reusable-workflow.yml@main
     with:
       qcom-build-utils-ref: main
-      distro-codename: ${{ github.event.inputs.distro-codename }}
+      suite: ${{ github.event.inputs.suite }}
       debian-branch: ${{ github.event.inputs.debian-branch }}
       test-run: ${{ github.event.inputs.test-run == 'true' && true || false }}
     secrets:

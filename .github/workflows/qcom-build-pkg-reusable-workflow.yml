@@ -20,14 +20,9 @@ on:
         default: debian/qcom-next
 
       suite:
-        description: The distribution codename or Debian suite to build for. Preferred input for newer callers.
+        description: The distribution codename or Debian suite to build for. Ex noble, questing, resolute, trixie, sid, unstable
         type: string
-        default: ""
-
-      distro-codename:
-        description: Legacy alias for suite, kept for backward compatibility with older callers.
-        type: string
-        default: ""
+        default: unstable
 
       run-lintian:
         description: Run lintian or not during the Ubuntu pkg-builder build path
@@ -105,17 +100,10 @@ jobs:
         shell: bash
         env:
           SUITE_INPUT: ${{ inputs.suite }}
-          DISTRO_CODENAME_INPUT: ${{ inputs.distro-codename }}
         run: |
           set -euo pipefail
 
-          if [[ -n "$SUITE_INPUT" ]]; then
-            target_suite="$SUITE_INPUT"
-          elif [[ -n "$DISTRO_CODENAME_INPUT" ]]; then
-            target_suite="$DISTRO_CODENAME_INPUT"
-          else
-            target_suite=unstable
-          fi
+          target_suite="$SUITE_INPUT"
 
           case "$target_suite" in
             trixie|sid|unstable|bookworm|forky)
@@ -182,7 +170,7 @@ jobs:
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package
         with:
-          distro-codename: ${{ needs.resolve.outputs.target_suite }}
+          suite: ${{ needs.resolve.outputs.target_suite }}
           pkg-dir: package-repo
           build-dir: build-area
           run-lintian: ${{ inputs.run-lintian }}
