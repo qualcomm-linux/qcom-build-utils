@@ -367,6 +367,19 @@ fi
 
 if [[ "$USE_MANIFEST" -eq 1 && -n "$MANIFEST" ]]; then
     echo "[INFO] Adding custom apt sources from manifest..."
+
+    # Create keyrings directory if it doesn't exist
+    mkdir -p "$ROOTFS_DIR/etc/apt/keyrings"
+
+    # Check if keyrings directory exists alongside the manifest
+    MANIFEST_DIR=$(dirname "$MANIFEST")
+    KEYRINGS_DIR="$MANIFEST_DIR/keyrings"
+
+    if [[ -d "$KEYRINGS_DIR" ]]; then
+        echo "[INFO] Copying keyring files from $KEYRINGS_DIR..."
+        cp -v "$KEYRINGS_DIR"/*.asc "$ROOTFS_DIR/etc/apt/keyrings/" 2>/dev/null || true
+    fi
+
     jq -c '.apt_sources[]?' "$MANIFEST" | while read -r row; do
         NAME=$(echo "$row" | jq -r '.name // "customrepo"')
         SRC_LINE=$(echo "$row" | jq -r '.source_line')
