@@ -30,6 +30,11 @@ on:
         type: boolean
         default: true
 
+      debusine-parent-workspace:
+        description: Parent Debusine workspace used to create per-run child CI workspaces for Debian builds
+        type: string
+        default: ci
+
     secrets:
       PAT:
         description: Personal Access Token with repo permissions to the packaging repository. Needed to check out and push release git state.
@@ -111,6 +116,7 @@ jobs:
       debian-ref: ${{ inputs.debian-branch }}
       suite: ${{ inputs.suite }}
       release: true
+      debusine-parent-workspace: ${{ inputs.debusine-parent-workspace }}
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}

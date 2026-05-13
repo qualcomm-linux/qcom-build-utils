@@ -40,12 +40,14 @@ permissions:
 
 jobs:
   release:
+
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-release-reusable-workflow.yml@main
     with:
       qcom-build-utils-ref: main
       suite: ${{ github.event.inputs.suite }}
       debian-branch: ${{ github.event.inputs.debian-branch }}
       test-run: ${{ github.event.inputs.test-run == 'true' && true || false }}
+      debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE || 'ci' }}
     secrets:
       PAT: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}

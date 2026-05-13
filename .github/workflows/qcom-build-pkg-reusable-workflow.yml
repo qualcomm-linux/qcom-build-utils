@@ -53,6 +53,11 @@ on:
         type: boolean
         default: false
 
+      debusine-parent-workspace:
+        description: Parent Debusine workspace used to create per-run child CI workspaces for Debian builds
+        type: string
+        default: ci
+
     secrets:
       DEBUSINE_USER:
         required: false
@@ -256,7 +261,7 @@ jobs:
           DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
           DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
-          DEBUSINE_PARENT_WORKSPACE: ci
+          DEBUSINE_PARENT_WORKSPACE: ${{ inputs.debusine-parent-workspace }}
           SUITE: ${{ needs.resolve.outputs.target_suite }}
         run: |
           set -euxo pipefail

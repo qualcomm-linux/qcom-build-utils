@@ -48,6 +48,7 @@ flowchart TD
 | `is-prebuilt` | string | No | `""` | Passed through to the Ubuntu/pkg-builder `build_package` action |
 | `job-index` | string | No | `"0"` | Optional matrix index used to keep Debusine child workspace names unique |
 | `release` | boolean | No | `false` | Whether to prepare the release bundle before generating the Debian release source package |
+| `debusine-parent-workspace` | string | No | `ci` | Parent Debusine workspace used to create child CI workspaces for Debian builds |
 
 ### Secrets
 
@@ -69,7 +70,7 @@ flowchart TD
 ### Workflow Steps
 
 1. **Resolve suite family**: Normalize the caller input and decide whether the run is Debian or Ubuntu
-2. **Debian path**: Check out `debusine-action/lib`, optionally prepare a release bundle, generate a source package, submit it to Debusine, and run installability checks from the Debusine CI workspace
+2. **Debian path**: Check out `debusine-action/lib`, optionally prepare a release bundle, generate a source package, submit it to Debusine under the configured parent workspace, and run installability checks from the resulting Debusine CI workspace
 3. **Ubuntu path**: Run the old local `pkg-builder` flow with `build_package` and optional `abi_checker`
 4. **Publish Outputs**: Expose consistent source-package metadata; Debusine workspace outputs are populated only for Debian runs
 
@@ -85,6 +86,7 @@ jobs:
       qcom-build-utils-ref: development
       debian-ref: debian/qcom-next
       suite: trixie
+      debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE || 'ci' }}
 ```
 
 #### Matrix-safe caller
@@ -134,6 +136,7 @@ flowchart TD
 | `debian-branch` | string | No | `debian/qcom-next` | The packaging branch to release from |
 | `suite` | string | No | `noble` | Distribution codename or Debian suite to build/test/release |
 | `test-run` | boolean | No | `true` | Debian: stop after Debusine build/test. Ubuntu: keep the older release flow and upload to the test S3 location |
+| `debusine-parent-workspace` | string | No | `ci` | Parent Debusine workspace passed through to the Debian build/test phase |
 
 ### Secrets
 
@@ -176,6 +179,7 @@ jobs:
       suite: trixie
       debian-branch: debian/qcom-next
       test-run: false
+      debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE || 'ci' }}
     secrets:
       PAT: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
