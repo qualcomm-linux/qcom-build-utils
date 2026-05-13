@@ -187,6 +187,18 @@ jobs:
         with:
           apt-repository: "deb [arch=arm64 trusted=yes] https://qartifactory-edge.qualcomm.com/artifactory/qsc-deb-releases ${{ needs.resolve.outputs.target_suite }} main"
 
+      - name: Upload Ubuntu build artifacts
+        run: |
+          set -euxo pipefail
+          tar -C build-area -czf ubuntu-build-area.tgz .
+
+      - name: Upload Ubuntu build archive
+        uses: actions/upload-artifact@v6
+        with:
+          name: ubuntu-build-area
+          path: ubuntu-build-area.tgz
+          if-no-files-found: error
+
   debian-build:
     name: Build (Debian)
     if: ${{ needs.resolve.outputs.family == 'debian' }}
@@ -194,6 +206,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ needs.resolve.outputs.debian_builder_suite }}
+      options: --user 0:0
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -282,15 +295,22 @@ jobs:
           path: release.bundle
           if-no-files-found: error
 
-  debian-test:
-    name: Test (Debian)
-    if: ${{ needs.resolve.outputs.family == 'debian' }}
+  test:
+    name: Test
+    if: ${{ always() && ((needs.resolve.outputs.family == 'debian' && needs.debian-build.result == 'success') || (needs.resolve.outputs.family == 'ubuntu' && needs.ubuntu-build.result == 'success')) }}
     needs:
       - resolve
       - debian-build
-    runs-on: ubuntu-latest
+      - ubuntu-build
+    outputs:
+      workspace: ${{ steps.select.outputs.workspace }}
+      workspace_url: ${{ steps.select.outputs.workspace_url }}
+      srcpkg_name: ${{ steps.select.outputs.srcpkg_name }}
+      srcpkg_version: ${{ steps.select.outputs.srcpkg_version }}
+    runs-on: ${{ needs.resolve.outputs.family == 'debian' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
     container:
-      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ needs.resolve.outputs.debian_builder_suite }}
+      image: ${{ needs.resolve.outputs.family == 'debian' && format('ghcr.io/qualcomm-linux/debusine-pkg-builder:{0}', needs.resolve.outputs.debian_builder_suite) || format('ghcr.io/qualcomm-linux/pkg-builder:{0}', needs.resolve.outputs.target_suite) }}
+      options: --user 0:0
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -299,6 +319,7 @@ jobs:
         shell: bash
     steps:
       - name: Require Debusine credentials
+        if: ${{ needs.resolve.outputs.family == 'debian' }}
         env:
           DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
@@ -309,6 +330,7 @@ jobs:
           fi
 
       - name: Checkout debusine-action helpers
+        if: ${{ needs.resolve.outputs.family == 'debian' }}
         uses: actions/checkout@v5
         with:
           repository: qualcomm-linux/debusine-action
@@ -319,6 +341,7 @@ jobs:
             lib
 
       - name: Checkout Repository
+        if: ${{ needs.resolve.outputs.family == 'debian' }}
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.debian-ref }}
@@ -326,6 +349,7 @@ jobs:
           fetch-depth: 1
 
       - name: Validate installability from Debusine CI workspace
+        if: ${{ needs.resolve.outputs.family == 'debian' }}
         env:
           DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
           DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
@@ -337,9 +361,44 @@ jobs:
           set -euxo pipefail
 
           debusine-action/lib/generate-apt-config
-          install -d /etc/apt/sources.list.d /etc/apt/auth.conf.d
+          install -d /etc/apt/keyrings /etc/apt/sources.list.d /etc/apt/auth.conf.d
           install -m 0644 debusine-ci.sources /etc/apt/sources.list.d/debusine-ci.sources
           install -m 0600 debusine-ci-auth.conf /etc/apt/auth.conf.d/debusine-ci-auth.conf
+
+          qartifactory_suite="$SUITE"
+          if [ "$qartifactory_suite" = "unstable" ]; then
+            qartifactory_suite=sid
+          fi
+
+          case "$qartifactory_suite" in
+            noble|questing|resolute|trixie|sid)
+              cat > /etc/apt/keyrings/qsc-deb-releases.asc <<'EOF'
+          -----BEGIN PGP PUBLIC KEY BLOCK-----
+
+          mDMEaGwEMxYJKwYBBAHaRw8BAQdAg8Nfdby/c9Y6bctGLnGJrhMhedCGfYzrp9Sa
+          RWtQgDe0NXFzY19hcHRfcmVwby0wNzA3MjAyNSA8YXJ0aWZhY3RvcnkuY29yZUBx
+          dWFsY29tbS5jb20+iJkEExYKAEEWIQRyQhNJGZOZvf1sqY3IwASzX5SqWwUCaGwE
+          MwIbAwUJBaOagAULCQgHAgIiAgYVCgkICwIEFgIDAQIeBwIXgAAKCRDIwASzX5Sq
+          W0k4AQCzVUgf+ydkoHdxKiHzwZjDowL38lAp92zlvQqK2r+9kQEAxZYBhPQ4ZVo9
+          RL2bOrJexNAJyYqRamtrU+jkBn1wjQq4OARobAQzEgorBgEEAZdVAQUBAQdASOGZ
+          gHVoc7BboK7yCC3bSib9NLBlrsA47RRvT7fPHhoDAQgHiH4EGBYKACYWIQRyQhNJ
+          GZOZvf1sqY3IwASzX5SqWwUCaGwEMwIbDAUJBaOagAAKCRDIwASzX5SqWzH3AP94
+          HDue14QrgcEsyXCElAAZxYqiDMFu663G3ki0lGB1vAEAz0tqLiapgthdSt/c/2YQ
+          tej7g/77RkEpjjhnWiLMiAM=
+          =7H+M
+          -----END PGP PUBLIC KEY BLOCK-----
+          EOF
+              cat > /etc/apt/sources.list.d/qsc-deb-releases.sources <<EOF
+          Types: deb
+          URIs: https://qartifactory-edge.qualcomm.com/artifactory/qsc-deb-releases
+          Suites: $qartifactory_suite
+          Components: main
+          Signed-By: /etc/apt/keyrings/qsc-deb-releases.asc
+          Enabled: yes
+          EOF
+              ;;
+          esac
+
           apt-get update
 
           packages=$(grep-dctrl -n -s Package -r '' srcpkg/debian/control | sort -u | paste -sd ' ' -)
@@ -350,13 +409,56 @@ jobs:
 
           env DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y $packages
 
+      - name: Download Ubuntu build artifacts
+        if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ubuntu-build-area
+          path: .
+
+      - name: Extract Ubuntu build artifacts
+        if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
+        run: |
+          set -euxo pipefail
+          mkdir -p build-area
+          tar -C build-area -xzf ubuntu-build-area.tgz
+
+      - name: Validate installability from Ubuntu build artifacts
+        if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
+        run: |
+          set -euxo pipefail
+
+          apt-get update
+
+          debs=$(find "$PWD/build-area" -type f -name '*.deb' | sort)
+          if [ -z "$debs" ]; then
+            echo "No binary packages found in build-area" >&2
+            exit 1
+          fi
+
+          env DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y $debs
+
+      - name: Select test outputs
+        id: select
+        run: |
+          if [[ "${{ needs.resolve.outputs.family }}" == "debian" ]]; then
+            echo "workspace=${{ needs.debian-build.outputs.workspace }}" >> "$GITHUB_OUTPUT"
+            echo "workspace_url=${{ needs.debian-build.outputs.workspace_url }}" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_name=${{ needs.debian-build.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_version=${{ needs.debian-build.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "workspace=" >> "$GITHUB_OUTPUT"
+            echo "workspace_url=" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_name=${{ needs.ubuntu-build.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_version=${{ needs.ubuntu-build.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
+          fi
+
   finalize:
     name: Finalize outputs
+    if: ${{ always() && needs.resolve.result == 'success' && needs.test.result == 'success' }}
     needs:
       - resolve
-      - ubuntu-build
-      - debian-build
-      - debian-test
+      - test
     runs-on: ubuntu-latest
     outputs:
       target_suite: ${{ steps.select.outputs.target_suite }}
@@ -369,16 +471,8 @@ jobs:
         id: select
         shell: bash
         run: |
-          if [[ "${{ needs.resolve.outputs.family }}" == "debian" ]]; then
-            echo "target_suite=${{ needs.resolve.outputs.target_suite }}" >> "$GITHUB_OUTPUT"
-            echo "workspace=${{ needs.debian-build.outputs.workspace }}" >> "$GITHUB_OUTPUT"
-            echo "workspace_url=${{ needs.debian-build.outputs.workspace_url }}" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_name=${{ needs.debian-build.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_version=${{ needs.debian-build.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "target_suite=${{ needs.resolve.outputs.target_suite }}" >> "$GITHUB_OUTPUT"
-            echo "workspace=" >> "$GITHUB_OUTPUT"
-            echo "workspace_url=" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_name=${{ needs.ubuntu-build.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_version=${{ needs.ubuntu-build.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "target_suite=${{ needs.resolve.outputs.target_suite }}" >> "$GITHUB_OUTPUT"
+          echo "workspace=${{ needs.test.outputs.workspace }}" >> "$GITHUB_OUTPUT"
+          echo "workspace_url=${{ needs.test.outputs.workspace_url }}" >> "$GITHUB_OUTPUT"
+          echo "srcpkg_name=${{ needs.test.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
+          echo "srcpkg_version=${{ needs.test.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"

@@ -32,8 +32,9 @@ flowchart TD
     D --> E[Test installability from Debusine workspace]
     B -->|Ubuntu| F[Run local pkg-builder build]
     F --> G[Optional ABI check]
+    G --> I[Test installability from uploaded Ubuntu artifacts]
     E --> H[Expose outputs]
-    G --> H
+    I --> H
 ```
 
 ### Inputs
@@ -71,7 +72,7 @@ flowchart TD
 
 1. **Resolve suite family**: Normalize the caller input and decide whether the run is Debian or Ubuntu
 2. **Debian path**: Check out `debusine-action/lib`, optionally prepare a release bundle, generate a source package, submit it to Debusine under the configured parent workspace, and run installability checks from the resulting Debusine CI workspace
-3. **Ubuntu path**: Run the old local `pkg-builder` flow with `build_package` and optional `abi_checker`
+3. **Ubuntu path**: Run the local `pkg-builder` flow with `build_package`, optional `abi_checker`, upload the produced package set, and validate installability from those artifacts in a fresh Ubuntu test job
 4. **Publish Outputs**: Expose consistent source-package metadata; Debusine workspace outputs are populated only for Debian runs
 
 ### Usage Examples
