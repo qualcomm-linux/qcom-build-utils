@@ -495,7 +495,7 @@ GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=
 
 # Kernel parameters applied to BOTH Normal and Recovery boot modes
 # (Critical hardware settings: console, rootfs, clocks, EFI)
-GRUB_CMDLINE_LINUX="earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M rw clk_ignore_unused pd_ignore_unused rootwait ignore_loglevel"
+GRUB_CMDLINE_LINUX="earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M net.ifnames=0 rw clk_ignore_unused pd_ignore_unused rootwait ignore_loglevel"
 
 # Kernel parameters applied ONLY to Normal boot mode
 # (UX settings: quiet, splash, etc. - Left empty for verbose output)
