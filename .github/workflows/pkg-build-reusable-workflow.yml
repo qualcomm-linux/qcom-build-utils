@@ -63,6 +63,16 @@ on:
         type: boolean
         default: false
 
+      srcpkg-artifact:
+        description: |
+          Name of a GitHub Actions artifact containing a pre-prepared source tree
+          to use as srcpkg/. When set, the debian-ref checkout is skipped and the
+          artifact is downloaded instead. Used for packages like pkg-linux-qcom
+          where the source tree is assembled at CI time rather than managed in a
+          single git repository.
+        type: string
+        default: ""
+
     secrets:
       DEBUSINE_USER:
         required: false
@@ -94,7 +104,8 @@ permissions:
   packages: read
 
 env:
-  DEBUSINE_ACTION_REF: main
+  # TODO: update to main once feat/generate-source-package-non-gbp-quilt is merged.
+  DEBUSINE_ACTION_REF: feat/generate-source-package-non-gbp-quilt
 
 jobs:
   resolve:
@@ -251,12 +262,20 @@ jobs:
             lib
 
       - name: Checkout Repository
+        if: ${{ inputs.srcpkg-artifact == '' }}
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.debian-ref }}
           path: srcpkg
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Download pre-prepared source tree
+        if: ${{ inputs.srcpkg-artifact != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.srcpkg-artifact }}
+          path: srcpkg
 
       - name: Prepare release
         if: ${{ inputs.release }}
@@ -353,12 +372,19 @@ jobs:
             lib
 
       - name: Checkout Repository
-        if: ${{ needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' }}
+        if: ${{ needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' && inputs.srcpkg-artifact == '' }}
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.debian-ref }}
           path: srcpkg
           fetch-depth: 1
+
+      - name: Download pre-prepared source tree
+        if: ${{ needs.resolve.outputs.family == 'debian' && inputs.srcpkg-artifact != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.srcpkg-artifact }}
+          path: srcpkg
 
       - name: Validate installability from Debusine CI workspace
         # Temporarily disabled while dependency repository injection is unresolved.
