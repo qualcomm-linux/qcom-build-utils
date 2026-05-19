@@ -110,13 +110,6 @@ jobs:
             # Track if changes are needed
             isDirty=false
 
-            # Special case: Remove workflows_sync.yml if it exists in target repo
-            if [[ -f ".github/workflows/workflows_sync.yml" ]]; then
-              echo "    🗑️  Removing workflows_sync.yml (should not exist in templated repos)"
-              rm ".github/workflows/workflows_sync.yml"
-              isDirty=true
-            fi
-
             # Compare and sync workflow files
             for workflow in ../qcom-build-utils/.github/pkg-workflows/main/*.yml; do
               workflow_name=$(basename "$workflow")
