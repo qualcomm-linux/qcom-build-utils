@@ -275,7 +275,19 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.srcpkg-artifact }}
-          path: srcpkg
+          path: /tmp/srcpkg-artifact
+
+      - name: Extract pre-prepared source tree
+        if: ${{ inputs.srcpkg-artifact != '' }}
+        run: |
+          # The artifact is a tar.gz archive created by the caller to preserve
+          # Unix execute permissions on kernel build scripts. zip format (used
+          # by actions/upload-artifact) strips execute bits; tar does not.
+          # --strip-components=1 extracts the top-level directory directly into
+          # srcpkg/ without depending on its name inside the archive.
+          mkdir srcpkg
+          tar xzf /tmp/srcpkg-artifact/kernel-srcpkg.tar.gz \
+            -C srcpkg --strip-components=1
 
       - name: Prepare release
         if: ${{ inputs.release }}
@@ -384,7 +396,14 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.srcpkg-artifact }}
-          path: srcpkg
+          path: /tmp/srcpkg-artifact
+
+      - name: Extract pre-prepared source tree
+        if: ${{ needs.resolve.outputs.family == 'debian' && inputs.srcpkg-artifact != '' }}
+        run: |
+          mkdir srcpkg
+          tar xzf /tmp/srcpkg-artifact/kernel-srcpkg.tar.gz \
+            -C srcpkg --strip-components=1
 
       - name: Validate installability from Debusine CI workspace
         # Temporarily disabled while dependency repository injection is unresolved.
