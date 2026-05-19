@@ -71,7 +71,7 @@ permissions:
   packages: read
 
 env:
-  DEBUSINE_ACTION_REF: dev/sbeaudoi
+  DEBUSINE_ACTION_REF: main
 
 jobs:
   resolve:
