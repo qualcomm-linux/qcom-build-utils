@@ -1,6 +1,7 @@
 name: Workflows Sync
 description: |
-  Sync workflows from the ../pkg-workflows/** back to all repositories that used pkg-template as a template.
+  Sync workflows from qcom-build-utils/.github/pkg-workflows/** back to the
+  Qualcomm package repositories.
 
 on:
   workflow_dispatch:
@@ -10,7 +11,8 @@ on:
         default: false
         required: true
         description: |
-          Tick to confirm creating pull requests to sync workflows from pkg-template to all repositories that used pkg-template as a template.
+          Tick to confirm creating pull requests to sync workflows from
+          qcom-build-utils to the Qualcomm package repositories.
           If not ticked, the workflow will not create any pull requests and will simply print the list of repositories that would have been synced.
 
 permissions:
@@ -26,9 +28,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          path: pkg-template
+          path: qcom-build-utils
 
-      - name: Sync workflows from pkg-template
+      - name: Sync workflows from qcom-build-utils
         id: sync
         env:
           GH_TOKEN: ${{secrets.DEB_PKG_BOT_CI_TOKEN}}
@@ -39,8 +41,7 @@ jobs:
           CONFIRMATION_INPUT: ${{ inputs.confirmation }}
         run: |
           # Define explicit list of repositories to exclude
-          EXCLUDE_REPOS=("pkg-template" \
-                         "pkg-example" \
+          EXCLUDE_REPOS=("pkg-example" \
                          "pkg-oss-staging-repo" \
                          "pkg-linux-firmware" \
                          "pkg-camera-service-temp" \
@@ -51,13 +52,13 @@ jobs:
           # Array to store created PR URLs
           PR_URLS=()
 
-          # Get the list of all repositories that used pkg-template as a template
+          # Get the list of Qualcomm package repositories
           repos=$(gh repo list --limit 9999 $ORG --json name --jq '.[] | select(.name | startswith("pkg-")) | .name')
 
           echo "List of repositories starting with 'pkg-': $repos"
 
           # pr-pre-post-merge.yml is checked out locally in pkg-workflows/debian/
-          DEBIAN_LATEST_WORKFLOW_FILE="$(pwd)/pkg-template/.github/pkg-workflows/debian/pr-pre-post-merge.yml"
+          DEBIAN_LATEST_WORKFLOW_FILE="$(pwd)/qcom-build-utils/.github/pkg-workflows/debian/pr-pre-post-merge.yml"
           echo "📄 Using pr-pre-post-merge.yml from pkg-workflows/debian/"
 
           for repo in $repos; do
@@ -101,9 +102,9 @@ jobs:
             git config user.email "$BOT_EMAIL"
 
             # Delete the sync branch if it exists from a previous run
-            if git ls-remote --exit-code --heads origin sync/pkg-template-workflows > /dev/null 2>&1; then
-              echo "    🧹 Deleting existing sync/pkg-template-workflows branch from remote"
-              git push origin --delete sync/pkg-template-workflows 2>&1 | sed 's/^/    /'
+            if git ls-remote --exit-code --heads origin sync/qcom-build-utils-workflows > /dev/null 2>&1; then
+              echo "    🧹 Deleting existing sync/qcom-build-utils-workflows branch from remote"
+              git push origin --delete sync/qcom-build-utils-workflows 2>&1 | sed 's/^/    /'
             fi
 
             # Track if changes are needed
@@ -117,7 +118,7 @@ jobs:
             fi
 
             # Compare and sync workflow files
-            for workflow in ../pkg-template/.github/pkg-workflows/main/*.yml; do
+            for workflow in ../qcom-build-utils/.github/pkg-workflows/main/*.yml; do
               workflow_name=$(basename "$workflow")
 
               target_workflow=".github/workflows/$workflow_name"
@@ -141,18 +142,18 @@ jobs:
               # Create branch, commit, and push main branch changes if needed
               if [[ "$isDirty" == "true" ]]; then
                 echo "    📝 Creating branch and committing main branch changes"
-                git checkout -b sync/pkg-template-workflows 2>&1 | sed 's/^/    /'
+                git checkout -b sync/qcom-build-utils-workflows 2>&1 | sed 's/^/    /'
                 git add .github/workflows/
-                git commit -s -m "chore: sync workflows from pkg-template" 2>&1 | sed 's/^/    /'
+                git commit -s -m "chore: sync workflows from qcom-build-utils" 2>&1 | sed 's/^/    /'
 
                 if [[ "$CONFIRMATION_INPUT" == "true" ]]; then
                   echo "    🚀 Pushing changes and creating PR for $default_branch"
-                  git push origin sync/pkg-template-workflows 2>&1 | sed 's/^/    /'
+                  git push origin sync/qcom-build-utils-workflows 2>&1 | sed 's/^/    /'
 
                   pr_url=$(gh pr create --repo "$ORG/$repo" \
-                    --title "chore: sync workflows from pkg-template" \
-                    --body "This PR syncs the latest workflows from pkg-template." \
-                    --head sync/pkg-template-workflows \
+                    --title "chore: sync workflows from qcom-build-utils" \
+                    --body "This PR syncs the latest workflows from qcom-build-utils." \
+                    --head sync/qcom-build-utils-workflows \
                     --base "$default_branch")
 
                   PR_URLS+=("$pr_url")
@@ -167,7 +168,8 @@ jobs:
                 echo "    ✨ No main branch changes needed for $repo"
               fi
 
-              # Sync pr-pre-post-merge.yml from pkg-template's debian/latest to every debian/* and qcom/debian/* branch
+              # Sync pr-pre-post-merge.yml from qcom-build-utils pkg-workflows
+              # to every debian/* and qcom/debian/* branch
               debian_branches=$(git branch -r | grep -E 'origin/(qcom/)?debian/' | sed 's|.*origin/||' | tr -d ' ')
 
               for debian_branch in $debian_branches; do
@@ -178,7 +180,7 @@ jobs:
 
                 echo "  🌿 Checking pr-pre-post-merge.yml on branch: $debian_branch"
                 safe_branch_name="${debian_branch//\//-}"
-                debian_sync_branch="sync/pkg-template-pr-merge-${safe_branch_name}"
+                debian_sync_branch="sync/qcom-build-utils-pr-merge-${safe_branch_name}"
 
                 # Delete existing sync branch if from a previous run
                 if git ls-remote --exit-code --heads origin "$debian_sync_branch" > /dev/null 2>&1; then
@@ -207,15 +209,15 @@ jobs:
                 if [[ "$isDebianDirty" == "true" ]]; then
                   git checkout -b "$debian_sync_branch" 2>&1 | sed 's/^/    /'
                   git add .github/workflows/pr-pre-post-merge.yml
-                  git commit -s -m "chore: sync pr-pre-post-merge.yml from pkg-template debian/latest" 2>&1 | sed 's/^/    /'
+                  git commit -s -m "chore: sync pr-pre-post-merge from qcom-build-utils" 2>&1 | sed 's/^/    /'
 
                   if [[ "$CONFIRMATION_INPUT" == "true" ]]; then
                     echo "    🚀 Pushing changes and creating PR for $debian_branch"
                     git push origin "$debian_sync_branch" 2>&1 | sed 's/^/    /'
 
                     pr_url=$(gh pr create --repo "$ORG/$repo" \
-                      --title "chore: sync pr-pre-post-merge.yml from pkg-template debian/latest" \
-                      --body "This PR syncs \`pr-pre-post-merge.yml\` from the \`debian/latest\` branch of pkg-template." \
+                      --title "chore: sync pr-pre-post-merge from qcom-build-utils" \
+                      --body "This PR syncs \`pr-pre-post-merge.yml\` from qcom-build-utils \`.github/pkg-workflows/debian/\`." \
                       --head "$debian_sync_branch" \
                       --base "$debian_branch")
 
