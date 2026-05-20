@@ -87,7 +87,7 @@ jobs:
       qcom-build-utils-ref: development
       debian-ref: debian/qcom-next
       suite: trixie
-      debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE || 'ci' }}
+      debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE }}
 ```
 
 #### Matrix-safe caller
@@ -180,7 +180,7 @@ jobs:
       suite: trixie
       debian-branch: debian/qcom-next
       test-run: false
-      debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE || 'ci' }}
+      debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE }}
     secrets:
       PAT: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
