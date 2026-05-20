@@ -56,7 +56,6 @@ on:
       debusine-parent-workspace:
         description: Parent Debusine workspace used to create per-run child CI workspaces for Debian builds
         type: string
-        default: ci
 
     secrets:
       DEBUSINE_USER:

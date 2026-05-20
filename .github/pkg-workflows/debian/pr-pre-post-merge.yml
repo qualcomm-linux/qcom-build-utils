@@ -22,4 +22,4 @@ jobs:
       # PRE-MERGE: use the PR head branch (github.head_ref)
       # POST-MERGE: use the base branch name from the PR (e.g. "debian/qcom-next")
       debian-ref: ${{ (github.event.action == 'closed' && github.event.pull_request.merged) && github.event.pull_request.base.ref || github.head_ref }}
-      debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE || 'ci' }}
+      debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE }}
