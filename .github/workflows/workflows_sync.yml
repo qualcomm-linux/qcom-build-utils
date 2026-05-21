@@ -110,6 +110,14 @@ jobs:
             # Track if changes are needed
             isDirty=false
 
+            # Remove legacy per-repo workflows_sync workflow if present.
+            # The source of truth is qcom-build-utils/.github/workflows/workflows_sync.yml.
+            if [[ -f ".github/workflows/workflows_sync.yml" ]]; then
+              echo "    🗑️ Removing deprecated workflows_sync.yml"
+              rm ".github/workflows/workflows_sync.yml"
+              isDirty=true
+            fi
+
             # Compare and sync workflow files
             for workflow in ../qcom-build-utils/.github/pkg-workflows/main/*.yml; do
               workflow_name=$(basename "$workflow")
@@ -136,7 +144,7 @@ jobs:
               if [[ "$isDirty" == "true" ]]; then
                 echo "    📝 Creating branch and committing main branch changes"
                 git checkout -b sync/qcom-build-utils-workflows 2>&1 | sed 's/^/    /'
-                git add .github/workflows/
+                git add -A .github/workflows/
                 git commit -s -m "chore: sync workflows from qcom-build-utils" 2>&1 | sed 's/^/    /'
 
                 if [[ "$CONFIRMATION_INPUT" == "true" ]]; then
