@@ -49,7 +49,8 @@ jobs:
                          "pkg-kernel-fedora" \
                          "pkg-linux-kernel" \
                          "pkg-workspace" \
-                         "pkg-ynancher" )
+                         "pkg-ynancher" \
+                         "pkg-linux-qcom-backup" )
 
           # Array to store created PR URLs
           PR_URLS=()
