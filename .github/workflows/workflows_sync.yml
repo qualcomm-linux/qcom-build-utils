@@ -47,7 +47,9 @@ jobs:
                          "pkg-camera-service-temp" \
                          "pkg-gst-plugins-imsdk-temp" \
                          "pkg-kernel-fedora" \
-                         "pkg-linux-kernel" )
+                         "pkg-linux-kernel" \
+                         "pkg-workspace" \
+                         "pkg-ynancher" )
 
           # Array to store created PR URLs
           PR_URLS=()
