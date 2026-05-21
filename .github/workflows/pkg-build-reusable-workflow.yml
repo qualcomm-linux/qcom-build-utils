@@ -73,6 +73,15 @@ on:
         type: string
         default: ""
 
+      assemble-orig:
+        description: |
+          When true, generate-source-package creates the .orig.tar.gz directly
+          from the source tree and invokes dpkg-buildpackage -S, bypassing gbp.
+          Use for packages whose source tree is assembled at CI time with no
+          upstream tarball available via gbp or pristine-tar.
+        type: boolean
+        default: false
+
     secrets:
       DEBUSINE_USER:
         required: false
@@ -303,6 +312,7 @@ jobs:
         id: generate-source-package
         env:
           SUITE_INPUT: ${{ needs.resolve.outputs.target_suite }}
+          DEBUSINE_ASSEMBLE_ORIG: ${{ inputs.assemble-orig }}
         run: |
           set -ex
           SUITE="$SUITE_INPUT" debusine-action/lib/generate-source-package
