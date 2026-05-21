@@ -32,12 +32,6 @@
 # Author: Bjordis Collaku <bcollaku@qti.qualcomm.com>
 # ===================================================
 
-# Ensure the script is run as root
-if [ "$EUID" -ne 0 ]; then
-    echo "This script needs to be run as root. Re-running with sudo..."
-    exec sudo "$0" "$@"
-fi
-
 echo "Ensuring necessary dependencies are installed..."
 # Ensure necessary dependencies are installed silently
 #apt-get update -qq
@@ -276,8 +270,10 @@ EOF
 chmod 0755 $DEB_DIR/DEBIAN/postrm
 
 echo "Building the Debian package..."
-# Build the Debian package
-dpkg-deb --build $DEB_DIR
+# Build the Debian package. --root-owner-group records every entry as
+# root:root in the .deb regardless of the staging dir's ownership, so the
+# script no longer needs to run as root.
+dpkg-deb --root-owner-group --build "$DEB_DIR"
 
 # Check if the .deb package was created successfully
 if [ -f "$DEB_PACKAGE" ]; then
