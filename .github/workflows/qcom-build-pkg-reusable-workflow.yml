@@ -145,7 +145,7 @@ jobs:
           echo "force_docker_build=$force_docker_build" >> "$GITHUB_OUTPUT"
           echo "target_suite=$target_suite" >> "$GITHUB_OUTPUT"
 
-  ubuntu-build:
+  docker-build:
     name: Build (Docker)
     if: ${{ needs.resolve.outputs.family == 'ubuntu' || needs.resolve.outputs.force_docker_build == 'true' }}
     needs: resolve
@@ -305,11 +305,11 @@ jobs:
 
   test:
     name: Test
-    if: ${{ always() && ((needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' && needs.debian-build.result == 'success') || ((needs.resolve.outputs.family == 'ubuntu' || needs.resolve.outputs.force_docker_build == 'true') && needs.ubuntu-build.result == 'success')) }}
+    if: ${{ always() && ((needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' && needs.debian-build.result == 'success') || ((needs.resolve.outputs.family == 'ubuntu' || needs.resolve.outputs.force_docker_build == 'true') && needs.docker-build.result == 'success')) }}
     needs:
       - resolve
       - debian-build
-      - ubuntu-build
+      - docker-build
     outputs:
       workspace: ${{ steps.select.outputs.workspace }}
       workspace_url: ${{ steps.select.outputs.workspace_url }}
@@ -457,8 +457,8 @@ jobs:
           else
             echo "workspace=" >> "$GITHUB_OUTPUT"
             echo "workspace_url=" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_name=${{ needs.ubuntu-build.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_version=${{ needs.ubuntu-build.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_name=${{ needs.docker-build.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_version=${{ needs.docker-build.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
           fi
 
   finalize:
