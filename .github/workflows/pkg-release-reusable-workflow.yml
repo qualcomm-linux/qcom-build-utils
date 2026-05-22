@@ -133,7 +133,7 @@ jobs:
     needs:
       - validate-inputs
       - resolve
-    uses: ./.github/workflows/qcom-build-pkg-reusable-workflow.yml
+    uses: ./.github/workflows/pkg-build-reusable-workflow.yml
     with:
       qcom-build-utils-ref: ${{ inputs.qcom-build-utils-ref }}
       debian-ref: ${{ inputs.debian-branch }}

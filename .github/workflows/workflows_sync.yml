@@ -60,9 +60,11 @@ jobs:
 
           echo "List of repositories starting with 'pkg-': $repos"
 
-          # pr-pre-post-merge.yml is checked out locally in pkg-workflows/debian/
-          DEBIAN_LATEST_WORKFLOW_FILE="$(pwd)/qcom-build-utils/.github/pkg-workflows/debian/pr-pre-post-merge.yml"
-          echo "📄 Using pr-pre-post-merge.yml from pkg-workflows/debian/"
+          # pkg-pr-hook.yml is checked out locally in pkg-workflows/debian/
+          DEBIAN_LATEST_WORKFLOW_FILE="$(pwd)/qcom-build-utils/.github/pkg-workflows/debian/pkg-pr-hook.yml"
+          DEBIAN_TARGET_WORKFLOW_FILE=".github/workflows/pkg-pr-hook.yml"
+          DEBIAN_LEGACY_WORKFLOW_FILE=".github/workflows/pr-pre-post-merge.yml"
+          echo "📄 Using pkg-pr-hook.yml from pkg-workflows/debian/"
 
           for repo in $repos; do
             # Skip excluded repositories
@@ -121,6 +123,17 @@ jobs:
               isDirty=true
             fi
 
+            # Remove legacy main-branch caller workflow names. New names are
+            # synced from .github/pkg-workflows/main/*.yml below.
+            for legacy_main_workflow in build-debian-package.yml promote-prebuilt.yml promote-upstream.yml release.yml; do
+              legacy_main_path=".github/workflows/$legacy_main_workflow"
+              if [[ -f "$legacy_main_path" ]]; then
+                echo "    🗑️ Removing legacy workflow: $legacy_main_workflow"
+                rm "$legacy_main_path"
+                isDirty=true
+              fi
+            done
+
             # Compare and sync workflow files
             for workflow in ../qcom-build-utils/.github/pkg-workflows/main/*.yml; do
               workflow_name=$(basename "$workflow")
@@ -172,7 +185,7 @@ jobs:
                 echo "    ✨ No main branch changes needed for $repo"
               fi
 
-              # Sync pr-pre-post-merge.yml from qcom-build-utils pkg-workflows
+              # Sync pkg-pr-hook.yml from qcom-build-utils pkg-workflows
               # to every debian/* and qcom/debian/* branch
               debian_branches=$(git branch -r | grep -E 'origin/(qcom/)?debian/' | sed 's|.*origin/||' | tr -d ' ')
 
@@ -182,9 +195,9 @@ jobs:
                   continue
                 fi
 
-                echo "  🌿 Checking pr-pre-post-merge.yml on branch: $debian_branch"
+                echo "  🌿 Checking pkg-pr-hook.yml on branch: $debian_branch"
                 safe_branch_name="${debian_branch//\//-}"
-                debian_sync_branch="sync/qcom-build-utils-pr-merge-${safe_branch_name}"
+                debian_sync_branch="sync/qcom-build-utils-pkg-pr-hook-${safe_branch_name}"
 
                 # Delete existing sync branch if from a previous run
                 if git ls-remote --exit-code --heads origin "$debian_sync_branch" > /dev/null 2>&1; then
@@ -195,33 +208,40 @@ jobs:
                 git checkout "$debian_branch" 2>&1 | sed 's/^/    /'
 
                 isDebianDirty=false
-                if [[ -f ".github/workflows/pr-pre-post-merge.yml" ]]; then
-                  if diff -q "$DEBIAN_LATEST_WORKFLOW_FILE" ".github/workflows/pr-pre-post-merge.yml" > /dev/null; then
-                    echo "    ✅ pr-pre-post-merge.yml is up to date on $debian_branch"
+
+                if [[ -f "$DEBIAN_LEGACY_WORKFLOW_FILE" ]]; then
+                  echo "    🗑️ Removing legacy pr-pre-post-merge.yml on $debian_branch"
+                  rm "$DEBIAN_LEGACY_WORKFLOW_FILE"
+                  isDebianDirty=true
+                fi
+
+                if [[ -f "$DEBIAN_TARGET_WORKFLOW_FILE" ]]; then
+                  if diff -q "$DEBIAN_LATEST_WORKFLOW_FILE" "$DEBIAN_TARGET_WORKFLOW_FILE" > /dev/null; then
+                    echo "    ✅ pkg-pr-hook.yml is up to date on $debian_branch"
                   else
-                    echo "    ❌ pr-pre-post-merge.yml differs on $debian_branch"
-                    cp "$DEBIAN_LATEST_WORKFLOW_FILE" ".github/workflows/pr-pre-post-merge.yml"
+                    echo "    ❌ pkg-pr-hook.yml differs on $debian_branch"
+                    cp "$DEBIAN_LATEST_WORKFLOW_FILE" "$DEBIAN_TARGET_WORKFLOW_FILE"
                     isDebianDirty=true
                   fi
                 else
-                  echo "    + Creating pr-pre-post-merge.yml on $debian_branch (missing)"
+                  echo "    + Creating pkg-pr-hook.yml on $debian_branch (missing)"
                   mkdir -p ".github/workflows"
-                  cp "$DEBIAN_LATEST_WORKFLOW_FILE" ".github/workflows/pr-pre-post-merge.yml"
+                  cp "$DEBIAN_LATEST_WORKFLOW_FILE" "$DEBIAN_TARGET_WORKFLOW_FILE"
                   isDebianDirty=true
                 fi
 
                 if [[ "$isDebianDirty" == "true" ]]; then
                   git checkout -b "$debian_sync_branch" 2>&1 | sed 's/^/    /'
-                  git add .github/workflows/pr-pre-post-merge.yml
-                  git commit -s -m "chore: sync pr-pre-post-merge from qcom-build-utils" 2>&1 | sed 's/^/    /'
+                  git add -A .github/workflows/
+                  git commit -s -m "chore: sync pkg-pr-hook from qcom-build-utils" 2>&1 | sed 's/^/    /'
 
                   if [[ "$CONFIRMATION_INPUT" == "true" ]]; then
                     echo "    🚀 Pushing changes and creating PR for $debian_branch"
                     git push origin "$debian_sync_branch" 2>&1 | sed 's/^/    /'
 
                     pr_url=$(gh pr create --repo "$ORG/$repo" \
-                      --title "chore: sync pr-pre-post-merge from qcom-build-utils" \
-                      --body "This PR syncs \`pr-pre-post-merge.yml\` from qcom-build-utils \`.github/pkg-workflows/debian/\`." \
+                      --title "chore: sync pkg-pr-hook from qcom-build-utils" \
+                      --body "This PR syncs \`pkg-pr-hook.yml\` from qcom-build-utils \`.github/pkg-workflows/debian/\`." \
                       --head "$debian_sync_branch" \
                       --base "$debian_branch")
 

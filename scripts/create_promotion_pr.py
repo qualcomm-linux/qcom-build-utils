@@ -45,7 +45,7 @@ This PR merges the upstream changes from the upstream tag '{upstream_tag}' into 
 The upstream tag '{upstream_tag}' has already been merged into the upstream/latest branch, and this PR merges that branch into {base_branch}.
 In other words, this repo already contains the upstream changes in the upstream/latest branch, but the debian packaging is not yet updated to reflect this new upstream version. This is what this PR is doing.
 
-The *build-debian-package.yml* workflow is triggered automatically in this PR to test the promotion by building the Debian package with the updated upstream code and packaging.
+The *pkg-build.yml* workflow is triggered automatically in this PR to test the promotion by building the Debian package with the updated upstream code and packaging.
 If something breaks due to the promotion of the upstream sources to this new revision, this is the moment where you can checkout this branch locally, make changes and push additional commits to make the build pass.
 
 For example: you may need to add patches to the debian/patches/ folder to fix issues that were introduced upstream since the last version we were using, such as a new binary created upstream that needs to be packaged, or a build system change that requires updating the debian/rules file, etc.

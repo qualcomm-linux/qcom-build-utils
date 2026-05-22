@@ -23,9 +23,9 @@ graph TB
     end
     
     subgraph "qcom-build-utils"
-        RW1[qcom-build-pkg-reusable-workflow]
-        RW2[qcom-promote-upstream-reusable-workflow]
-        RW3[qcom-upstream-pr-pkg-build-reusable-workflow]
+        RW1[pkg-build-reusable-workflow]
+        RW2[pkg-promote-reusable-workflow]
+        RW3[pkg-upstream-pr-build-reusable-workflow]
         RW4[qcom-container-build-and-upload]
         
         A1[build_package]
@@ -87,7 +87,7 @@ qcom-example-package-source/
 - Optionally validate that PRs don't break the Debian package build
 
 **Package Integration**:
-Upstream repositories can include a workflow (e.g., `pkg-build-pr-check.yml`) that calls `qcom-upstream-pr-pkg-build-reusable-workflow` to ensure PRs don't break the package build. This workflow requires setting a repository variable `PKG_REPO_GITHUB_NAME` pointing to the associated package repository.
+Upstream repositories can include a workflow (e.g., `pkg-build-pr-check.yml`) that calls `pkg-upstream-pr-build-reusable-workflow` to ensure PRs don't break the package build. This workflow requires setting a repository variable `PKG_REPO_GITHUB_NAME` pointing to the associated package repository.
 
 #### Repository Variable Linking
 
@@ -151,8 +151,8 @@ pkg-mypackage/
 │   └── ...
 ├── .github/
 │   └── workflows/
-│       ├── pre-merge.yml    # Calls qcom-build-pkg-reusable-workflow
-│       └── post-merge.yml   # Calls qcom-build-pkg-reusable-workflow
+│       ├── pre-merge.yml    # Calls pkg-build-reusable-workflow
+│       └── post-merge.yml   # Calls pkg-build-reusable-workflow
 ├── src/                 # Source code (for native packages)
 └── ...
 ```
@@ -199,7 +199,7 @@ When a pull request is opened against `debian/qcom-next` in a package repository
 sequenceDiagram
     participant Dev as Developer
     participant PR as pkg-* PR
-    participant RW as qcom-build-pkg-reusable-workflow
+    participant RW as pkg-build-reusable-workflow
     participant Build as build_package Action
     participant ABI as abi_checker Action
     
@@ -221,7 +221,7 @@ on:
 
 jobs:
   build:
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@development
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-build-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
       debian-ref: ${{github.head_ref}}
@@ -238,7 +238,7 @@ When a PR is merged to `debian/qcom-next`:
 sequenceDiagram
     participant Dev as Developer
     participant PM as pkg-* Push
-    participant RW as qcom-build-pkg-reusable-workflow
+    participant RW as pkg-build-reusable-workflow
     participant Build as build_package Action
     participant ABI as abi_checker Action
     participant Push as push_to_repo Action
@@ -266,7 +266,7 @@ on:
 
 jobs:
   build:
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@development
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-build-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
       debian-ref: debian/qcom-next
@@ -282,7 +282,7 @@ When promoting a new upstream version to the package repository:
 ```mermaid
 sequenceDiagram
     participant User as User
-    participant RW as qcom-promote-upstream-reusable-workflow
+    participant RW as pkg-promote-reusable-workflow
     participant Pkg as pkg-* Repository
     participant Up as Upstream Repository
     
@@ -305,7 +305,7 @@ When a PR is opened in an upstream repository (e.g., qcom-example-package-source
 sequenceDiagram
     participant Dev as Developer
     participant Up as Upstream Repository
-    participant RW as qcom-upstream-pr-pkg-build-reusable-workflow
+    participant RW as pkg-upstream-pr-build-reusable-workflow
     participant Pkg as pkg-* Repository
     participant Build as build_package Action
     participant ABI as abi_checker Action
@@ -336,7 +336,7 @@ The upstream repository's workflow uses the variable to dynamically reference it
 ```yaml
 jobs:
   package-build-pr-check:
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-upstream-pr-pkg-build-reusable-workflow.yml@development
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-upstream-pr-build-reusable-workflow.yml@development
     with:
       upstream-repo: ${{github.repository}}
       upstream-repo-ref: ${{github.head_ref}}
