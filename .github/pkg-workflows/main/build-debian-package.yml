@@ -26,6 +26,11 @@ on:
           - bookworm
           - sid
 
+      force-docker-build:
+        description: Force local pkg-builder instead of Debusine for Debian-family suites
+        type: boolean
+        default: false
+
 permissions:
   contents: read
   packages: read
@@ -37,4 +42,8 @@ jobs:
       qcom-build-utils-ref: main
       debian-ref: ${{ inputs.debian-ref }}
       suite: ${{ inputs.suite }}
+      force-docker-build: ${{ inputs.force-docker-build }}
       debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE }}
+    secrets:
+      DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+      DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}

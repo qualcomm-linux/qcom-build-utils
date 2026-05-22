@@ -267,14 +267,21 @@ jobs:
 
           version=$(dpkg-parsechangelog --show-field Version)
           echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "Releasing version: ${version} for suite 'unstable'" | sed 's/^/\x1b[32m/' | sed 's/$/\x1b[0m/'
 
-          dch --release --distribution=unstable "Release"
+          # dch expects the suite name; sid is the codename for unstable
+          dch_suite="${DISTRO_CODENAME}"
+          if [[ "${dch_suite}" == "sid" ]]; then
+            dch_suite=unstable
+          fi
+
+          echo "Releasing version: ${version} for suite '${dch_suite}'" | sed 's/^/\x1b[32m/' | sed 's/$/\x1b[0m/'
+
+          dch --release --distribution="${dch_suite}" "Release"
 
           echo "Updated changelog content:"
           cat debian/changelog | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
 
-          git commit -a -m "debian/changelog: Release version ${version} for suite 'unstable'"
+          git commit -a -m "debian/changelog: Release version ${version} for suite '${dch_suite}'"
 
           git tag "${DISTRO_CODENAME}/${version}"
 

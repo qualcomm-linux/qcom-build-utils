@@ -10,16 +10,41 @@ permissions:
   packages: read
 
 jobs:
-  build:
-    # This condition ensures that the job runs for all PR actions except closed unmerged,
-    # i.e., it runs for opened, synchronize, reopened (pre-merge) and closed merged (post-merge).
+  resolve-suite:
+    name: Resolve suite from branch
+    runs-on: ubuntu-latest
+    outputs:
+      suite: ${{ steps.resolve.outputs.suite }}
+    steps:
+      - name: Derive suite from target branch
+        id: resolve
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          case "$BASE_REF" in
+            qcom/ubuntu/*|qcom/debian/*)
+              suite="${BASE_REF##*/}"
+              ;;
+            *)
+              suite=sid
+              ;;
+          esac
+          echo "suite=$suite" >> "$GITHUB_OUTPUT"
+          echo "Resolved suite: $suite (from branch: $BASE_REF)"
 
+  build:
     name: Build Debian Package
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@main
+    needs: resolve-suite
     if: ${{ github.event.action != 'closed' || github.event.pull_request.merged == true }}
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@main
     with:
       qcom-build-utils-ref: main
       # PRE-MERGE: use the PR head branch (github.head_ref)
-      # POST-MERGE: use the base branch name from the PR (e.g. "debian/qcom-next")
+      # POST-MERGE: use the base branch name from the PR
       debian-ref: ${{ (github.event.action == 'closed' && github.event.pull_request.merged) && github.event.pull_request.base.ref || github.head_ref }}
+      suite: ${{ needs.resolve-suite.outputs.suite }}
       debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE }}
+    secrets:
+      DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+      DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
