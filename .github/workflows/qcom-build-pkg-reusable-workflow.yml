@@ -160,7 +160,7 @@ jobs:
       run:
         shell: bash
     container:
-      image: ghcr.io/qualcomm-linux/pkg-builder:${{ needs.resolve.outputs.target_suite }}
+      image: ghcr.io/qualcomm-linux/pkg-builder:${{ needs.resolve.outputs.target_suite == 'unstable' && 'sid' || needs.resolve.outputs.target_suite }}
       options: --privileged
       credentials:
         username: ${{ github.actor }}
