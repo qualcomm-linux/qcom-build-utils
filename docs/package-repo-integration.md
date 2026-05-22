@@ -210,7 +210,7 @@ permissions:
 
 jobs:
   build:
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@development
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-build-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
       debian-ref: ${{github.head_ref}}
@@ -236,7 +236,7 @@ permissions:
 
 jobs:
   build:
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@development
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-build-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
       debian-ref: debian/qcom-next
@@ -257,7 +257,7 @@ For Debian suites, it uses a separate secret model from the build callers:
 - `DEBUSINE_RELEASE_TOKEN`: separate repository or organization secret used only for the final Debusine prod publish step
 
 Package repositories pass `DEBUSINE_RELEASE_TOKEN` directly to
-`qcom-release-reusable-workflow.yml` as a named secret so the reusable workflow
+`pkg-release-reusable-workflow.yml` as a named secret so the reusable workflow
 can publish the successful Debusine CI workspace and push the release git state
 without expanding the caller workflow. Ubuntu releases keep using the older
 local `pkg-builder` + S3 path and do not use those Debusine secrets.
@@ -394,7 +394,7 @@ opts=filenamemangle=s/.+\/v?(\d\S+)\.tar\.gz/mypackage-$1\.tar\.gz/ \
 
 #### Upstream Promotion Workflow
 
-Create `.github/workflows/promote-upstream.yml`:
+Create `.github/workflows/pkg-promote.yml`:
 
 ```yaml
 name: Promote Upstream Version
@@ -414,7 +414,7 @@ permissions:
 
 jobs:
   promote:
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-promote-upstream-reusable-workflow.yml@development
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-promote-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
       upstream-tag: ${{ github.event.inputs.upstream-tag }}
@@ -425,7 +425,7 @@ jobs:
 #### Triggering Upstream Promotion
 
 ```bash
-gh workflow run promote-upstream.yml \
+gh workflow run pkg-promote.yml \
   -f upstream-tag=v2.0.0 \
   -f upstream-repo=upstream-org/upstream-repo
 ```
@@ -491,7 +491,7 @@ permissions:
 
 jobs:
   package-build-pr-check:
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-upstream-pr-pkg-build-reusable-workflow.yml@development
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-upstream-pr-build-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
       upstream-repo: ${{github.repository}}           # Current upstream repo

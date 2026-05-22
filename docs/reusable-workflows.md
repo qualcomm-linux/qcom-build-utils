@@ -8,17 +8,17 @@ Reusable workflows are defined in `.github/workflows/` and are designed to be ca
 
 ## Available Workflows
 
-1. [qcom-build-pkg-reusable-workflow](#qcom-build-pkg-reusable-workflow)
-2. [qcom-release-reusable-workflow](#qcom-release-reusable-workflow)
-3. [qcom-promote-upstream-reusable-workflow](#qcom-promote-upstream-reusable-workflow)
-4. [qcom-upstream-pr-pkg-build-reusable-workflow](#qcom-upstream-pr-pkg-build-reusable-workflow)
+1. [pkg-build-reusable-workflow](#pkg-build-reusable-workflow)
+2. [pkg-release-reusable-workflow](#pkg-release-reusable-workflow)
+3. [pkg-promote-reusable-workflow](#pkg-promote-reusable-workflow)
+4. [pkg-upstream-pr-build-reusable-workflow](#pkg-upstream-pr-build-reusable-workflow)
 5. [qcom-preflight-checks](#qcom-preflight-checks)
 
 ---
 
-## qcom-build-pkg-reusable-workflow
+## pkg-build-reusable-workflow
 
-**File**: `.github/workflows/qcom-build-pkg-reusable-workflow.yml`
+**File**: `.github/workflows/pkg-build-reusable-workflow.yml`
 
 **Purpose**: Build a package through a hybrid flow: Debian suites are built and tested through Debusine, while Ubuntu codenames keep using the local `pkg-builder` + composite-action path.
 
@@ -82,7 +82,7 @@ flowchart TD
 ```yaml
 jobs:
   build:
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@development
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-build-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
       debian-ref: debian/qcom-next
@@ -95,7 +95,7 @@ jobs:
 ```yaml
 jobs:
   build-matrix:
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@development
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-build-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
       debian-ref: refs/heads/${{ matrix.target_branch }}
@@ -108,9 +108,9 @@ repositories.
 
 ---
 
-## qcom-release-reusable-workflow
+## pkg-release-reusable-workflow
 
-**File**: `.github/workflows/qcom-release-reusable-workflow.yml`
+**File**: `.github/workflows/pkg-release-reusable-workflow.yml`
 
 **Purpose**: Release through a hybrid flow: Debian suites use Debusine build/test/publish, while Ubuntu codenames keep the older local `pkg-builder` + S3 release process.
 
@@ -161,7 +161,7 @@ flowchart TD
 ### Workflow Steps
 
 1. **Resolve suite family**: Decide whether the release follows the Debian or Ubuntu branch
-2. **Debian branch**: Reuse `qcom-build-pkg-reusable-workflow` with `release=true`, then optionally publish to Debusine prod and push git state
+2. **Debian branch**: Reuse `pkg-build-reusable-workflow` with `release=true`, then optionally publish to Debusine prod and push git state
 3. **Ubuntu branch**: Restore the earlier local release flow with changelog/tag handling, provenance generation, local `pkg-builder` build, and S3 upload
 
 ### Caller Requirements
@@ -174,7 +174,7 @@ flowchart TD
 ```yaml
 jobs:
   release:
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-release-reusable-workflow.yml@development
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-release-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
       suite: trixie
@@ -190,9 +190,9 @@ jobs:
 
 ---
 
-## qcom-promote-upstream-reusable-workflow
+## pkg-promote-reusable-workflow
 
-**File**: `.github/workflows/qcom-promote-upstream-reusable-workflow.yml`
+**File**: `.github/workflows/pkg-promote-reusable-workflow.yml`
 
 **Purpose**: Automates the promotion of a new upstream version into the package repository. This workflow imports an upstream tag, merges it into the packaging branch, and creates a PR for review.
 
@@ -260,7 +260,7 @@ flowchart TD
 ```yaml
 jobs:
   promote:
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-promote-upstream-reusable-workflow.yml@development
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-promote-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
       upstream-tag: v2.1.0
@@ -278,9 +278,9 @@ jobs:
 
 ---
 
-## qcom-upstream-pr-pkg-build-reusable-workflow
+## pkg-upstream-pr-build-reusable-workflow
 
-**File**: `.github/workflows/qcom-upstream-pr-pkg-build-reusable-workflow.yml`
+**File**: `.github/workflows/pkg-upstream-pr-build-reusable-workflow.yml`
 
 **Purpose**: Validates that upstream repository pull requests don't break the Debian package build. This workflow is called from the upstream repository's PR workflow.
 
@@ -349,7 +349,7 @@ on:
 
 jobs:
   package-build-pr-check:
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-upstream-pr-pkg-build-reusable-workflow.yml@development
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-upstream-pr-build-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
       upstream-repo: ${{github.repository}}

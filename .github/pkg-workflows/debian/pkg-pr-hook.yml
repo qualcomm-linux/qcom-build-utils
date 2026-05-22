@@ -37,7 +37,7 @@ jobs:
     name: Build Debian Package
     needs: resolve-suite
     if: ${{ github.event.action != 'closed' || github.event.pull_request.merged == true }}
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@main
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-build-reusable-workflow.yml@main
     with:
       qcom-build-utils-ref: main
       # PRE-MERGE: use the PR head branch (github.head_ref)

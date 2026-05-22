@@ -1,7 +1,7 @@
 name: Qualcomm Prebuilt Binary Promotion Reusable Workflow
 description: |
   This reusable workflow promotes a binary package repo to a new Artifactory release.
-  Unlike the source-based qcom-promote-upstream-reusable-workflow, this workflow does
+  Unlike the source-based pkg-promote-reusable-workflow, this workflow does
   not interact with any upstream git repository. Instead it:
     1. Reads the current upstream.conf from the packaging branch.
     2. Verifies the new tarball actually exists on Artifactory before making any changes.

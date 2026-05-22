@@ -42,10 +42,10 @@ qcom-build-utils/
 │   │   ├── build_package/        # Debian package build (gbp + sbuild)
 │   │   └── push_to_repo/         # Publish packages to staging APT repo
 │   └── workflows/                # Reusable workflow definitions
-│       ├── qcom-build-pkg-reusable-workflow.yml
-│       ├── qcom-promote-upstream-reusable-workflow.yml
-│       ├── qcom-upstream-pr-pkg-build-reusable-workflow.yml
-│       ├── qcom-release-reusable-workflow.yml
+│       ├── pkg-build-reusable-workflow.yml
+│       ├── pkg-promote-reusable-workflow.yml
+│       ├── pkg-upstream-pr-build-reusable-workflow.yml
+│       ├── pkg-release-reusable-workflow.yml
 │       └── qcom-preflight-checks.yml
 ├── scripts/                      # Python & shell build utilities
 │   ├── deb_abi_checker.py        # ABI comparison tool (libabigail)
@@ -71,11 +71,15 @@ Package repositories call these workflows from their own `.github/workflows/` di
 
 | Workflow | Purpose |
 |----------|---------|
-| **qcom-build-pkg-reusable-workflow** | Main package build workflow — routes Debian suites through Debusine and Ubuntu codenames through the local pkg-builder path. |
-| **qcom-promote-upstream-reusable-workflow** | Promotes a new upstream release into a package repo — merges upstream code, updates changelog, and creates a PR. |
-| **qcom-upstream-pr-pkg-build-reusable-workflow** | Validates that PRs in an upstream repo won't break the Debian package build. Called from the upstream repo. |
-| **qcom-release-reusable-workflow** | Triggers a formal release — Debian suites use Debusine publish, Ubuntu codenames keep the local pkg-builder/S3 release path. |
+| **pkg-build-reusable-workflow** | Main package build workflow — routes Debian suites through Debusine and Ubuntu codenames through the local pkg-builder path. |
+| **pkg-promote-reusable-workflow** | Promotes a new upstream release into a package repo — merges upstream code, updates changelog, and creates a PR. |
+| **pkg-upstream-pr-build-reusable-workflow** | Validates that PRs in an upstream repo won't break the Debian package build. Called from the upstream repo. |
+| **pkg-release-reusable-workflow** | Triggers a formal release — Debian suites use Debusine publish, Ubuntu codenames keep the local pkg-builder/S3 release path. |
 | **qcom-preflight-checks** | Security and quality gates — runs repolinter, semgrep, license checks, and dependency review. |
+
+`pkg-*` and `qcom-*` naming intentionally distinguish scope:
+- `pkg-*` workflows are package-lifecycle workflows used by `pkg-*` repositories.
+- `qcom-*` workflows are qcom-wide infrastructure/preflight workflows.
 
 ## Builder Images
 
@@ -104,7 +108,7 @@ The Debusine-specific helper scripts used by the Debian path are checked out fro
 3. Set repository variables:
    - **`UPSTREAM_REPO_GITHUB_NAME`** — in the **package repo**, points to the upstream source repo (e.g., `qualcomm-linux/qcom-example-package-source`).
    - **`PKG_REPO_GITHUB_NAME`** — in the **upstream repo**, points to the package repo (e.g., `qualcomm-linux/pkg-example`).
-4. Configure branch protection for `debian/qcom-next` with `build / build-debian-package` as a required status check.
+4. Configure branch protection for `debian/qcom-next` with the `pkg-build.yml` workflow check as a required status check.
 5. Copy `.github/TO_PASTE_IN_UPSTREAM_REPO/pkg-build-pr-check.yml` into the upstream repo's `.github/workflows/` on its default branch.
 
 See [pkg-example](https://github.com/qualcomm-linux/pkg-example) for a complete working reference.

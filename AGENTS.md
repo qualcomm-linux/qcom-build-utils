@@ -8,7 +8,7 @@ orchestration around build, test, promotion, and release flows.
 
 ## Current Build/Release Architecture
 
-- Package repos call `qcom-build-pkg-reusable-workflow.yml` and `qcom-release-reusable-workflow.yml`.
+- Package repos call `pkg-build-reusable-workflow.yml` and `pkg-release-reusable-workflow.yml`.
 - Those workflows are now **hybrid**:
   - Debian suites (`trixie`, `sid`, `unstable`, `bookworm`, `forky`) use
     `qualcomm-linux/debusine-action` and Debusine builder images
@@ -25,15 +25,23 @@ orchestration around build, test, promotion, and release flows.
   published from `qualcomm-linux/debusine-action`, while the Ubuntu-capable `pkg-builder` images
   are still consumed from GHCR by the local path.
 
+## Workflow Naming Convention
+
+- `pkg-*` workflow names are for package lifecycle flows (`build`, `promote`, `release`, and
+  package PR hooks).
+- `qcom-*` workflow names are reserved for qcom-wide infrastructure and preflight flows that are
+  installed broadly (for example `qcom-preflight-checks.yml`).
+- Keep this split so package-specific automation remains easy to identify in `pkg-*` repositories.
+
 ## Important Workflows
 
-- `.github/workflows/qcom-build-pkg-reusable-workflow.yml`
+- `.github/workflows/pkg-build-reusable-workflow.yml`
   - main hybrid package build/test entrypoint for package repos
-- `.github/workflows/qcom-release-reusable-workflow.yml`
+- `.github/workflows/pkg-release-reusable-workflow.yml`
   - hybrid release entrypoint: Debian via Debusine, Ubuntu via pkg-builder + S3 flow
-- `.github/workflows/qcom-promote-upstream-reusable-workflow.yml`
+- `.github/workflows/pkg-promote-reusable-workflow.yml`
   - upstream-to-packaging promotion flow
-- `.github/workflows/qcom-upstream-pr-pkg-build-reusable-workflow.yml`
+- `.github/workflows/pkg-upstream-pr-build-reusable-workflow.yml`
   - validate upstream PRs against the Debian packaging build
 
 ## Important Debian/Debusine Helper Entrypoints
