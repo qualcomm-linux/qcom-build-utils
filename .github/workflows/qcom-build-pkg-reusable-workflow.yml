@@ -2,8 +2,8 @@ name: Qualcomm Build Debian Package Reusable Workflow
 description: |
   This reusable workflow is called by debian-packaging repos to offer a consistent
   build-and-test process.
-  Debian suites use the Debusine build service, while Ubuntu codenames keep using
-  the local pkg-builder container flow.
+  Debian suites use the Debusine build service, while Ubuntu codenames and Debian
+  suites without a token use the local pkg-builder Docker container flow.
 
 on:
   workflow_call:
@@ -25,18 +25,18 @@ on:
         default: unstable
 
       run-lintian:
-        description: Run lintian or not during the Ubuntu pkg-builder build path
+        description: Run lintian or not during the Docker pkg-builder build path
         type: boolean
         default: true
 
       run-abi-checker:
-        description: Run the ABI checker or not during the Ubuntu pkg-builder build path
+        description: Run the ABI checker or not during the Docker pkg-builder build path
         type: boolean
         default: false
 
       is-prebuilt:
         description: |
-          Controls the build mode passed to the Ubuntu build_package action:
+          Controls the build mode passed to the Docker build_package action:
             "true"  — Force prebuilt binary mode.
             "false" — Force source build mode.
             ""      — Auto-detect (default): prebuilt if upstream.conf exists in the repo, else source.
@@ -57,6 +57,13 @@ on:
         description: Parent Debusine workspace used to create per-run child CI workspaces for Debian builds
         type: string
 
+      force-docker-build:
+        description: |
+          When the suite is Debian-family, force the local sbuild pkg-builder path instead of Debusine.
+          Automatically set to true when DEBUSINE_TOKEN is absent.
+        type: boolean
+        default: false
+
     secrets:
       DEBUSINE_USER:
         required: false
@@ -68,10 +75,10 @@ on:
         description: The resolved suite/codename actually used by the workflow
         value: ${{ jobs.finalize.outputs.target_suite }}
       workspace:
-        description: Debusine workspace ID for Debian builds; empty for Ubuntu builds
+        description: Debusine workspace ID for Debusine builds; empty for Docker builds
         value: ${{ jobs.finalize.outputs.workspace }}
       workspace_url:
-        description: Debusine workspace URL for Debian builds; empty for Ubuntu builds
+        description: Debusine workspace URL for Debusine builds; empty for Docker builds
         value: ${{ jobs.finalize.outputs.workspace_url }}
       srcpkg_name:
         description: Source package name
@@ -96,6 +103,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       family: ${{ steps.resolve.outputs.family }}
+      force_docker_build: ${{ steps.resolve.outputs.force_docker_build }}
       target_suite: ${{ steps.resolve.outputs.target_suite }}
       debian_builder_suite: ${{ steps.resolve.outputs.debian_builder_suite }}
     steps:
@@ -104,6 +112,8 @@ jobs:
         shell: bash
         env:
           SUITE_INPUT: ${{ inputs.suite }}
+          DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+          FORCE_DOCKER_BUILD: ${{ inputs.force-docker-build }}
         run: |
           set -euo pipefail
 
@@ -123,13 +133,24 @@ jobs:
             debian_builder_suite=sid
           fi
 
+          force_docker_build=false
+          if [[ "$family" == "debian" ]] && [[ -z "$DEBUSINE_TOKEN" || "$FORCE_DOCKER_BUILD" == "true" ]]; then
+            force_docker_build=true
+            if [[ -z "$DEBUSINE_TOKEN" ]]; then
+              echo "::warning::DEBUSINE_TOKEN is not set or not accessible (fork PR secrets are unavailable to workflows triggered by external contributors) — falling back to local pkg-builder for suite '$target_suite'"
+            else
+              echo "::notice::force-docker-build is set — using local pkg-builder for suite '$target_suite'"
+            fi
+          fi
+
           echo "family=$family" >> "$GITHUB_OUTPUT"
+          echo "force_docker_build=$force_docker_build" >> "$GITHUB_OUTPUT"
           echo "target_suite=$target_suite" >> "$GITHUB_OUTPUT"
           echo "debian_builder_suite=$debian_builder_suite" >> "$GITHUB_OUTPUT"
 
   ubuntu-build:
-    name: Build (Ubuntu)
-    if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
+    name: Build (Docker)
+    if: ${{ needs.resolve.outputs.family == 'ubuntu' || needs.resolve.outputs.force_docker_build == 'true' }}
     needs: resolve
     runs-on: ubuntu-24.04-arm
     outputs:
@@ -186,21 +207,21 @@ jobs:
         with:
           apt-repository: "deb [arch=arm64 trusted=yes] https://qartifactory-edge.qualcomm.com/artifactory/qsc-deb-releases ${{ needs.resolve.outputs.target_suite }} main"
 
-      - name: Upload Ubuntu build artifacts
+      - name: Upload Docker build artifacts
         run: |
           set -euxo pipefail
-          tar -C build-area -czf ubuntu-build-area.tgz .
+          tar -C build-area -czf docker-build-area.tgz .
 
-      - name: Upload Ubuntu build archive
+      - name: Upload Docker build archive
         uses: actions/upload-artifact@v6
         with:
-          name: ubuntu-build-area
-          path: ubuntu-build-area.tgz
+          name: docker-build-area
+          path: docker-build-area.tgz
           if-no-files-found: error
 
   debian-build:
-    name: Build (Debian)
-    if: ${{ needs.resolve.outputs.family == 'debian' }}
+    name: Build (Debusine)
+    if: ${{ needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' }}
     needs: resolve
     runs-on: ubuntu-latest
     container:
@@ -218,15 +239,6 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Require Debusine token
-        env:
-          DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
-        run: |
-          if [ -z "$DEBUSINE_TOKEN" ]; then
-            echo "DEBUSINE_TOKEN is required for Debian/Debusine builds" >&2
-            exit 1
-          fi
-
       - name: Checkout debusine-action helpers
         uses: actions/checkout@v5
         with:
@@ -296,7 +308,7 @@ jobs:
 
   test:
     name: Test
-    if: ${{ always() && ((needs.resolve.outputs.family == 'debian' && needs.debian-build.result == 'success') || (needs.resolve.outputs.family == 'ubuntu' && needs.ubuntu-build.result == 'success')) }}
+    if: ${{ always() && ((needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' && needs.debian-build.result == 'success') || ((needs.resolve.outputs.family == 'ubuntu' || needs.resolve.outputs.force_docker_build == 'true') && needs.ubuntu-build.result == 'success')) }}
     needs:
       - resolve
       - debian-build
@@ -308,7 +320,7 @@ jobs:
       srcpkg_version: ${{ steps.select.outputs.srcpkg_version }}
     runs-on: ubuntu-24.04-arm
     container:
-      image: ${{ needs.resolve.outputs.family == 'debian' && format('ghcr.io/qualcomm-linux/debusine-pkg-builder:{0}', needs.resolve.outputs.debian_builder_suite) || format('ghcr.io/qualcomm-linux/pkg-builder:{0}', needs.resolve.outputs.target_suite) }}
+      image: ${{ needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' && format('ghcr.io/qualcomm-linux/debusine-pkg-builder:{0}', needs.resolve.outputs.debian_builder_suite) || format('ghcr.io/qualcomm-linux/pkg-builder:{0}', needs.resolve.outputs.target_suite) }}
       options: --user 0:0
       credentials:
         username: ${{ github.actor }}
@@ -318,7 +330,7 @@ jobs:
         shell: bash
     steps:
       - name: Require Debusine credentials
-        if: ${{ needs.resolve.outputs.family == 'debian' }}
+        if: ${{ needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' }}
         env:
           DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
@@ -329,7 +341,7 @@ jobs:
           fi
 
       - name: Checkout debusine-action helpers
-        if: ${{ needs.resolve.outputs.family == 'debian' }}
+        if: ${{ needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' }}
         uses: actions/checkout@v5
         with:
           repository: qualcomm-linux/debusine-action
@@ -340,7 +352,7 @@ jobs:
             lib
 
       - name: Checkout Repository
-        if: ${{ needs.resolve.outputs.family == 'debian' }}
+        if: ${{ needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' }}
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.debian-ref }}
@@ -348,7 +360,7 @@ jobs:
           fetch-depth: 1
 
       - name: Validate installability from Debusine CI workspace
-        if: ${{ needs.resolve.outputs.family == 'debian' }}
+        if: ${{ needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' }}
         env:
           DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
           DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
@@ -408,22 +420,22 @@ jobs:
 
           env DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y $packages
 
-      - name: Download Ubuntu build artifacts
-        if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
+      - name: Download Docker build artifacts
+        if: ${{ needs.resolve.outputs.family == 'ubuntu' || needs.resolve.outputs.force_docker_build == 'true' }}
         uses: actions/download-artifact@v8
         with:
-          name: ubuntu-build-area
+          name: docker-build-area
           path: .
 
-      - name: Extract Ubuntu build artifacts
-        if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
+      - name: Extract Docker build artifacts
+        if: ${{ needs.resolve.outputs.family == 'ubuntu' || needs.resolve.outputs.force_docker_build == 'true' }}
         run: |
           set -euxo pipefail
           mkdir -p build-area
-          tar -C build-area -xzf ubuntu-build-area.tgz
+          tar -C build-area -xzf docker-build-area.tgz
 
-      - name: Validate installability from Ubuntu build artifacts
-        if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
+      - name: Validate installability from Docker build artifacts
+        if: ${{ needs.resolve.outputs.family == 'ubuntu' || needs.resolve.outputs.force_docker_build == 'true' }}
         run: |
           set -euxo pipefail
 
@@ -440,7 +452,7 @@ jobs:
       - name: Select test outputs
         id: select
         run: |
-          if [[ "${{ needs.resolve.outputs.family }}" == "debian" ]]; then
+          if [[ "${{ needs.resolve.outputs.family }}" == "debian" && "${{ needs.resolve.outputs.force_docker_build }}" != "true" ]]; then
             echo "workspace=${{ needs.debian-build.outputs.workspace }}" >> "$GITHUB_OUTPUT"
             echo "workspace_url=${{ needs.debian-build.outputs.workspace_url }}" >> "$GITHUB_OUTPUT"
             echo "srcpkg_name=${{ needs.debian-build.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
@@ -475,3 +487,4 @@ jobs:
           echo "workspace_url=${{ needs.test.outputs.workspace_url }}" >> "$GITHUB_OUTPUT"
           echo "srcpkg_name=${{ needs.test.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
           echo "srcpkg_version=${{ needs.test.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
+
