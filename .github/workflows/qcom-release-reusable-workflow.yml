@@ -268,6 +268,16 @@ jobs:
           version=$(dpkg-parsechangelog --show-field Version)
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
+          # Guard: refuse to release a WIP placeholder
+          if [[ "${version}" == *~ ]]; then
+            echo "Error: version '${version}' ends with '~' — update debian/changelog and remove the '~' suffix before releasing" >&2
+            exit 1
+          fi
+          if grep -q 'WIP' debian/changelog; then
+            echo "Error: debian/changelog contains 'WIP' — update changelog entry before releasing" >&2
+            exit 1
+          fi
+
           # dch expects the suite name; sid is the codename for unstable
           dch_suite="${DISTRO_CODENAME}"
           if [[ "${dch_suite}" == "sid" ]]; then
@@ -389,11 +399,11 @@ jobs:
           fi
 
           rev=$((rev + 1))
-          newversion="${upstream}-${rev}"
+          newversion="${upstream}-${rev}~"
           echo "Bumped version -> ${newversion}"
-          dch --newversion="${newversion}" --distribution=UNRELEASED --controlmaint "Initial commit"
+          dch --newversion="${newversion}" --distribution=UNRELEASED --controlmaint "WIP — update changelog before next release"
 
-          git commit -a -m "Initial commit of new version ${newversion}"
+          git commit -a -m "debian/changelog: bump to ${newversion}"
 
           git push origin "${DEBIAN_BRANCH}"
           git push origin "${DISTRO_CODENAME}/${version}"
