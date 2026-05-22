@@ -105,7 +105,6 @@ jobs:
       family: ${{ steps.resolve.outputs.family }}
       force_docker_build: ${{ steps.resolve.outputs.force_docker_build }}
       target_suite: ${{ steps.resolve.outputs.target_suite }}
-      debian_builder_suite: ${{ steps.resolve.outputs.debian_builder_suite }}
     steps:
       - name: Classify suite
         id: resolve
@@ -128,9 +127,8 @@ jobs:
               ;;
           esac
 
-          debian_builder_suite="$target_suite"
           if [[ "$target_suite" == "unstable" ]]; then
-            debian_builder_suite=sid
+            target_suite=sid
           fi
 
           force_docker_build=false
@@ -146,7 +144,6 @@ jobs:
           echo "family=$family" >> "$GITHUB_OUTPUT"
           echo "force_docker_build=$force_docker_build" >> "$GITHUB_OUTPUT"
           echo "target_suite=$target_suite" >> "$GITHUB_OUTPUT"
-          echo "debian_builder_suite=$debian_builder_suite" >> "$GITHUB_OUTPUT"
 
   ubuntu-build:
     name: Build (Docker)
@@ -160,7 +157,7 @@ jobs:
       run:
         shell: bash
     container:
-      image: ghcr.io/qualcomm-linux/pkg-builder:${{ needs.resolve.outputs.target_suite == 'unstable' && 'sid' || needs.resolve.outputs.target_suite }}
+      image: ghcr.io/qualcomm-linux/pkg-builder:${{ needs.resolve.outputs.target_suite }}
       options: --privileged
       credentials:
         username: ${{ github.actor }}
@@ -225,7 +222,7 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ needs.resolve.outputs.debian_builder_suite }}
+      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ needs.resolve.outputs.target_suite }}
       options: --user 0:0
       credentials:
         username: ${{ github.actor }}
