@@ -88,6 +88,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          # 'latest' is not a valid suite name — map to sid (Debian unstable)
+          if [[ "$TARGET_SUITE" == "latest" ]]; then
+            TARGET_SUITE=sid
+          fi
+
           case "$TARGET_SUITE" in
             trixie|sid|unstable|bookworm|forky)
               family=debian
