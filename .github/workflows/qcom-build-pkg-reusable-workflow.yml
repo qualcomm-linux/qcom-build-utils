@@ -118,6 +118,11 @@ jobs:
 
           target_suite="$SUITE_INPUT"
 
+          # 'latest' is not a valid suite name — map to sid (Debian unstable)
+          if [[ "$target_suite" == "latest" ]]; then
+            target_suite=sid
+          fi
+
           case "$target_suite" in
             trixie|sid|unstable|bookworm|forky)
               family=debian
