@@ -25,6 +25,10 @@ jobs:
           case "$BASE_REF" in
             qcom/ubuntu/*|qcom/debian/*)
               suite="${BASE_REF##*/}"
+              # 'latest' is not a valid suite name — map to sid
+              if [[ "$suite" == "latest" ]]; then
+                suite=sid
+              fi
               ;;
             *)
               suite=sid
