@@ -231,7 +231,7 @@ jobs:
         run: |
           cd ./package-repo
 
-          gh auth login --with-token <<< "${{secrets.GITHUB_TOKEN}}"
+          gh auth login --with-token <<< "${{secrets.DEB_PKG_BOT_CI_TOKEN}}"
 
           PR_TITLE="Promotion to ${{env.NEW_DEBIAN_VERSION}} (Artifactory tag: ${{inputs.new-tag}})"
 
