@@ -73,8 +73,26 @@ env:
   DEBUSINE_ACTION_REF: main
 
 jobs:
+  validate-inputs:
+    name: Validate suite/branch combination
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check resolute uses qcom/ubuntu/resolute
+        shell: bash
+        env:
+          SUITE: ${{ inputs.suite }}
+          DEBIAN_BRANCH: ${{ inputs.debian-branch }}
+        run: |
+          set -euo pipefail
+          if [[ "$SUITE" == "resolute" && "$DEBIAN_BRANCH" != "qcom/ubuntu/resolute" ]]; then
+            echo "::error::Suite 'resolute' must be released from branch 'qcom/ubuntu/resolute' but '$DEBIAN_BRANCH' was provided."
+            exit 1
+          fi
+          echo "✅ Input validation passed"
+
   resolve:
     name: Resolve suite family
+    needs: validate-inputs
     runs-on: ubuntu-latest
     outputs:
       family: ${{ steps.resolve.outputs.family }}
@@ -113,7 +131,9 @@ jobs:
   debian-build:
     name: Build and Test (Debian)
     if: ${{ needs.resolve.outputs.family == 'debian' }}
-    needs: resolve
+    needs:
+      - validate-inputs
+      - resolve
     uses: ./.github/workflows/qcom-build-pkg-reusable-workflow.yml
     with:
       qcom-build-utils-ref: ${{ inputs.qcom-build-utils-ref }}
@@ -201,7 +221,9 @@ jobs:
   ubuntu-pkg-release:
     name: Release (Ubuntu)
     if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
-    needs: resolve
+    needs:
+      - validate-inputs
+      - resolve
     runs-on: ubuntu-24.04-arm
     outputs:
       complete_version: ${{ steps.changelog.outputs.version }}
@@ -533,6 +555,7 @@ jobs:
   finalize:
     name: Finalize outputs
     needs:
+      - validate-inputs
       - resolve
       - debian-build
       - debian-release
