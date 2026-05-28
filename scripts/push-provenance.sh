@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+#
+# SPDX-License-Identifier: BSD-3-Clause-Clear
 # push-provenance.sh — Push provenance.json to qcom-distro-artifacts.
 #
 # Clones qcom-distro-artifacts, merges the new provenance entry into the

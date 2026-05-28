@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+#
+# SPDX-License-Identifier: BSD-3-Clause-Clear
 # create-provenance.sh — Generate provenance.json for a Debian package release.
 #
 # Writes build/provenance.json (relative to the caller's working directory).
