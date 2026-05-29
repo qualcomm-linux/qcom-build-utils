@@ -76,7 +76,7 @@
 #     sudo ./build-dtb-image.sh \
 #         --fit-image \
 #         (--kernel-deb <path/to/kernel.deb> | --dtb-src <path/to/dtb/dir>) \
-#         [--metadata-commit <commit|tag|ref>] \
+#         [--metadata-commit <commit|tag|ref> | --metadata-dir <path>] \
 #         [--size <MB>] [--out <file>]
 #
 # ─────────────────────────────────────────────────────────────────────────────
@@ -106,6 +106,13 @@
 #   --metadata-commit / -metadata-commit
 #              [Optional] Override the qcom-dtb-metadata commit/tag/ref used
 #              in --fit-image mode (default: the pinned commit in the script).
+#              Mutually exclusive with --metadata-dir.
+#
+#   --metadata-dir / -metadata-dir
+#              [Optional] Use a local pre-cloned qcom-dtb-metadata directory
+#              as-is (skips clone and `git reset --hard`) so local edits to the
+#              ITS file or qcom-metadata.dts are preserved across builds.
+#              Only valid with --fit-image. Mutually exclusive with --metadata-commit.
 #
 #   --out / -out
 #              Output image filename (default: dtb.bin)
@@ -164,6 +171,7 @@ LOOP_DEV=""            # Loop device used for the FAT image
 BUILD_FIT_DTB=0
 FIT_WORK_DIR=""        # Temporary working directory for FIT build artefacts
 METADATA_COMMIT="5d24fea316a512f85acf7a4528a118ce52223530" # Default pinned commit for qcom-dtb-metadata.
+METADATA_DIR=""        # Optional: pre-cloned (and possibly user-modified) metadata dir; skips clone+reset.
 DEFAULT_ITS_FILE="qcom-next-fitimage.its" # Set default ITS file.
 
 # ---------------------------- Helper Functions -------------------------------
@@ -190,6 +198,13 @@ Usage: $0 (--kernel-deb <kernel.deb> | --dtb-src <path>) --manifest <file> [--si
 
   --metadata-commit, -metadata-commit
                              [Optional] Override qcom-dtb-metadata commit/ref (default: ${METADATA_COMMIT})
+                             Mutually exclusive with --metadata-dir.
+
+  --metadata-dir, -metadata-dir
+                             [Optional] Use a local pre-cloned qcom-dtb-metadata
+                             directory as-is (skips clone + reset --hard so local
+                             edits to .its/.dts files are preserved). Only valid
+                             with --fit-image.
 
   --out,       -out          Output image filename (default: dtb.bin)
 
@@ -280,6 +295,10 @@ while [[ $# -gt 0 ]]; do
             METADATA_COMMIT="${2:-}"
             shift 2
             ;;
+        -metadata-dir|--metadata-dir)
+            METADATA_DIR="${2:-}"
+            shift 2
+            ;;
         -out|--out)
             DTB_BIN="${2:-}"
             shift 2
@@ -300,6 +319,21 @@ if [[ "${BUILD_FIT_DTB}" -eq 1 && -n "${DTB_LIST}" ]]; then
     echo "[ERROR] --fit-image and --manifest are mutually exclusive." >&2
     echo "        In FIT DTB image mode, DTB selection is driven by the ITS file" >&2
     echo "        from the qcom-dtb-metadata repository; no manifest is needed." >&2
+    usage
+fi
+
+# --metadata-dir is only meaningful with --fit-image
+if [[ -n "${METADATA_DIR}" && "${BUILD_FIT_DTB}" -eq 0 ]]; then
+    echo "[ERROR] --metadata-dir is only valid in --fit-image mode." >&2
+    usage
+fi
+
+# --metadata-dir overrides cloning; --metadata-commit becomes meaningless
+# (a reset --hard would discard the user's local edits we want to preserve).
+if [[ -n "${METADATA_DIR}" && "${METADATA_COMMIT}" != "5d24fea316a512f85acf7a4528a118ce52223530" ]]; then
+    echo "[ERROR] --metadata-dir and --metadata-commit are mutually exclusive." >&2
+    echo "        --metadata-dir uses your local tree as-is; pinning a commit would" >&2
+    echo "        require git reset --hard, which would discard your local changes." >&2
     usage
 fi
 
@@ -346,7 +380,10 @@ require_cmd cp
 
 # FIT-mode-specific command requirements
 if [[ "${BUILD_FIT_DTB}" -eq 1 ]]; then
-    require_cmd git
+    # git is only needed when we have to clone the metadata repo
+    if [[ -z "${METADATA_DIR}" ]]; then
+        require_cmd git
+    fi
     require_cmd dtc
     require_cmd mkimage
 fi
@@ -507,14 +544,34 @@ else
     echo "[INFO] FIT build working directory: ${FIT_WORK_DIR}"
 
     # -----------------------------------------------------------------------
-    # Step 2. Clone qcom-dtb-metadata
+    # Step 2. Obtain qcom-dtb-metadata
     # -----------------------------------------------------------------------
-    echo "[INFO] Cloning qcom-dtb-metadata..."
-    DTB_METADATA_DIR="${FIT_WORK_DIR}/qcom-dtb-metadata"
-    git clone https://github.com/qualcomm-linux/qcom-dtb-metadata.git \
-        "${DTB_METADATA_DIR}"
-    echo "[INFO] Reset qcom-dtb-metadata to commit/ref: ${METADATA_COMMIT}"
-    git -C "${DTB_METADATA_DIR}" reset --hard "${METADATA_COMMIT}"
+    if [[ -n "${METADATA_DIR}" ]]; then
+        # User supplied a pre-cloned (and possibly modified) metadata directory.
+        # Use it as-is — do NOT git reset, since that would discard local edits
+        # to the .its file or qcom-metadata.dts.
+        if [[ ! -d "${METADATA_DIR}" ]]; then
+            echo "[ERROR] --metadata-dir '${METADATA_DIR}' is not a directory." >&2
+            exit 1
+        fi
+        DTB_METADATA_DIR="$(realpath "${METADATA_DIR}")"
+        echo "[INFO] Using local qcom-dtb-metadata directory: ${DTB_METADATA_DIR}"
+        if [[ ! -f "${DTB_METADATA_DIR}/${DEFAULT_ITS_FILE}" ]]; then
+            echo "[ERROR] ITS file not found: ${DTB_METADATA_DIR}/${DEFAULT_ITS_FILE}" >&2
+            exit 1
+        fi
+        if [[ ! -f "${DTB_METADATA_DIR}/qcom-metadata.dts" ]]; then
+            echo "[ERROR] qcom-metadata.dts not found in: ${DTB_METADATA_DIR}" >&2
+            exit 1
+        fi
+    else
+        echo "[INFO] Cloning qcom-dtb-metadata..."
+        DTB_METADATA_DIR="${FIT_WORK_DIR}/qcom-dtb-metadata"
+        git clone https://github.com/qualcomm-linux/qcom-dtb-metadata.git \
+            "${DTB_METADATA_DIR}"
+        echo "[INFO] Reset qcom-dtb-metadata to commit/ref: ${METADATA_COMMIT}"
+        git -C "${DTB_METADATA_DIR}" reset --hard "${METADATA_COMMIT}"
+    fi
 
     # -----------------------------------------------------------------------
     # Step 3. Set up the fit_image directory layout expected by the .its file
