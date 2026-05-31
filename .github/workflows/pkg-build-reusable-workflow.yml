@@ -294,8 +294,10 @@ jobs:
           # by actions/upload-artifact) strips execute bits; tar does not.
           # --strip-components=1 extracts the top-level directory directly into
           # srcpkg/ without depending on its name inside the archive.
+          # The artifact contains exactly one *.tar.gz, so the glob below stays
+          # unambiguous while decoupling this step from the producer's filename.
           mkdir srcpkg
-          tar xzf /tmp/srcpkg-artifact/kernel-srcpkg.tar.gz \
+          tar xzf /tmp/srcpkg-artifact/*.tar.gz \
             -C srcpkg --strip-components=1
 
       - name: Prepare release
@@ -411,8 +413,10 @@ jobs:
       - name: Extract pre-prepared source tree
         if: ${{ needs.resolve.outputs.family == 'debian' && inputs.srcpkg-artifact != '' }}
         run: |
+          # Single *.tar.gz in the artifact; glob decouples from the
+          # producer's filename (see build-job extract step for rationale).
           mkdir srcpkg
-          tar xzf /tmp/srcpkg-artifact/kernel-srcpkg.tar.gz \
+          tar xzf /tmp/srcpkg-artifact/*.tar.gz \
             -C srcpkg --strip-components=1
 
       - name: Validate installability from Debusine CI workspace
