@@ -6,14 +6,39 @@
 # Script: gen-flash-dirs.sh
 # ------------------------------------------------------------------------------
 # Description:
-#   Generates per-board flash directories from a boards JSON array.
-#   Each board entry specifies its own boot binary archive, CDT archive,
-#   and qcom-ptool platform. All boards share the same system image
-#   (rootfs.img, efi.bin, dtb.bin).
+#   Generates per-target, per-storage flash directories from a boards JSON
+#   array. All targets share the same rootfs.img (placed at the output root).
+#   efi.bin and dtb.bin placement follows these rules:
+#
+#   Storage layout rules (Table 1):
+#     nvme, ufs, emmc:
+#       - always: efi.bin (sector-size matched), rootfs.img reference
+#       - dtb.bin: only if the target has NO spinor storage
+#     spinor:
+#       - always: dtb.bin
+#       - never:  efi.bin, rootfs.img  (firmware-only storage)
+#
+#   Sector sizes (Table 2):
+#     ufs  -> 4096 bytes
+#     nvme -> 4096 bytes
+#     emmc -> 512  bytes
+#
+# Output layout:
+#   <output-dir>/
+#     rootfs.img                        (shared, at root)
+#     <target-name>/
+#       <storage>/                      (one dir per storage type)
+#         rawprogram*.xml, patch*.xml   (from ptool)
+#         gpt_*.bin, zeros_*.bin        (from ptool)
+#         <boot-bins>                   (*.elf, *.mbn, *.melf, *.fv, *.bin …)
+#         cdt.bin                       (if cdt configured)
+#         efi.bin                       (nvme/ufs/emmc only, sector-size matched)
+#         dtb.bin                       (spinor always; nvme/ufs/emmc if no spinor)
+#     contents.xml                      (top-level, from gen_contents.py if spinor present)
 #
 # Usage:
 #   gen-flash-dirs.sh \
-#     --boards-json    '<json-array>'   \
+#     --boards-json    '<json-array>'        \
 #     --ptool-dir      <path/to/qcom-ptool>  \
 #     --boot-bins-dir  <path/to/boot_bins>   \
 #     --system-images  <path/to/images-dir>  \
@@ -23,29 +48,33 @@
 # boards-json format (array of objects):
 #   [
 #     {
-#       "name":               "qcs6490-rb3gen2-vision-kit",
-#       "boot_binaries_url":  "https://...",
-#       "qcom_ptool_platform":"qcs6490-rb3gen2",
-#       "cdt_binaries_url":   "https://...",   (optional)
-#       "cdt_filename":       "cdt_vision_kit.bin"  (optional)
+#       "name":                "iq-x7181-evk",
+#       "boot_binaries_url":   "https://...",
+#       "qcom_ptool_platform": "iq-x7181-evk",
+#       "cdt_binaries_url":    "",
+#       "cdt_filename":        ""
 #     },
 #     ...
 #   ]
-#
-# Outputs (inside --output-dir):
-#   flash_<board-name>_<storage>/
-#     rawprogram*.xml, patch*.xml, gpt_*.bin, zeros_*.bin  (from ptool)
-#     *.elf, *.mbn, *.melf, *.fv, *.bin, prog_*, boot.img  (from boot bins)
-#     cdt.bin                                               (from CDT zip, if set)
-#     efi.bin, rootfs.img, dtb.bin, *.manifest              (shared system images)
-#   contents.xml                                            (top-level, from gen_contents.py)
 #
 # ==============================================================================
 
 set -euo pipefail
 
 # ------------------------------------------------------------------------------
-# Defaults
+# Sector size map (Table 2)
+# ------------------------------------------------------------------------------
+sector_size_for() {
+    case "$1" in
+        ufs)  echo 4096 ;;
+        nvme) echo 4096 ;;
+        emmc) echo 512  ;;
+        *)    echo 512  ;;   # spinor/other: not used for efi, default safe value
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# Argument parsing
 # ------------------------------------------------------------------------------
 BOARDS_JSON=""
 PTOOL_DIR=""
@@ -62,9 +91,6 @@ Usage:
 EOF
 }
 
-# ------------------------------------------------------------------------------
-# Argument parsing
-# ------------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --boards-json)      BOARDS_JSON="$2";      shift 2 ;;
@@ -78,31 +104,30 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ------------------------------------------------------------------------------
-# Validate required args
-# ------------------------------------------------------------------------------
 for var in BOARDS_JSON PTOOL_DIR BOOT_BINS_DIR SYSTEM_IMAGES_DIR OUTPUT_DIR; do
     if [[ -z "${!var}" ]]; then
         echo "[ERROR] --$(echo "$var" | tr '[:upper:]_' '[:lower:]-') is required"
-        print_usage
-        exit 1
+        print_usage; exit 1
     fi
 done
 
-if ! command -v python3 &>/dev/null; then
-    echo "[ERROR] python3 is required"
-    exit 1
-fi
-
-if ! command -v jq &>/dev/null; then
-    echo "[ERROR] jq is required"
-    exit 1
-fi
+command -v python3 &>/dev/null || { echo "[ERROR] python3 is required"; exit 1; }
+command -v jq     &>/dev/null || { echo "[ERROR] jq is required";     exit 1; }
 
 mkdir -p "$OUTPUT_DIR"
 
 # ------------------------------------------------------------------------------
-# Helper: remove dangerous ptool-generated wipe files from a flash dir
+# Place rootfs.img at the output root (shared by all targets)
+# ------------------------------------------------------------------------------
+if [[ -f "${SYSTEM_IMAGES_DIR}/rootfs.img" ]]; then
+    cp --preserve=mode,timestamps -v \
+        "${SYSTEM_IMAGES_DIR}/rootfs.img" "${OUTPUT_DIR}/rootfs.img"
+else
+    echo "[WARN] rootfs.img not found in ${SYSTEM_IMAGES_DIR}"
+fi
+
+# ------------------------------------------------------------------------------
+# Helper: remove dangerous ptool wipe files
 # ------------------------------------------------------------------------------
 cleanup_flash_dir() {
     local dir="$1"
@@ -112,8 +137,7 @@ cleanup_flash_dir() {
 }
 
 # ------------------------------------------------------------------------------
-# Helper: copy boot binary files (allowlist) from a source dir into a flash dir
-# Excludes partition/GPT/wipe files that come from ptool instead.
+# Helper: copy boot binary files (allowlist) — no partition/GPT/wipe files
 # ------------------------------------------------------------------------------
 copy_boot_bins() {
     local src="$1"
@@ -137,47 +161,28 @@ copy_boot_bins() {
 }
 
 # ------------------------------------------------------------------------------
-# Helper: copy shared system images into a flash dir
-# ------------------------------------------------------------------------------
-copy_system_images() {
-    local dst="$1"
-    for f in rootfs.img efi.bin dtb.bin; do
-        if [[ -f "${SYSTEM_IMAGES_DIR}/${f}" ]]; then
-            cp --preserve=mode,timestamps -v "${SYSTEM_IMAGES_DIR}/${f}" "$dst/"
-        else
-            echo "[WARN] System image not found: ${SYSTEM_IMAGES_DIR}/${f}"
-        fi
-    done
-    # copy all manifest files
-    for f in "${SYSTEM_IMAGES_DIR}"/*.manifest; do
-        [[ -f "$f" ]] && cp --preserve=mode,timestamps -v "$f" "$dst/"
-    done
-}
-
-# ------------------------------------------------------------------------------
-# Track which ptool platforms have already had partition tables generated
-# so boards sharing the same platform reuse the output.
+# Cache: ptool platform -> work dir (avoid regenerating for shared platforms)
 # ------------------------------------------------------------------------------
 declare -A GENERATED_PLATFORMS
 
-# Track the last spinor partition.xml path for contents.xml generation
+# For contents.xml generation — track last spinor partition.xml seen
 LAST_SPINOR_PARTITION_XML=""
 LAST_SPINOR_PLATFORM_DIR=""
 
 # ------------------------------------------------------------------------------
-# Main loop: iterate over boards
+# Main loop: iterate over boards/targets
 # ------------------------------------------------------------------------------
 BOARD_COUNT=$(echo "$BOARDS_JSON" | jq 'length')
-echo "[INFO] Processing ${BOARD_COUNT} board(s)"
+echo "[INFO] Processing ${BOARD_COUNT} target(s)"
 
 for i in $(seq 0 $((BOARD_COUNT - 1))); do
-    BOARD_NAME=$(echo "$BOARDS_JSON"        | jq -r ".[$i].name")
-    PTOOL_PLATFORM=$(echo "$BOARDS_JSON"    | jq -r ".[$i].qcom_ptool_platform")
-    CDT_FILENAME=$(echo "$BOARDS_JSON"      | jq -r ".[$i].cdt_filename // empty")
+    BOARD_NAME=$(echo "$BOARDS_JSON"     | jq -r ".[$i].name")
+    PTOOL_PLATFORM=$(echo "$BOARDS_JSON" | jq -r ".[$i].qcom_ptool_platform")
+    CDT_FILENAME=$(echo "$BOARDS_JSON"   | jq -r ".[$i].cdt_filename // empty")
 
     echo ""
     echo "========================================================"
-    echo "[INFO] Board ${i}: ${BOARD_NAME}  (ptool: ${PTOOL_PLATFORM})"
+    echo "[INFO] Target ${i}: ${BOARD_NAME}  (ptool: ${PTOOL_PLATFORM})"
     echo "========================================================"
 
     PLATFORM_DIR="${PTOOL_DIR}/platforms/${PTOOL_PLATFORM}"
@@ -187,7 +192,21 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
     fi
 
     # ------------------------------------------------------------------
-    # Generate ptool partition tables for this platform (once per platform)
+    # Determine which storage types this platform supports
+    # ------------------------------------------------------------------
+    HAS_SPINOR=false
+    SUPPORTED_STORAGES=()
+    for storage in nvme ufs emmc spinor; do
+        if [[ -f "${PLATFORM_DIR}/${storage}/partitions.conf" ]]; then
+            SUPPORTED_STORAGES+=("$storage")
+            [[ "$storage" == "spinor" ]] && HAS_SPINOR=true
+        fi
+    done
+    echo "[INFO] Supported storages: ${SUPPORTED_STORAGES[*]}"
+    echo "[INFO] Has spinor: ${HAS_SPINOR}"
+
+    # ------------------------------------------------------------------
+    # Generate ptool partition tables (once per ptool platform)
     # ------------------------------------------------------------------
     PTOOL_WORK="${BOOT_BINS_DIR}/ptool_${PTOOL_PLATFORM}"
 
@@ -196,21 +215,19 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
         mkdir -p "$PTOOL_WORK"
         pushd "$PTOOL_WORK" > /dev/null
 
-        for storage in nvme ufs spinor emmc; do
+        for storage in "${SUPPORTED_STORAGES[@]}"; do
             CONF="${PLATFORM_DIR}/${storage}/partitions.conf"
-            if [[ -f "$CONF" ]]; then
-                echo "[INFO]   Generating ${storage} partition table"
-                python3 "${PTOOL_DIR}/qcom_ptool/gen_partition.py" \
-                    -i "$CONF" -o "partition_${storage}.xml"
-                python3 "${PTOOL_DIR}/qcom_ptool/ptool.py" \
-                    -x "partition_${storage}.xml" \
-                    -t "./partition_${storage}"
-                cleanup_flash_dir "./partition_${storage}"
+            echo "[INFO]   Generating ${storage} partition table"
+            python3 "${PTOOL_DIR}/qcom_ptool/gen_partition.py" \
+                -i "$CONF" -o "partition_${storage}.xml"
+            python3 "${PTOOL_DIR}/qcom_ptool/ptool.py" \
+                -x "partition_${storage}.xml" \
+                -t "./partition_${storage}"
+            cleanup_flash_dir "./partition_${storage}"
 
-                if [[ "$storage" == "spinor" ]]; then
-                    LAST_SPINOR_PARTITION_XML="${PTOOL_WORK}/partition_spinor.xml"
-                    LAST_SPINOR_PLATFORM_DIR="$PLATFORM_DIR"
-                fi
+            if [[ "$storage" == "spinor" ]]; then
+                LAST_SPINOR_PARTITION_XML="${PTOOL_WORK}/partition_spinor.xml"
+                LAST_SPINOR_PLATFORM_DIR="$PLATFORM_DIR"
             fi
         done
 
@@ -221,14 +238,15 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
     fi
 
     # ------------------------------------------------------------------
-    # Locate CDT file for this board (if configured)
+    # Locate CDT file for this board
     # ------------------------------------------------------------------
     CDT_SRC=""
     if [[ -n "$CDT_FILENAME" ]]; then
-        CDT_SRC=$(find "${BOOT_BINS_DIR}/cdt_${BOARD_NAME}" -name "$CDT_FILENAME" 2>/dev/null | head -1 || true)
+        CDT_SRC=$(find "${BOOT_BINS_DIR}/cdt_${BOARD_NAME}" \
+            -name "$CDT_FILENAME" 2>/dev/null | head -1 || true)
         if [[ -z "$CDT_SRC" ]]; then
-            # fallback: search anywhere under the board's cdt dir
-            CDT_SRC=$(find "${BOOT_BINS_DIR}/cdt_${BOARD_NAME}" -name '*.bin' 2>/dev/null | head -1 || true)
+            CDT_SRC=$(find "${BOOT_BINS_DIR}/cdt_${BOARD_NAME}" \
+                -name '*.bin' 2>/dev/null | head -1 || true)
         fi
         if [[ -z "$CDT_SRC" ]]; then
             echo "[WARN] CDT file '${CDT_FILENAME}' not found for board ${BOARD_NAME}"
@@ -238,41 +256,75 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
     fi
 
     # ------------------------------------------------------------------
-    # Build one flash dir per storage type supported by this platform
+    # Build one directory per storage type: <output>/<target>/<storage>/
     # ------------------------------------------------------------------
-    for storage in nvme ufs spinor emmc; do
+    TARGET_DIR="${OUTPUT_DIR}/${BOARD_NAME}"
+
+    for storage in "${SUPPORTED_STORAGES[@]}"; do
+        STORAGE_DIR="${TARGET_DIR}/${storage}"
         PARTITION_DIR="${PTOOL_WORK}/partition_${storage}"
-        if [[ ! -d "$PARTITION_DIR" ]]; then
-            continue
-        fi
 
-        FLASH_DIR="${OUTPUT_DIR}/flash_${BOARD_NAME}_${storage}"
-        echo "[INFO] Creating flash dir: ${FLASH_DIR}"
-        mkdir -p "$FLASH_DIR"
+        echo ""
+        echo "[INFO] Building ${BOARD_NAME}/${storage}/"
+        mkdir -p "$STORAGE_DIR"
 
-        # 1. Copy ptool-generated partition files
-        cp --preserve=mode,timestamps -av "${PARTITION_DIR}/." "${FLASH_DIR}/"
+        # 1. ptool-generated partition files (rawprogram*.xml, patch*.xml, gpt_*.bin, zeros_*.bin)
+        cp --preserve=mode,timestamps -av "${PARTITION_DIR}/." "${STORAGE_DIR}/"
 
-        # 2. Copy boot binaries (allowlist, no partition files)
+        # 2. Boot binaries (allowlist)
         BOARD_BOOT_DIR="${BOOT_BINS_DIR}/bins_${BOARD_NAME}"
         if [[ -d "$BOARD_BOOT_DIR" ]]; then
-            copy_boot_bins "$BOARD_BOOT_DIR" "$FLASH_DIR"
+            copy_boot_bins "$BOARD_BOOT_DIR" "$STORAGE_DIR"
         else
             echo "[WARN] Boot bins directory not found: ${BOARD_BOOT_DIR}"
         fi
 
-        # 3. Copy CDT
+        # 3. CDT
         if [[ -n "$CDT_SRC" ]]; then
-            cp --preserve=mode,timestamps -v "$CDT_SRC" "${FLASH_DIR}/cdt.bin"
+            cp --preserve=mode,timestamps -v "$CDT_SRC" "${STORAGE_DIR}/cdt.bin"
         fi
 
-        # 4. Copy shared system images
-        copy_system_images "$FLASH_DIR"
+        # 4. System images — apply Table 1 rules
+        case "$storage" in
+            spinor)
+                # spinor: dtb.bin only — no efi, no rootfs
+                if [[ -f "${SYSTEM_IMAGES_DIR}/dtb.bin" ]]; then
+                    cp --preserve=mode,timestamps -v \
+                        "${SYSTEM_IMAGES_DIR}/dtb.bin" "${STORAGE_DIR}/dtb.bin"
+                else
+                    echo "[WARN] dtb.bin not found for spinor"
+                fi
+                ;;
+            nvme|ufs|emmc)
+                # efi.bin: always, built with sector size matched to storage type
+                SECTOR_SIZE=$(sector_size_for "$storage")
+                EFI_SRC="${SYSTEM_IMAGES_DIR}/efi_${SECTOR_SIZE}.bin"
+                if [[ ! -f "$EFI_SRC" ]]; then
+                    # fallback: use the single efi.bin if per-sector variants not pre-built
+                    EFI_SRC="${SYSTEM_IMAGES_DIR}/efi.bin"
+                fi
+                if [[ -f "$EFI_SRC" ]]; then
+                    cp --preserve=mode,timestamps -v "$EFI_SRC" "${STORAGE_DIR}/efi.bin"
+                else
+                    echo "[WARN] efi.bin not found for ${storage} (sector size ${SECTOR_SIZE})"
+                fi
+
+                # dtb.bin: only if this target has NO spinor
+                if [[ "$HAS_SPINOR" == "false" ]]; then
+                    if [[ -f "${SYSTEM_IMAGES_DIR}/dtb.bin" ]]; then
+                        cp --preserve=mode,timestamps -v \
+                            "${SYSTEM_IMAGES_DIR}/dtb.bin" "${STORAGE_DIR}/dtb.bin"
+                    else
+                        echo "[WARN] dtb.bin not found for ${storage} (no spinor fallback)"
+                    fi
+                fi
+                ;;
+        esac
     done
 done
 
 # ------------------------------------------------------------------------------
-# Generate combined contents.xml at output root
+# Generate combined contents.xml at output root (if spinor present)
 # ------------------------------------------------------------------------------
 echo ""
 echo "[INFO] Generating combined contents.xml"
@@ -280,7 +332,8 @@ echo "[INFO] Generating combined contents.xml"
 CONTENTS_TEMPLATE=""
 if [[ -n "$CONTENTS_XML_IN" && -f "$CONTENTS_XML_IN" ]]; then
     CONTENTS_TEMPLATE="$CONTENTS_XML_IN"
-elif [[ -n "$LAST_SPINOR_PLATFORM_DIR" && -f "${LAST_SPINOR_PLATFORM_DIR}/spinor/contents.xml.in" ]]; then
+elif [[ -n "$LAST_SPINOR_PLATFORM_DIR" && \
+        -f "${LAST_SPINOR_PLATFORM_DIR}/spinor/contents.xml.in" ]]; then
     CONTENTS_TEMPLATE="${LAST_SPINOR_PLATFORM_DIR}/spinor/contents.xml.in"
 fi
 
@@ -291,7 +344,7 @@ if [[ -n "$CONTENTS_TEMPLATE" && -n "$LAST_SPINOR_PARTITION_XML" ]]; then
         -o "${OUTPUT_DIR}/contents.xml"
     echo "[INFO] contents.xml written to: ${OUTPUT_DIR}/contents.xml"
 else
-    echo "[WARN] Skipping contents.xml generation (no spinor template or partition.xml found)"
+    echo "[INFO] No spinor platform found; skipping contents.xml generation"
 fi
 
 echo ""
