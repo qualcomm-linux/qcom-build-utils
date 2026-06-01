@@ -111,6 +111,13 @@ for var in BOARDS_JSON PTOOL_DIR BOOT_BINS_DIR SYSTEM_IMAGES_DIR OUTPUT_DIR; do
     fi
 done
 
+# Resolve all path arguments to absolute paths so they remain valid after pushd/popd
+PTOOL_DIR=$(realpath "$PTOOL_DIR")
+BOOT_BINS_DIR=$(realpath "$BOOT_BINS_DIR")
+SYSTEM_IMAGES_DIR=$(realpath "$SYSTEM_IMAGES_DIR")
+OUTPUT_DIR=$(realpath -m "$OUTPUT_DIR")
+[[ -n "$CONTENTS_XML_IN" ]] && CONTENTS_XML_IN=$(realpath "$CONTENTS_XML_IN")
+
 command -v python3 &>/dev/null || { echo "[ERROR] python3 is required"; exit 1; }
 command -v jq     &>/dev/null || { echo "[ERROR] jq is required";     exit 1; }
 
