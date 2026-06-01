@@ -58,8 +58,8 @@ BOARD_COUNT=$(echo "$BOARDS_JSON" | jq 'length')
 
 for i in $(seq 0 $((BOARD_COUNT - 1))); do
     BOARD_NAME=$(echo "$BOARDS_JSON"     | jq -r ".[$i].name")
-    BOOT_URL=$(echo "$BOARDS_JSON"       | jq -r ".[$i].boot_binaries_url")
-    CDT_URL=$(echo "$BOARDS_JSON"        | jq -r ".[$i].cdt_binaries_url // empty")
+    BOOT_URL=$(echo "$BOARDS_JSON"       | jq -r ".[$i].boot_bin_url")
+    CDT_URL=$(echo "$BOARDS_JSON"        | jq -r ".[$i].cdt_url // empty")
 
     echo ""
     echo "[INFO] Board: ${BOARD_NAME}"

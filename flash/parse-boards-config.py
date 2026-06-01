@@ -11,23 +11,23 @@
 #   cdt_binaries_url: https://...      (optional)
 #   cdt_filename: cdt_foo.bin          (optional)
 #
-# Form 2 — multi-board list:
-#   boards:
-#     - name: board-a
-#       boot_binaries_url: https://...
-#       qcom_ptool_platform: platform-a
-#       cdt_binaries_url: https://...  (optional)
+# Form 2 — multi-target list:
+#   targets:
+#     - name: target-a
+#       boot_bin_url: https://...
+#       ptool_platform: platform-a
+#       cdt_url: https://...           (optional)
 #       cdt_filename: cdt_a.bin        (optional)
-#     - name: board-b
+#     - name: target-b
 #       ...
 #
 # Output (JSON array, one object per board):
 #   [
 #     {
 #       "name": "board-a",
-#       "boot_binaries_url": "https://...",
-#       "qcom_ptool_platform": "platform-a",
-#       "cdt_binaries_url": "",
+#       "boot_bin_url": "https://...",
+#       "ptool_platform": "platform-a",
+#       "cdt_url": "",
 #       "cdt_filename": ""
 #     },
 #     ...
@@ -63,7 +63,7 @@ def parse_boards_block(lines: list[str]) -> list[dict]:
         stripped = line.rstrip()
 
         # Detect start of boards: block
-        if re.match(r"^\s*boards\s*:\s*$", stripped):
+        if re.match(r"^\s*targets\s*:\s*$", stripped):
             in_boards = True
             continue
 
@@ -89,9 +89,9 @@ def parse_boards_block(lines: list[str]) -> list[dict]:
                 boards.append(current)
             current = {
                 "name": m_entry.group(1).strip(),
-                "boot_binaries_url": "",
-                "qcom_ptool_platform": "",
-                "cdt_binaries_url": "",
+                "boot_bin_url": "",
+                "ptool_platform": "",
+                "cdt_url": "",
                 "cdt_filename": "",
             }
             continue
@@ -131,18 +131,18 @@ def main() -> int:
             if not b.get("name"):
                 print(f"[ERROR] Board entry {i} missing 'name'", file=sys.stderr)
                 return 1
-            if not b.get("boot_binaries_url"):
-                print(f"[ERROR] Board '{b['name']}' missing 'boot_binaries_url'", file=sys.stderr)
+            if not b.get("boot_bin_url"):
+                print(f"[ERROR] Target '{b['name']}' missing 'boot_bin_url'", file=sys.stderr)
                 return 1
-            if not b.get("qcom_ptool_platform"):
-                print(f"[ERROR] Board '{b['name']}' missing 'qcom_ptool_platform'", file=sys.stderr)
+            if not b.get("ptool_platform"):
+                print(f"[ERROR] Target '{b['name']}' missing 'ptool_platform'", file=sys.stderr)
                 return 1
         print(json.dumps(boards, indent=2))
         return 0
 
     # Fall back to legacy single-board flat keys
-    boot_url = parse_flat_key(lines, "boot_binaries_url")
-    ptool_platform = parse_flat_key(lines, "qcom_ptool_platform")
+    boot_url = parse_flat_key(lines, "boot_bin_url") or parse_flat_key(lines, "boot_binaries_url")
+    ptool_platform = parse_flat_key(lines, "ptool_platform") or parse_flat_key(lines, "qcom_ptool_platform")
 
     if not boot_url or not ptool_platform:
         # No flat-meta config — emit empty array
@@ -150,10 +150,10 @@ def main() -> int:
         return 0
 
     board: dict = {
-        "name": ptool_platform,  # use platform name as board name for legacy configs
-        "boot_binaries_url": boot_url,
-        "qcom_ptool_platform": ptool_platform,
-        "cdt_binaries_url": parse_flat_key(lines, "cdt_binaries_url"),
+        "name": ptool_platform,  # use platform name as target name for legacy configs
+        "boot_bin_url": boot_url,
+        "ptool_platform": ptool_platform,
+        "cdt_url": parse_flat_key(lines, "cdt_url") or parse_flat_key(lines, "cdt_binaries_url"),
         "cdt_filename": parse_flat_key(lines, "cdt_filename"),
     }
     print(json.dumps([board], indent=2))

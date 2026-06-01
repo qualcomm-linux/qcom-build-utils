@@ -49,9 +49,9 @@
 #   [
 #     {
 #       "name":                "iq-x7181-evk",
-#       "boot_binaries_url":   "https://...",
-#       "qcom_ptool_platform": "iq-x7181-evk",
-#       "cdt_binaries_url":    "",
+#       "boot_bin_url":   "https://...",
+#       "ptool_platform": "iq-x7181-evk",
+#       "cdt_url":    "",
 #       "cdt_filename":        ""
 #     },
 #     ...
@@ -177,7 +177,7 @@ echo "[INFO] Processing ${BOARD_COUNT} target(s)"
 
 for i in $(seq 0 $((BOARD_COUNT - 1))); do
     BOARD_NAME=$(echo "$BOARDS_JSON"     | jq -r ".[$i].name")
-    PTOOL_PLATFORM=$(echo "$BOARDS_JSON" | jq -r ".[$i].qcom_ptool_platform")
+    PTOOL_PLATFORM=$(echo "$BOARDS_JSON" | jq -r ".[$i].ptool_platform")
     CDT_FILENAME=$(echo "$BOARDS_JSON"   | jq -r ".[$i].cdt_filename // empty")
 
     echo ""
