@@ -94,6 +94,7 @@ def parse_boards_block(lines: list[str]) -> list[dict]:
                 "cdt_url": "",
                 "cdt_filename": "",
                 "pre_partitioned": "false",
+                "contents_xml_in": "",
             }
             continue
 
@@ -157,6 +158,7 @@ def main() -> int:
         "cdt_url": parse_flat_key(lines, "cdt_url") or parse_flat_key(lines, "cdt_binaries_url"),
         "cdt_filename": parse_flat_key(lines, "cdt_filename"),
         "pre_partitioned": "false",
+        "contents_xml_in": "",
     }
     print(json.dumps([board], indent=2))
     return 0
