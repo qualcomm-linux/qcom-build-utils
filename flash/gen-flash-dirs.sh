@@ -457,6 +457,21 @@ for k in $(seq 0 $((BOARD_COUNT_CX - 1))); do
             python3 "${PTOOL_DIR}/gen_contents.py"                 -t "$CX_TEMPLATE"                 -p "$CX_PARTITION_XML"                 -o "$CX_OUT"
             echo "[INFO] Written: ${CX_OUT}"
 
+            # Patch rootfs.img file_path: rootfs.img lives at ../../rootfs.img from spinor/
+            # The template puts it in ../nvme/ or ../ufs/ — rewrite to ../../
+            python3 -c "
+import re, sys
+with open('${CX_OUT}') as f: c = f.read()
+# Replace file_path on the line after <file_name>rootfs.img</file_name>
+c = re.sub(
+    r'(<file_name>rootfs\.img</file_name>\s*<file_path[^>]*>)[^<]*(</file_path>)',
+    r'\g<1>../../\g<2>',
+    c
+)
+with open('${CX_OUT}', 'w') as f: f.write(c)
+"
+            echo "[INFO] Patched rootfs.img path in ${CX_OUT}"
+
             # Patch OS storage paths: NVME/ -> ../nvme/, UFS/ -> ../ufs/, EMMC/ -> ../emmc/
             # (one level up from spinor/ then into sibling storage dir)
             for s in "${CX_STORAGES[@]}"; do
@@ -483,6 +498,18 @@ for k in $(seq 0 $((BOARD_COUNT_CX - 1))); do
                 CX_OUT="${CX_TARGET_DIR}/${s}/contents.xml"
                 python3 "${PTOOL_DIR}/gen_contents.py"                     -t "$CX_TEMPLATE"                     -p "$CX_PARTITION_XML"                     -o "$CX_OUT"
                 echo "[INFO] Written: ${CX_OUT}"
+                # Patch rootfs.img file_path: rootfs.img lives at ../../rootfs.img from storage dir
+                python3 -c "
+import re, sys
+with open('${CX_OUT}') as f: c = f.read()
+c = re.sub(
+    r'(<file_name>rootfs\.img</file_name>\s*<file_path[^>]*>)[^<]*(</file_path>)',
+    r'\g<1>../../\g<2>',
+    c
+)
+with open('${CX_OUT}', 'w') as f: f.write(c)
+"
+                echo "[INFO] Patched rootfs.img path in ${CX_OUT}"
             else
                 echo "[INFO] No contents.xml.in for ${CX_BOARD}/${s} — skipping"
             fi
