@@ -398,65 +398,97 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
 done
 
 # ------------------------------------------------------------------------------
-# Generate combined contents.xml at output root (if spinor present)
+# Generate contents.xml per target, following the same placement rule as dtb.bin:
+#   - Target WITH spinor:    one contents.xml inside <target>/spinor/
+#                            OS storage paths patched to ../nvme/, ../ufs/ etc.
+#   - Target WITHOUT spinor: one contents.xml per storage dir (<target>/<storage>/)
+#                            all paths at . (same directory)
 # ------------------------------------------------------------------------------
 echo ""
-echo "[INFO] Generating combined contents.xml"
+echo "[INFO] Generating contents.xml per target"
 
-CONTENTS_TEMPLATE=""
-if [[ -n "$CONTENTS_XML_IN" && -f "$CONTENTS_XML_IN" ]]; then
-    CONTENTS_TEMPLATE="$CONTENTS_XML_IN"
-elif [[ -n "$LAST_SPINOR_PLATFORM_DIR" && \
-        -f "${LAST_SPINOR_PLATFORM_DIR}/spinor/contents.xml.in" ]]; then
-    CONTENTS_TEMPLATE="${LAST_SPINOR_PLATFORM_DIR}/spinor/contents.xml.in"
-fi
+BOARD_COUNT_CX=$(echo "$BOARDS_JSON" | jq 'length')
+for k in $(seq 0 $((BOARD_COUNT_CX - 1))); do
+    CX_BOARD=$(echo "$BOARDS_JSON"  | jq -r ".[$k].name")
+    CX_PTOOL=$(echo "$BOARDS_JSON"  | jq -r ".[$k].ptool_platform")
+    CX_PRE=$(echo "$BOARDS_JSON"    | jq -r ".[$k].pre_partitioned // "false"")
+    CX_CXI=$(echo "$BOARDS_JSON"    | jq -r ".[$k].contents_xml_in // """)
+    CX_PLATFORM_DIR="${PTOOL_DIR}/platforms/${CX_PTOOL}"
+    CX_PTOOL_WORK="${BOOT_BINS_DIR}/ptool_${CX_PTOOL}"
+    CX_TARGET_DIR="${OUTPUT_DIR}/${CX_BOARD}"
 
-if [[ -n "$CONTENTS_TEMPLATE" && -n "$LAST_SPINOR_PARTITION_XML" ]]; then
-    python3 "${PTOOL_DIR}/gen_contents.py" \
-        -t "$CONTENTS_TEMPLATE" \
-        -p "$LAST_SPINOR_PARTITION_XML" \
-        -o "${OUTPUT_DIR}/contents.xml"
-    echo "[INFO] contents.xml written to: ${OUTPUT_DIR}/contents.xml"
+    echo ""
+    echo "[INFO] contents.xml for target: ${CX_BOARD}"
 
-    # Patch OS storage file_path values in contents.xml to match actual output layout.
-    # The template uses generic NVME/ and UFS/ paths; rewrite them to
-    # <board-name>/nvme/ and <board-name>/ufs/ for each board that has those storages.
-    BOARD_COUNT_INNER=$(echo "$BOARDS_JSON" | jq 'length')
-    for j in $(seq 0 $((BOARD_COUNT_INNER - 1))); do
-        PATCH_BOARD=$(echo "$BOARDS_JSON" | jq -r ".[$j].name")
-        PATCH_PTOOL=$(echo "$BOARDS_JSON" | jq -r ".[$j].ptool_platform")
-        PATCH_PRE=$(echo "$BOARDS_JSON"   | jq -r ".[$j].pre_partitioned // \"false\"")
-        PATCH_PLATFORM_DIR="${PTOOL_DIR}/platforms/${PATCH_PTOOL}"
+    # Determine supported storages and whether spinor is present
+    CX_HAS_SPINOR=false
+    CX_STORAGES=()
+    if [[ "$CX_PRE" == "true" ]]; then
+        CX_BINS="${BOOT_BINS_DIR}/bins_${CX_BOARD}"
+        for s in nvme ufs emmc spinor; do
+            [[ -d "${CX_BINS}/partition_${s}" ]] && CX_STORAGES+=("$s")
+            [[ "$s" == "spinor" && -d "${CX_BINS}/partition_spinor" ]] && CX_HAS_SPINOR=true
+        done
+    else
+        for s in nvme ufs emmc spinor; do
+            [[ -f "${CX_PLATFORM_DIR}/${s}/partitions.conf" ]] && CX_STORAGES+=("$s")
+            [[ "$s" == "spinor" && -f "${CX_PLATFORM_DIR}/spinor/partitions.conf" ]] && CX_HAS_SPINOR=true
+        done
+    fi
 
-        # Determine which OS storages this board has
-        HAS_NVME=false; HAS_UFS=false; HAS_EMMC=false
-        if [[ "$PATCH_PRE" == "true" ]]; then
-            PATCH_BINS="${BOOT_BINS_DIR}/bins_${PATCH_BOARD}"
-            [[ -d "${PATCH_BINS}/partition_nvme"  ]] && HAS_NVME=true
-            [[ -d "${PATCH_BINS}/partition_ufs"   ]] && HAS_UFS=true
-            [[ -d "${PATCH_BINS}/partition_emmc"  ]] && HAS_EMMC=true
+    if [[ "$CX_HAS_SPINOR" == "true" ]]; then
+        # ── Spinor target: one contents.xml inside <target>/spinor/ ──────────
+        # Resolve template: explicit contents_xml_in > platform spinor template
+        CX_TEMPLATE=""
+        if [[ -n "$CX_CXI" && -f "$CONTENTS_XML_IN" ]]; then
+            CX_TEMPLATE="$CONTENTS_XML_IN"
+        elif [[ -n "$CX_CXI" ]]; then
+            # contents_xml_in is relative to the repo root (two levels up from boot_bins/)
+            CX_TEMPLATE_REL="$(dirname "$(dirname "$BOOT_BINS_DIR")")/${CX_CXI}"
+            [[ -f "$CX_TEMPLATE_REL" ]] && CX_TEMPLATE="$CX_TEMPLATE_REL"
+        fi
+        if [[ -z "$CX_TEMPLATE" && -f "${CX_PLATFORM_DIR}/spinor/contents.xml.in" ]]; then
+            CX_TEMPLATE="${CX_PLATFORM_DIR}/spinor/contents.xml.in"
+        fi
+
+        CX_PARTITION_XML="${CX_PTOOL_WORK}/partition_spinor.xml"
+        if [[ -n "$CX_TEMPLATE" && -f "$CX_PARTITION_XML" ]]; then
+            CX_OUT="${CX_TARGET_DIR}/spinor/contents.xml"
+            python3 "${PTOOL_DIR}/gen_contents.py"                 -t "$CX_TEMPLATE"                 -p "$CX_PARTITION_XML"                 -o "$CX_OUT"
+            echo "[INFO] Written: ${CX_OUT}"
+
+            # Patch OS storage paths: NVME/ -> ../nvme/, UFS/ -> ../ufs/, EMMC/ -> ../emmc/
+            # (one level up from spinor/ then into sibling storage dir)
+            for s in "${CX_STORAGES[@]}"; do
+                case "$s" in
+                    nvme)  sed -i "s|>NVME/<|>../nvme/<|g"  "$CX_OUT" ;;
+                    ufs)   sed -i "s|>UFS/<|>../ufs/<|g"    "$CX_OUT" ;;
+                    emmc)  sed -i "s|>EMMC/<|>../emmc/<|g"  "$CX_OUT" ;;
+                esac
+            done
+            echo "[INFO] Patched OS storage paths in ${CX_OUT}"
         else
-            [[ -f "${PATCH_PLATFORM_DIR}/nvme/partitions.conf"  ]] && HAS_NVME=true
-            [[ -f "${PATCH_PLATFORM_DIR}/ufs/partitions.conf"   ]] && HAS_UFS=true
-            [[ -f "${PATCH_PLATFORM_DIR}/emmc/partitions.conf"  ]] && HAS_EMMC=true
+            echo "[WARN] Skipping spinor contents.xml for ${CX_BOARD}: template or partition XML not found"
         fi
 
-        if [[ "$HAS_NVME" == "true" ]]; then
-            sed -i "s|>NVME/<|>${PATCH_BOARD}/nvme/<|g" "${OUTPUT_DIR}/contents.xml"
-            echo "[INFO] Patched NVME/ -> ${PATCH_BOARD}/nvme/ in contents.xml"
-        fi
-        if [[ "$HAS_UFS" == "true" ]]; then
-            sed -i "s|>UFS/<|>${PATCH_BOARD}/ufs/<|g" "${OUTPUT_DIR}/contents.xml"
-            echo "[INFO] Patched UFS/ -> ${PATCH_BOARD}/ufs/ in contents.xml"
-        fi
-        if [[ "$HAS_EMMC" == "true" ]]; then
-            sed -i "s|>EMMC/<|>${PATCH_BOARD}/emmc/<|g" "${OUTPUT_DIR}/contents.xml"
-            echo "[INFO] Patched EMMC/ -> ${PATCH_BOARD}/emmc/ in contents.xml"
-        fi
-    done
-else
-    echo "[INFO] No spinor platform found; skipping contents.xml generation"
-fi
+    else
+        # ── No-spinor target: one contents.xml per storage dir ───────────────
+        for s in "${CX_STORAGES[@]}"; do
+            CX_TEMPLATE=""
+            if [[ -f "${CX_PLATFORM_DIR}/${s}/contents.xml.in" ]]; then
+                CX_TEMPLATE="${CX_PLATFORM_DIR}/${s}/contents.xml.in"
+            fi
+            CX_PARTITION_XML="${CX_PTOOL_WORK}/partition_${s}.xml"
+            if [[ -n "$CX_TEMPLATE" && -f "$CX_PARTITION_XML" ]]; then
+                CX_OUT="${CX_TARGET_DIR}/${s}/contents.xml"
+                python3 "${PTOOL_DIR}/gen_contents.py"                     -t "$CX_TEMPLATE"                     -p "$CX_PARTITION_XML"                     -o "$CX_OUT"
+                echo "[INFO] Written: ${CX_OUT}"
+            else
+                echo "[INFO] No contents.xml.in for ${CX_BOARD}/${s} — skipping"
+            fi
+        done
+    fi
+done
 
 echo ""
 echo "[INFO] gen-flash-dirs.sh complete. Output: ${OUTPUT_DIR}"
