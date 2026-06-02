@@ -225,9 +225,9 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
         for storage in "${SUPPORTED_STORAGES[@]}"; do
             CONF="${PLATFORM_DIR}/${storage}/partitions.conf"
             echo "[INFO]   Generating ${storage} partition table"
-            python3 "${PTOOL_DIR}/qcom_ptool/gen_partition.py" \
+            python3 "${PTOOL_DIR}/gen_partition.py" \
                 -i "$CONF" -o "partition_${storage}.xml"
-            python3 "${PTOOL_DIR}/qcom_ptool/ptool.py" \
+            python3 "${PTOOL_DIR}/ptool.py" \
                 -x "partition_${storage}.xml" \
                 -t "./partition_${storage}"
             cleanup_flash_dir "./partition_${storage}"
@@ -345,7 +345,7 @@ elif [[ -n "$LAST_SPINOR_PLATFORM_DIR" && \
 fi
 
 if [[ -n "$CONTENTS_TEMPLATE" && -n "$LAST_SPINOR_PARTITION_XML" ]]; then
-    python3 "${PTOOL_DIR}/qcom_ptool/gen_contents.py" \
+    python3 "${PTOOL_DIR}/gen_contents.py" \
         -t "$CONTENTS_TEMPLATE" \
         -p "$LAST_SPINOR_PARTITION_XML" \
         -o "${OUTPUT_DIR}/contents.xml"
