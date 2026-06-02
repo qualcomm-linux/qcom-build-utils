@@ -330,17 +330,31 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
             cp --preserve=mode,timestamps -v "$CDT_SRC" "${STORAGE_DIR}/cdt.bin"
         fi
 
-        # 4. Post-process rawprogram XMLs: rewrite rootfs.img filename to a relative
-        #    path pointing two levels up to the shared rootfs.img at the output root.
-        #    qdl resolves filename= attributes relative to the rawprogram XML location,
-        #    so <target>/<storage>/rawprogram*.xml -> ../../rootfs.img is correct.
-        #    Only applies to nvme/ufs/emmc — spinor never references rootfs.img.
+        # 4. Post-process rawprogram XMLs to wire OS image filenames.
+        #    Pre-partitioned archives ship with filename="" for OS partitions.
+        #    Rules (Table 1):
+        #      nvme/ufs/emmc: efi label -> efi.bin, rootfs label -> ../../rootfs.img
+        #      spinor:        dtb_a/dtb_b labels -> dtb.bin
         case "$storage" in
             nvme|ufs|emmc)
                 for xml in "${STORAGE_DIR}"/rawprogram*.xml; do
                     [[ -f "$xml" ]] || continue
-                    sed -i 's/filename="rootfs\.img"/filename="..\/..\/rootfs.img"/g' "$xml"
-                    echo "[INFO] Updated rootfs.img path in $(basename "$xml")"
+                    # Wire efi: filename="" ... label="efi" -> efi.bin
+                    sed -i -E 's/filename=""([^>]*label="efi")/filename="efi.bin"\1/g' "$xml"
+                    # Wire rootfs: filename="" ... label="rootfs" -> ../../rootfs.img
+                    sed -i -E 's|filename=""([^>]*label="rootfs")|filename="../../rootfs.img"\1|g' "$xml"
+                    # Normalise any already-set bare rootfs.img -> relative path
+                    sed -i 's|filename="rootfs\.img"|filename="../../rootfs.img"|g' "$xml"
+                    echo "[INFO] Patched efi/rootfs filenames in $(basename "$xml")"
+                done
+                ;;
+            spinor)
+                for xml in "${STORAGE_DIR}"/rawprogram*.xml; do
+                    [[ -f "$xml" ]] || continue
+                    # Wire dtb_a/dtb_b: filename="" -> dtb.bin
+                    sed -i -E 's/filename=""([^>]*label="dtb_a")/filename="dtb.bin"\1/g' "$xml"
+                    sed -i -E 's/filename=""([^>]*label="dtb_b")/filename="dtb.bin"\1/g' "$xml"
+                    echo "[INFO] Patched dtb_a/dtb_b filenames in $(basename "$xml")"
                 done
                 ;;
         esac
