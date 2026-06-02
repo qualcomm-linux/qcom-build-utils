@@ -12,7 +12,8 @@
 #
 #   Storage layout rules (Table 1):
 #     nvme, ufs, emmc:
-#       - always: efi.bin (sector-size matched), rootfs.img reference
+#       - always: efi.bin (sector-size matched)
+#       - rootfs.img: referenced via ../../rootfs.img in rawprogram XMLs (not copied)
 #       - dtb.bin: only if the target has NO spinor storage
 #     spinor:
 #       - always: dtb.bin
@@ -33,6 +34,7 @@
 #         <boot-bins>                   (*.elf, *.mbn, *.melf, *.fv, *.bin …)
 #         cdt.bin                       (if cdt configured)
 #         efi.bin                       (nvme/ufs/emmc only, sector-size matched)
+#         rawprogram*.xml               (rootfs.img ref rewritten to ../../rootfs.img)
 #         dtb.bin                       (spinor always; nvme/ufs/emmc if no spinor)
 #     contents.xml                      (top-level, from gen_contents.py if spinor present)
 #
@@ -317,7 +319,22 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
             cp --preserve=mode,timestamps -v "$CDT_SRC" "${STORAGE_DIR}/cdt.bin"
         fi
 
-        # 4. System images — apply Table 1 rules (same for both paths)
+        # 4. Post-process rawprogram XMLs: rewrite rootfs.img filename to a relative
+        #    path pointing two levels up to the shared rootfs.img at the output root.
+        #    qdl resolves filename= attributes relative to the rawprogram XML location,
+        #    so <target>/<storage>/rawprogram*.xml -> ../../rootfs.img is correct.
+        #    Only applies to nvme/ufs/emmc — spinor never references rootfs.img.
+        case "$storage" in
+            nvme|ufs|emmc)
+                for xml in "${STORAGE_DIR}"/rawprogram*.xml; do
+                    [[ -f "$xml" ]] || continue
+                    sed -i 's/filename="rootfs\.img"/filename="..\/..\/rootfs.img"/g' "$xml"
+                    echo "[INFO] Updated rootfs.img path in $(basename "$xml")"
+                done
+                ;;
+        esac
+
+        # 5. System images — apply Table 1 rules (same for both paths)
         case "$storage" in
             spinor)
                 # spinor: dtb.bin only — no efi, no rootfs
