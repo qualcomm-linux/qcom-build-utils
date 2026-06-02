@@ -230,37 +230,48 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
     echo "[INFO] Has spinor: ${HAS_SPINOR}"
 
     # ------------------------------------------------------------------
-    # Generate ptool partition tables (only for non-pre-partitioned targets)
+    # Generate ptool partition tables
     # ------------------------------------------------------------------
     PTOOL_WORK="${BOOT_BINS_DIR}/ptool_${PTOOL_PLATFORM}"
 
-    if [[ "$PRE_PARTITIONED" != "true" ]]; then
-        if [[ -z "${GENERATED_PLATFORMS[$PTOOL_PLATFORM]+x}" ]]; then
-            echo "[INFO] Generating partition tables for platform: ${PTOOL_PLATFORM}"
+    if [[ "$PRE_PARTITIONED" == "true" ]]; then
+        # Pre-partitioned: archive already has partition files + boot bins combined.
+        # We still need partition_spinor.xml as input to gen_contents.py.
+        # Run gen_partition.py only (not ptool.py) to produce it.
+        if [[ "$HAS_SPINOR" == "true" && -f "${PLATFORM_DIR}/spinor/partitions.conf" ]]; then
             mkdir -p "$PTOOL_WORK"
-            pushd "$PTOOL_WORK" > /dev/null
-
-            for storage in "${SUPPORTED_STORAGES[@]}"; do
-                CONF="${PLATFORM_DIR}/${storage}/partitions.conf"
-                echo "[INFO]   Generating ${storage} partition table"
-                python3 "${PTOOL_DIR}/gen_partition.py" \
-                    -i "$CONF" -o "partition_${storage}.xml"
-                python3 "${PTOOL_DIR}/ptool.py" \
-                    -x "partition_${storage}.xml" \
-                    -t "./partition_${storage}"
-                cleanup_flash_dir "./partition_${storage}"
-
-                if [[ "$storage" == "spinor" ]]; then
-                    LAST_SPINOR_PARTITION_XML="${PTOOL_WORK}/partition_spinor.xml"
-                    LAST_SPINOR_PLATFORM_DIR="$PLATFORM_DIR"
-                fi
-            done
-
-            popd > /dev/null
-            GENERATED_PLATFORMS[$PTOOL_PLATFORM]=1
-        else
-            echo "[INFO] Reusing cached partition tables for platform: ${PTOOL_PLATFORM}"
+            echo "[INFO] Generating spinor partition XML for contents.xml (pre-partitioned)"
+            python3 "${PTOOL_DIR}/gen_partition.py" \
+                -i "${PLATFORM_DIR}/spinor/partitions.conf" \
+                -o "${PTOOL_WORK}/partition_spinor.xml"
+            LAST_SPINOR_PARTITION_XML="${PTOOL_WORK}/partition_spinor.xml"
+            LAST_SPINOR_PLATFORM_DIR="$PLATFORM_DIR"
         fi
+    elif [[ -z "${GENERATED_PLATFORMS[$PTOOL_PLATFORM]+x}" ]]; then
+        echo "[INFO] Generating partition tables for platform: ${PTOOL_PLATFORM}"
+        mkdir -p "$PTOOL_WORK"
+        pushd "$PTOOL_WORK" > /dev/null
+
+        for storage in "${SUPPORTED_STORAGES[@]}"; do
+            CONF="${PLATFORM_DIR}/${storage}/partitions.conf"
+            echo "[INFO]   Generating ${storage} partition table"
+            python3 "${PTOOL_DIR}/gen_partition.py" \
+                -i "$CONF" -o "partition_${storage}.xml"
+            python3 "${PTOOL_DIR}/ptool.py" \
+                -x "partition_${storage}.xml" \
+                -t "./partition_${storage}"
+            cleanup_flash_dir "./partition_${storage}"
+
+            if [[ "$storage" == "spinor" ]]; then
+                LAST_SPINOR_PARTITION_XML="${PTOOL_WORK}/partition_spinor.xml"
+                LAST_SPINOR_PLATFORM_DIR="$PLATFORM_DIR"
+            fi
+        done
+
+        popd > /dev/null
+        GENERATED_PLATFORMS[$PTOOL_PLATFORM]=1
+    else
+        echo "[INFO] Reusing cached partition tables for platform: ${PTOOL_PLATFORM}"
     fi
 
     # ------------------------------------------------------------------
@@ -392,6 +403,43 @@ if [[ -n "$CONTENTS_TEMPLATE" && -n "$LAST_SPINOR_PARTITION_XML" ]]; then
         -p "$LAST_SPINOR_PARTITION_XML" \
         -o "${OUTPUT_DIR}/contents.xml"
     echo "[INFO] contents.xml written to: ${OUTPUT_DIR}/contents.xml"
+
+    # Patch OS storage file_path values in contents.xml to match actual output layout.
+    # The template uses generic NVME/ and UFS/ paths; rewrite them to
+    # <board-name>/nvme/ and <board-name>/ufs/ for each board that has those storages.
+    BOARD_COUNT_INNER=$(echo "$BOARDS_JSON" | jq 'length')
+    for j in $(seq 0 $((BOARD_COUNT_INNER - 1))); do
+        PATCH_BOARD=$(echo "$BOARDS_JSON" | jq -r ".[$j].name")
+        PATCH_PTOOL=$(echo "$BOARDS_JSON" | jq -r ".[$j].ptool_platform")
+        PATCH_PRE=$(echo "$BOARDS_JSON"   | jq -r ".[$j].pre_partitioned // \"false\"")
+        PATCH_PLATFORM_DIR="${PTOOL_DIR}/platforms/${PATCH_PTOOL}"
+
+        # Determine which OS storages this board has
+        HAS_NVME=false; HAS_UFS=false; HAS_EMMC=false
+        if [[ "$PATCH_PRE" == "true" ]]; then
+            PATCH_BINS="${BOOT_BINS_DIR}/bins_${PATCH_BOARD}"
+            [[ -d "${PATCH_BINS}/partition_nvme"  ]] && HAS_NVME=true
+            [[ -d "${PATCH_BINS}/partition_ufs"   ]] && HAS_UFS=true
+            [[ -d "${PATCH_BINS}/partition_emmc"  ]] && HAS_EMMC=true
+        else
+            [[ -f "${PATCH_PLATFORM_DIR}/nvme/partitions.conf"  ]] && HAS_NVME=true
+            [[ -f "${PATCH_PLATFORM_DIR}/ufs/partitions.conf"   ]] && HAS_UFS=true
+            [[ -f "${PATCH_PLATFORM_DIR}/emmc/partitions.conf"  ]] && HAS_EMMC=true
+        fi
+
+        if [[ "$HAS_NVME" == "true" ]]; then
+            sed -i "s|>NVME/<|>${PATCH_BOARD}/nvme/<|g" "${OUTPUT_DIR}/contents.xml"
+            echo "[INFO] Patched NVME/ -> ${PATCH_BOARD}/nvme/ in contents.xml"
+        fi
+        if [[ "$HAS_UFS" == "true" ]]; then
+            sed -i "s|>UFS/<|>${PATCH_BOARD}/ufs/<|g" "${OUTPUT_DIR}/contents.xml"
+            echo "[INFO] Patched UFS/ -> ${PATCH_BOARD}/ufs/ in contents.xml"
+        fi
+        if [[ "$HAS_EMMC" == "true" ]]; then
+            sed -i "s|>EMMC/<|>${PATCH_BOARD}/emmc/<|g" "${OUTPUT_DIR}/contents.xml"
+            echo "[INFO] Patched EMMC/ -> ${PATCH_BOARD}/emmc/ in contents.xml"
+        fi
+    done
 else
     echo "[INFO] No spinor platform found; skipping contents.xml generation"
 fi
