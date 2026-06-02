@@ -198,50 +198,67 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
         exit 1
     fi
 
+    PRE_PARTITIONED=$(echo "$BOARDS_JSON" | jq -r ".[$i].pre_partitioned // \"false\"")
+
     # ------------------------------------------------------------------
-    # Determine which storage types this platform supports
+    # Determine which storage types this target supports
     # ------------------------------------------------------------------
     HAS_SPINOR=false
     SUPPORTED_STORAGES=()
-    for storage in nvme ufs emmc spinor; do
-        if [[ -f "${PLATFORM_DIR}/${storage}/partitions.conf" ]]; then
-            SUPPORTED_STORAGES+=("$storage")
-            [[ "$storage" == "spinor" ]] && HAS_SPINOR=true
-        fi
-    done
-    echo "[INFO] Supported storages: ${SUPPORTED_STORAGES[*]}"
+
+    if [[ "$PRE_PARTITIONED" == "true" ]]; then
+        # Archive already contains partition_<storage>/ subdirs — discover from bins dir
+        BOARD_BOOT_DIR="${BOOT_BINS_DIR}/bins_${BOARD_NAME}"
+        for storage in nvme ufs emmc spinor; do
+            if [[ -d "${BOARD_BOOT_DIR}/partition_${storage}" ]]; then
+                SUPPORTED_STORAGES+=("$storage")
+                [[ "$storage" == "spinor" ]] && HAS_SPINOR=true
+            fi
+        done
+        echo "[INFO] Pre-partitioned archive — storages discovered: ${SUPPORTED_STORAGES[*]}"
+    else
+        for storage in nvme ufs emmc spinor; do
+            if [[ -f "${PLATFORM_DIR}/${storage}/partitions.conf" ]]; then
+                SUPPORTED_STORAGES+=("$storage")
+                [[ "$storage" == "spinor" ]] && HAS_SPINOR=true
+            fi
+        done
+        echo "[INFO] Supported storages: ${SUPPORTED_STORAGES[*]}"
+    fi
     echo "[INFO] Has spinor: ${HAS_SPINOR}"
 
     # ------------------------------------------------------------------
-    # Generate ptool partition tables (once per ptool platform)
+    # Generate ptool partition tables (only for non-pre-partitioned targets)
     # ------------------------------------------------------------------
     PTOOL_WORK="${BOOT_BINS_DIR}/ptool_${PTOOL_PLATFORM}"
 
-    if [[ -z "${GENERATED_PLATFORMS[$PTOOL_PLATFORM]+x}" ]]; then
-        echo "[INFO] Generating partition tables for platform: ${PTOOL_PLATFORM}"
-        mkdir -p "$PTOOL_WORK"
-        pushd "$PTOOL_WORK" > /dev/null
+    if [[ "$PRE_PARTITIONED" != "true" ]]; then
+        if [[ -z "${GENERATED_PLATFORMS[$PTOOL_PLATFORM]+x}" ]]; then
+            echo "[INFO] Generating partition tables for platform: ${PTOOL_PLATFORM}"
+            mkdir -p "$PTOOL_WORK"
+            pushd "$PTOOL_WORK" > /dev/null
 
-        for storage in "${SUPPORTED_STORAGES[@]}"; do
-            CONF="${PLATFORM_DIR}/${storage}/partitions.conf"
-            echo "[INFO]   Generating ${storage} partition table"
-            python3 "${PTOOL_DIR}/gen_partition.py" \
-                -i "$CONF" -o "partition_${storage}.xml"
-            python3 "${PTOOL_DIR}/ptool.py" \
-                -x "partition_${storage}.xml" \
-                -t "./partition_${storage}"
-            cleanup_flash_dir "./partition_${storage}"
+            for storage in "${SUPPORTED_STORAGES[@]}"; do
+                CONF="${PLATFORM_DIR}/${storage}/partitions.conf"
+                echo "[INFO]   Generating ${storage} partition table"
+                python3 "${PTOOL_DIR}/gen_partition.py" \
+                    -i "$CONF" -o "partition_${storage}.xml"
+                python3 "${PTOOL_DIR}/ptool.py" \
+                    -x "partition_${storage}.xml" \
+                    -t "./partition_${storage}"
+                cleanup_flash_dir "./partition_${storage}"
 
-            if [[ "$storage" == "spinor" ]]; then
-                LAST_SPINOR_PARTITION_XML="${PTOOL_WORK}/partition_spinor.xml"
-                LAST_SPINOR_PLATFORM_DIR="$PLATFORM_DIR"
-            fi
-        done
+                if [[ "$storage" == "spinor" ]]; then
+                    LAST_SPINOR_PARTITION_XML="${PTOOL_WORK}/partition_spinor.xml"
+                    LAST_SPINOR_PLATFORM_DIR="$PLATFORM_DIR"
+                fi
+            done
 
-        popd > /dev/null
-        GENERATED_PLATFORMS[$PTOOL_PLATFORM]=1
-    else
-        echo "[INFO] Reusing cached partition tables for platform: ${PTOOL_PLATFORM}"
+            popd > /dev/null
+            GENERATED_PLATFORMS[$PTOOL_PLATFORM]=1
+        else
+            echo "[INFO] Reusing cached partition tables for platform: ${PTOOL_PLATFORM}"
+        fi
     fi
 
     # ------------------------------------------------------------------
@@ -266,32 +283,41 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
     # Build one directory per storage type: <output>/<target>/<storage>/
     # ------------------------------------------------------------------
     TARGET_DIR="${OUTPUT_DIR}/${BOARD_NAME}"
+    BOARD_BOOT_DIR="${BOOT_BINS_DIR}/bins_${BOARD_NAME}"
 
     for storage in "${SUPPORTED_STORAGES[@]}"; do
         STORAGE_DIR="${TARGET_DIR}/${storage}"
-        PARTITION_DIR="${PTOOL_WORK}/partition_${storage}"
 
         echo ""
         echo "[INFO] Building ${BOARD_NAME}/${storage}/"
         mkdir -p "$STORAGE_DIR"
 
-        # 1. ptool-generated partition files (rawprogram*.xml, patch*.xml, gpt_*.bin, zeros_*.bin)
-        cp --preserve=mode,timestamps -av "${PARTITION_DIR}/." "${STORAGE_DIR}/"
-
-        # 2. Boot binaries (allowlist)
-        BOARD_BOOT_DIR="${BOOT_BINS_DIR}/bins_${BOARD_NAME}"
-        if [[ -d "$BOARD_BOOT_DIR" ]]; then
-            copy_boot_bins "$BOARD_BOOT_DIR" "$STORAGE_DIR"
+        if [[ "$PRE_PARTITIONED" == "true" ]]; then
+            # Pre-partitioned: extract partition_<storage>/ directly from bins dir.
+            # This contains both partition files AND boot binaries already combined.
+            PRE_PART_DIR="${BOARD_BOOT_DIR}/partition_${storage}"
+            cp --preserve=mode,timestamps -av "${PRE_PART_DIR}/." "${STORAGE_DIR}/"
+            cleanup_flash_dir "$STORAGE_DIR"
         else
-            echo "[WARN] Boot bins directory not found: ${BOARD_BOOT_DIR}"
+            PARTITION_DIR="${PTOOL_WORK}/partition_${storage}"
+
+            # 1. ptool-generated partition files
+            cp --preserve=mode,timestamps -av "${PARTITION_DIR}/." "${STORAGE_DIR}/"
+
+            # 2. Boot binaries (allowlist, no partition files)
+            if [[ -d "$BOARD_BOOT_DIR" ]]; then
+                copy_boot_bins "$BOARD_BOOT_DIR" "$STORAGE_DIR"
+            else
+                echo "[WARN] Boot bins directory not found: ${BOARD_BOOT_DIR}"
+            fi
         fi
 
-        # 3. CDT
+        # 3. CDT (both paths)
         if [[ -n "$CDT_SRC" ]]; then
             cp --preserve=mode,timestamps -v "$CDT_SRC" "${STORAGE_DIR}/cdt.bin"
         fi
 
-        # 4. System images — apply Table 1 rules
+        # 4. System images — apply Table 1 rules (same for both paths)
         case "$storage" in
             spinor)
                 # spinor: dtb.bin only — no efi, no rootfs
@@ -303,11 +329,10 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
                 fi
                 ;;
             nvme|ufs|emmc)
-                # efi.bin: always, built with sector size matched to storage type
+                # efi.bin: sector-size matched
                 SECTOR_SIZE=$(sector_size_for "$storage")
                 EFI_SRC="${SYSTEM_IMAGES_DIR}/efi_${SECTOR_SIZE}.bin"
                 if [[ ! -f "$EFI_SRC" ]]; then
-                    # fallback: use the single efi.bin if per-sector variants not pre-built
                     EFI_SRC="${SYSTEM_IMAGES_DIR}/efi.bin"
                 fi
                 if [[ -f "$EFI_SRC" ]]; then

@@ -93,6 +93,7 @@ def parse_boards_block(lines: list[str]) -> list[dict]:
                 "ptool_platform": "",
                 "cdt_url": "",
                 "cdt_filename": "",
+                "pre_partitioned": "false",
             }
             continue
 
@@ -155,6 +156,7 @@ def main() -> int:
         "ptool_platform": ptool_platform,
         "cdt_url": parse_flat_key(lines, "cdt_url") or parse_flat_key(lines, "cdt_binaries_url"),
         "cdt_filename": parse_flat_key(lines, "cdt_filename"),
+        "pre_partitioned": "false",
     }
     print(json.dumps([board], indent=2))
     return 0
