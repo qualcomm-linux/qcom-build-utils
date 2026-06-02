@@ -411,8 +411,8 @@ BOARD_COUNT_CX=$(echo "$BOARDS_JSON" | jq 'length')
 for k in $(seq 0 $((BOARD_COUNT_CX - 1))); do
     CX_BOARD=$(echo "$BOARDS_JSON"  | jq -r ".[$k].name")
     CX_PTOOL=$(echo "$BOARDS_JSON"  | jq -r ".[$k].ptool_platform")
-    CX_PRE=$(echo "$BOARDS_JSON"    | jq -r ".[$k].pre_partitioned // "false"")
-    CX_CXI=$(echo "$BOARDS_JSON"    | jq -r ".[$k].contents_xml_in // """)
+    CX_PRE=$(echo "$BOARDS_JSON"    | jq -r ".[$k].pre_partitioned // \"false\"")
+    CX_CXI=$(echo "$BOARDS_JSON"    | jq -r "if .[$k].contents_xml_in then .[$k].contents_xml_in else empty end // \"\"")
     CX_PLATFORM_DIR="${PTOOL_DIR}/platforms/${CX_PTOOL}"
     CX_PTOOL_WORK="${BOOT_BINS_DIR}/ptool_${CX_PTOOL}"
     CX_TARGET_DIR="${OUTPUT_DIR}/${CX_BOARD}"
