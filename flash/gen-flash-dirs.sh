@@ -390,14 +390,10 @@ for k in $(seq 0 $((BOARD_COUNT_CX - 1))); do
             echo "[INFO] Written: ${CX_OUT}"
 
             # Patch rootfs.img path to ../../rootfs.img
-            python3 -c "
-import re
-with open('${CX_OUT}') as f: c = f.read()
-c = re.sub(
-    r'(<file_name>rootfs\.img</file_name>\s*<file_path[^>]*>)[^<]*(</file_path>)',
-    r'\g<1>../../\g<2>', c)
-with open('${CX_OUT}', 'w') as f: f.write(c)
-"
+            xmlstarlet ed -L \
+                -u "//download_file[file_name='rootfs.img']/file_path" \
+                -v "../../" \
+                "$CX_OUT"
             echo "[INFO] Patched rootfs.img path in ${CX_OUT}"
 
             # Patch OS storage paths: NVME/ -> ../nvme/, UFS/ -> ../ufs/ etc.
@@ -428,14 +424,10 @@ with open('${CX_OUT}', 'w') as f: f.write(c)
                     -o "$CX_OUT"
                 echo "[INFO] Written: ${CX_OUT}"
                 # Patch rootfs.img path to ../../rootfs.img
-                python3 -c "
-import re
-with open('${CX_OUT}') as f: c = f.read()
-c = re.sub(
-    r'(<file_name>rootfs\.img</file_name>\s*<file_path[^>]*>)[^<]*(</file_path>)',
-    r'\g<1>../../\g<2>', c)
-with open('${CX_OUT}', 'w') as f: f.write(c)
-"
+                xmlstarlet ed -L \
+                    -u "//download_file[file_name='rootfs.img']/file_path" \
+                    -v "../../" \
+                    "$CX_OUT"
                 echo "[INFO] Patched rootfs.img path in ${CX_OUT}"
             else
                 echo "[INFO] No contents.xml.in for ${CX_BOARD}/${s} — skipping"
