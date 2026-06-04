@@ -6,10 +6,10 @@
 # Script: download-boot-bins.sh
 # ------------------------------------------------------------------------------
 # Description:
-#   Downloads and extracts boot binary archives and CDT archives for each board
-#   in a boards JSON array. Deduplicates downloads: if two boards share the same
-#   boot_binaries_url, the ZIP is downloaded only once and the extracted contents
-#   are reused via a symlink/copy.
+#   Downloads and extracts boot binary archives and CDT archives for each target
+#   in a boards JSON array. Deduplicates downloads: if two targets share the same
+#   boot_bin_url, the ZIP is downloaded only once and the extracted contents
+#   are reused.
 #
 # Usage:
 #   download-boot-bins.sh --boards-json '<json-array>' --output-dir <dir>
@@ -51,7 +51,7 @@ fi
 
 mkdir -p "$OUTPUT_DIR"
 
-# Cache: map URL -> local extracted directory (to deduplicate downloads)
+# Cache: map boot_bin_url -> local extracted directory (to deduplicate downloads)
 declare -A URL_TO_EXTRACTED_DIR
 
 BOARD_COUNT=$(echo "$BOARDS_JSON" | jq 'length')
