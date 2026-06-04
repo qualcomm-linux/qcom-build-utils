@@ -33,10 +33,10 @@
 #   Storage types are always discovered from qcom-ptool/platforms/<ptool_platform>/
 #   regardless of archive layout.
 #
-#   pre_partitioned flag: controls only where boot binaries are found:
-#     true  -> bins_<board>/partition_<storage>/  (archive has per-storage subdirs)
-#     false -> bins_<board>/                      (archive has flat layout)
-#   Auto-detected: if partition_<storage>/ subdir exists, use it; else use flat.
+#   pre_partitioned: accepted in targets.json for documentation purposes but not used
+#     at runtime. Boot bin location is auto-detected: if partition_<storage>/ subdir
+#     exists in bins_<board>/, it is used; otherwise the flat archive root is used.
+#     ptool always runs regardless of archive layout.
 #
 # Output layout:
 #   <output-dir>/
@@ -119,7 +119,8 @@ done
 PTOOL_DIR=$(realpath "$PTOOL_DIR")
 BOOT_BINS_DIR=$(realpath "$BOOT_BINS_DIR")
 SYSTEM_IMAGES_DIR=$(realpath "$SYSTEM_IMAGES_DIR")
-OUTPUT_DIR=$(realpath -m "$OUTPUT_DIR")
+mkdir -p "$OUTPUT_DIR"
+OUTPUT_DIR=$(realpath "$OUTPUT_DIR")
 [[ -n "$CONTENTS_XML_IN" ]] && CONTENTS_XML_IN=$(realpath "$CONTENTS_XML_IN")
 
 command -v python3 &>/dev/null || { echo "[ERROR] python3 is required"; exit 1; }
@@ -130,21 +131,26 @@ mkdir -p "$OUTPUT_DIR"
 # ------------------------------------------------------------------------------
 # Place rootfs.img at the output root (shared by all targets)
 # ------------------------------------------------------------------------------
-if [[ -f "${SYSTEM_IMAGES_DIR}/rootfs.img" ]]; then
-    cp --preserve=mode,timestamps -v \
-        "${SYSTEM_IMAGES_DIR}/rootfs.img" "${OUTPUT_DIR}/rootfs.img"
-else
-    echo "[WARN] rootfs.img not found in ${SYSTEM_IMAGES_DIR}"
+if [[ ! -f "${SYSTEM_IMAGES_DIR}/rootfs.img" ]]; then
+    echo "[ERROR] rootfs.img not found in ${SYSTEM_IMAGES_DIR} — cannot build flash package"
+    exit 1
 fi
+cp --preserve=mode,timestamps -v \
+    "${SYSTEM_IMAGES_DIR}/rootfs.img" "${OUTPUT_DIR}/rootfs.img"
 
 # ------------------------------------------------------------------------------
 # Helper: remove dangerous ptool wipe files from a flash dir
 # ------------------------------------------------------------------------------
 cleanup_flash_dir() {
     local dir="$1"
+    # NOTE: this is always called on a partition_<storage>/ subdirectory, never on
+    # the PTOOL_WORK root. The root-level partition_<storage>.xml files used by
+    # gen_contents.py are one level up and are never touched by this function.
     rm -vf "${dir}"/rawprogram*_BLANK_GPT.xml
     rm -vf "${dir}"/rawprogram*_WIPE_PARTITIONS.xml
     rm -vf "${dir}"/wipe_rawprogram*.xml
+    # Remove any intermediate partition XML files inside the subdir (not needed in output)
+    rm -vf "${dir}"/partition_*.xml
 }
 
 # ------------------------------------------------------------------------------
@@ -186,6 +192,11 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
             [[ "$storage" == "spinor" ]] && HAS_SPINOR=true
         fi
     done
+    if [[ ${#SUPPORTED_STORAGES[@]} -eq 0 ]]; then
+        echo "[ERROR] No supported storage types found for platform: ${PTOOL_PLATFORM}"
+        echo "[ERROR] Expected partitions.conf in ${PLATFORM_DIR}/<storage>/"
+        exit 1
+    fi
     echo "[INFO] Supported storages: ${SUPPORTED_STORAGES[*]}"
     echo "[INFO] Has spinor: ${HAS_SPINOR}"
 
@@ -223,11 +234,18 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
     # ------------------------------------------------------------------
     CDT_SRC=""
     if [[ -n "$CDT_FILENAME" ]]; then
-        CDT_SRC=$(find "${BOOT_BINS_DIR}/cdt_${BOARD_NAME}" \
-            -name "$CDT_FILENAME" 2>/dev/null | head -1 || true)
+        CDT_MATCHES=$(find "${BOOT_BINS_DIR}/cdt_${BOARD_NAME}"             -name "$CDT_FILENAME" 2>/dev/null || true)
+        if [[ -n "$CDT_MATCHES" ]]; then
+            CDT_COUNT=$(echo "$CDT_MATCHES" | wc -l)
+            if [[ "$CDT_COUNT" -gt 1 ]]; then
+                echo "[WARN] Multiple CDT files matching '${CDT_FILENAME}' found — using first match"
+            fi
+        fi
+        CDT_SRC=$(echo "$CDT_MATCHES" | head -1)
         if [[ -z "$CDT_SRC" ]]; then
-            CDT_SRC=$(find "${BOOT_BINS_DIR}/cdt_${BOARD_NAME}" \
-                -name '*.bin' 2>/dev/null | head -1 || true)
+            # Fallback: any .bin in the CDT dir
+            CDT_SRC=$(find "${BOOT_BINS_DIR}/cdt_${BOARD_NAME}"                 -name '*.bin' 2>/dev/null | head -1 || true)
+            [[ -n "$CDT_SRC" ]] && echo "[WARN] CDT filename '${CDT_FILENAME}' not found, using fallback: ${CDT_SRC}"
         fi
         if [[ -z "$CDT_SRC" ]]; then
             echo "[WARN] CDT file '${CDT_FILENAME}' not found for board ${BOARD_NAME}"
@@ -286,17 +304,15 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
             nvme|ufs|emmc)
                 for xml in "${STORAGE_DIR}"/rawprogram*.xml; do
                     [[ -f "$xml" ]] || continue
-                    sed -i -E 's/filename=""([^>]*label="efi")/filename="efi.bin"\1/g' "$xml"
-                    sed -i -E 's|filename=""([^>]*label="rootfs")|filename="../../rootfs.img"\1|g' "$xml"
-                    sed -i 's|filename="rootfs\.img"|filename="../../rootfs.img"|g' "$xml"
+                    # Use xmlstarlet for robust attribute-order-independent patching
+                    xmlstarlet ed -L                         -u "//program[@label='efi' and @filename='']/@filename" -v "efi.bin"                         -u "//program[@label='rootfs' and @filename='']/@filename" -v "../../rootfs.img"                         -u "//program[@label='rootfs' and @filename='rootfs.img']/@filename" -v "../../rootfs.img"                         "$xml"
                     echo "[INFO] Patched efi/rootfs filenames in $(basename "$xml")"
                 done
                 ;;
             spinor)
                 for xml in "${STORAGE_DIR}"/rawprogram*.xml; do
                     [[ -f "$xml" ]] || continue
-                    sed -i -E 's/filename=""([^>]*label="dtb_a")/filename="dtb.bin"\1/g' "$xml"
-                    sed -i -E 's/filename=""([^>]*label="dtb_b")/filename="dtb.bin"\1/g' "$xml"
+                    xmlstarlet ed -L                         -u "//program[@label='dtb_a' and @filename='']/@filename" -v "dtb.bin"                         -u "//program[@label='dtb_b' and @filename='']/@filename" -v "dtb.bin"                         "$xml"
                     echo "[INFO] Patched dtb_a/dtb_b filenames in $(basename "$xml")"
                 done
                 ;;
@@ -370,6 +386,10 @@ for k in $(seq 0 $((BOARD_COUNT_CX - 1))); do
     if [[ "$CX_HAS_SPINOR" == "true" ]]; then
         # Spinor target: one contents.xml inside <target>/spinor/
         CX_TEMPLATE=""
+        # Template resolution order:
+        #   1. --contents-xml-in arg (passed from workflow when contents_xml_in is set)
+        #   2. contents_xml_in path relative to repo root (two levels up from boot_bins/)
+        #   3. qcom-ptool platforms/<ptool>/spinor/contents.xml.in
         if [[ -n "$CX_CXI" && -f "$CONTENTS_XML_IN" ]]; then
             CX_TEMPLATE="$CONTENTS_XML_IN"
         elif [[ -n "$CX_CXI" ]]; then
@@ -397,13 +417,8 @@ for k in $(seq 0 $((BOARD_COUNT_CX - 1))); do
             echo "[INFO] Patched rootfs.img path in ${CX_OUT}"
 
             # Patch OS storage paths: NVME/ -> ../nvme/, UFS/ -> ../ufs/ etc.
-            for s in "${CX_STORAGES[@]}"; do
-                case "$s" in
-                    nvme)  sed -i "s|>NVME/<|>../nvme/<|g"  "$CX_OUT" ;;
-                    ufs)   sed -i "s|>UFS/<|>../ufs/<|g"    "$CX_OUT" ;;
-                    emmc)  sed -i "s|>EMMC/<|>../emmc/<|g"  "$CX_OUT" ;;
-                esac
-            done
+            # Use xmlstarlet for exact text matching — robust against casing changes in templates.
+            xmlstarlet ed -L                 -u "//file_path[text()='NVME/']" -v "../nvme/"                 -u "//file_path[text()='UFS/']"  -v "../ufs/"                  -u "//file_path[text()='EMMC/']" -v "../emmc/"                 "$CX_OUT"
             echo "[INFO] Patched OS storage paths in ${CX_OUT}"
         else
             echo "[WARN] Skipping spinor contents.xml for ${CX_BOARD}: template or partition XML not found"

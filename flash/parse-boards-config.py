@@ -12,7 +12,7 @@
 #       "ptool_platform":   "iq-x7181-evk",       (required)
 #       "cdt_url":          "https://...",         (optional, default "")
 #       "cdt_filename":     "cdt_foo.bin",         (optional, default "")
-#       "pre_partitioned":  "true",                (optional, default "false")
+#       "pre_partitioned":  "true",                (optional, default "false"; string not bool — used in bash string comparisons)
 #       "contents_xml_in":  "platform/foo/..."     (optional, default "")
 #     },
 #     ...
@@ -58,7 +58,7 @@ def main() -> int:
                 return 1
         t.setdefault("cdt_url", "")
         t.setdefault("cdt_filename", "")
-        t.setdefault("pre_partitioned", "false")
+        t.setdefault("pre_partitioned", "false")  # string, not bool — bash jq comparisons use strings
         t.setdefault("contents_xml_in", "")
 
     print(json.dumps(targets, indent=2))
