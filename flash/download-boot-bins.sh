@@ -16,7 +16,7 @@
 #
 # Output layout (inside --output-dir):
 #   bins_<board-name>/     extracted boot binary files for that board
-#   cdt_<board-name>/      extracted CDT files for that board (if cdt_binaries_url set)
+#   cdt_<board-name>/      extracted CDT files for that board (if cdt_url set)
 #
 # ==============================================================================
 
@@ -80,9 +80,10 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
         ARCHIVE_NAME=$(basename "$BOOT_URL")
         ARCHIVE_PATH="${OUTPUT_DIR}/${ARCHIVE_NAME}"
 
-        wget -q --show-progress -O "$ARCHIVE_PATH" "$BOOT_URL"
+        wget -q --show-progress -O "$ARCHIVE_PATH" "$BOOT_URL" || \
+            { echo "[ERROR] Failed to download boot bins: $BOOT_URL"; exit 1; }
 
-        EXTRACT_DIR="${OUTPUT_DIR}/_extract_$(echo "$BOOT_URL" | md5sum | cut -c1-8)"
+        EXTRACT_DIR="${OUTPUT_DIR}/_extract_$(echo "$BOOT_URL" | sha256sum | cut -c1-8)"
         mkdir -p "$EXTRACT_DIR"
 
         if [[ "$ARCHIVE_NAME" == *.zip ]]; then
@@ -91,9 +92,14 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
             tar -xf "$ARCHIVE_PATH" -C "$EXTRACT_DIR"
         fi
 
-        # Strip a single top-level directory if the archive has one
-        TOP_DIRS=("$EXTRACT_DIR"/*/)
-        if [[ ${#TOP_DIRS[@]} -eq 1 && -d "${TOP_DIRS[0]}" ]]; then
+        # Strip a single top-level directory if the archive has one.
+        # Use find -type d to count only real subdirectories, ignoring any
+        # top-level files that would cause the glob approach to miscount.
+        TOP_DIRS=()
+        while IFS= read -r -d '' d; do
+            TOP_DIRS+=("$d")
+        done < <(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
+        if [[ ${#TOP_DIRS[@]} -eq 1 ]]; then
             FLAT_DIR="${EXTRACT_DIR}_flat"
             mv "${TOP_DIRS[0]}" "$FLAT_DIR"
             rm -rf "$EXTRACT_DIR"
@@ -115,7 +121,8 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
         CDT_ARCHIVE_NAME=$(basename "$CDT_URL")
         CDT_ARCHIVE_PATH="${OUTPUT_DIR}/${CDT_ARCHIVE_NAME}"
 
-        wget -q --show-progress -O "$CDT_ARCHIVE_PATH" "$CDT_URL"
+        wget -q --show-progress -O "$CDT_ARCHIVE_PATH" "$CDT_URL" || \
+            { echo "[ERROR] Failed to download CDT: $CDT_URL"; exit 1; }
         mkdir -p "$CDT_DST"
         unzip -q "$CDT_ARCHIVE_PATH" -d "$CDT_DST"
         rm -f "$CDT_ARCHIVE_PATH"
