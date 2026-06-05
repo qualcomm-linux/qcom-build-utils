@@ -11,7 +11,7 @@
 # Per-storage image placement:
 #   nvme/ufs/emmc: efi.bin (4096-byte sectors for ufs/nvme, 512 for emmc)
 #                  dtb.bin (only if the target has no spinor storage)
-#                  rootfs.img referenced as ../../rootfs.img in rawprogram XMLs
+#                  rootfs.img at <target>/rootfs.img, referenced as ../rootfs.img
 #   spinor:        dtb.bin only (firmware-only; no efi or rootfs)
 #
 # Boot bin assembly per storage dir:
@@ -217,6 +217,11 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
     TARGET_DIR="${OUTPUT_DIR}/${BOARD_NAME}"
     BOARD_BOOT_DIR="${BOOT_BINS_DIR}/bins_${BOARD_NAME}"
 
+    # Copy rootfs.img to <target>/rootfs.img so rawprogram ../rootfs.img resolves
+    # correctly for both qdl (filesystem) and Axiom (strips ../ prefix).
+    mkdir -p "$TARGET_DIR"
+    cp --preserve=mode,timestamps -v         "${SYSTEM_IMAGES_DIR}/rootfs.img" "${TARGET_DIR}/rootfs.img"
+
     for storage in "${SUPPORTED_STORAGES[@]}"; do
         STORAGE_DIR="${TARGET_DIR}/${storage}"
         PARTITION_DIR="${PTOOL_WORK}/partition_${storage}"
@@ -264,9 +269,9 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
                         -u "//program[@label='efi' and @filename='']/@filename" \
                             -v "efi.bin" \
                         -u "//program[@label='rootfs' and @filename='']/@filename" \
-                            -v "../../rootfs.img" \
+                            -v "../rootfs.img" \
                         -u "//program[@label='rootfs' and @filename='rootfs.img']/@filename" \
-                            -v "../../rootfs.img" \
+                            -v "../rootfs.img" \
                         "$xml"
                     echo "[INFO] Patched efi/rootfs filenames in $(basename "$xml")"
                 done
@@ -382,7 +387,7 @@ for k in $(seq 0 $((BOARD_COUNT - 1))); do
             # Patch rootfs.img path to ../../rootfs.img
             xmlstarlet ed -L \
                 -u "//download_file[file_name='rootfs.img']/file_path" \
-                -v "../../" \
+                -v "../" \
                 "$CX_OUT"
             echo "[INFO] Patched rootfs.img path in ${CX_OUT}"
 
@@ -415,7 +420,7 @@ for k in $(seq 0 $((BOARD_COUNT - 1))); do
                 # Patch rootfs.img path to ../../rootfs.img
                 xmlstarlet ed -L \
                     -u "//download_file[file_name='rootfs.img']/file_path" \
-                    -v "../../" \
+                    -v "../" \
                     "$CX_OUT"
                 echo "[INFO] Patched rootfs.img path in ${CX_OUT}"
             else
