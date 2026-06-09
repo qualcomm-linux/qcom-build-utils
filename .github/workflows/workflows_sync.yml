@@ -179,24 +179,28 @@ jobs:
                   echo "    👀 Dry-run mode - No PR will be created for $default_branch"
                 fi
 
-                # Return to default branch before debian/* sync
+                # Return to default branch before packaging-branch sync
                 git checkout "$default_branch" 2>&1 | sed 's/^/    /'
               else
                 echo "    ✨ No main branch changes needed for $repo"
               fi
 
-              # Sync pkg-pr-hook.yml from qcom-build-utils pkg-workflows
-              # to every debian/* and qcom/debian/* branch
-              debian_branches=$(git branch -r | grep -E 'origin/(qcom/)?debian/' | sed 's|.*origin/||' | tr -d ' ')
+              # Sync pkg-pr-hook.yml to every managed packaging branch family.
+              # Supported families:
+              #   - debian/*
+              #   - ubuntu/*
+              #   - qcom/debian/*
+              #   - qcom/ubuntu/*
+              # Exclude transient promotion branches (*/pr/*).
+              packaging_branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin \
+                | sed 's|^origin/||' \
+                | grep -E '^(debian/|ubuntu/|qcom/debian/|qcom/ubuntu/)' \
+                | grep -Ev '(^|/)pr/' \
+                | sort -u)
 
-              for debian_branch in $debian_branches; do
-                # Skip debian/latest itself (it's the source)
-                if [[ "$debian_branch" == "debian/latest" ]]; then
-                  continue
-                fi
-
-                echo "  🌿 Checking pkg-pr-hook.yml on branch: $debian_branch"
-                safe_branch_name="${debian_branch//\//-}"
+              for packaging_branch in $packaging_branches; do
+                echo "  🌿 Checking pkg-pr-hook.yml on branch: $packaging_branch"
+                safe_branch_name="${packaging_branch//\//-}"
                 debian_sync_branch="sync/qcom-build-utils-pkg-pr-hook-${safe_branch_name}"
 
                 # Delete existing sync branch if from a previous run
@@ -205,26 +209,26 @@ jobs:
                   git push origin --delete "$debian_sync_branch" 2>&1 | sed 's/^/    /'
                 fi
 
-                git checkout "$debian_branch" 2>&1 | sed 's/^/    /'
+                git checkout "$packaging_branch" 2>&1 | sed 's/^/    /'
 
                 isDebianDirty=false
 
                 if [[ -f "$DEBIAN_LEGACY_WORKFLOW_FILE" ]]; then
-                  echo "    🗑️ Removing legacy pr-pre-post-merge.yml on $debian_branch"
+                  echo "    🗑️ Removing legacy pr-pre-post-merge.yml on $packaging_branch"
                   rm "$DEBIAN_LEGACY_WORKFLOW_FILE"
                   isDebianDirty=true
                 fi
 
                 if [[ -f "$DEBIAN_TARGET_WORKFLOW_FILE" ]]; then
                   if diff -q "$DEBIAN_LATEST_WORKFLOW_FILE" "$DEBIAN_TARGET_WORKFLOW_FILE" > /dev/null; then
-                    echo "    ✅ pkg-pr-hook.yml is up to date on $debian_branch"
+                    echo "    ✅ pkg-pr-hook.yml is up to date on $packaging_branch"
                   else
-                    echo "    ❌ pkg-pr-hook.yml differs on $debian_branch"
+                    echo "    ❌ pkg-pr-hook.yml differs on $packaging_branch"
                     cp "$DEBIAN_LATEST_WORKFLOW_FILE" "$DEBIAN_TARGET_WORKFLOW_FILE"
                     isDebianDirty=true
                   fi
                 else
-                  echo "    + Creating pkg-pr-hook.yml on $debian_branch (missing)"
+                  echo "    + Creating pkg-pr-hook.yml on $packaging_branch (missing)"
                   mkdir -p ".github/workflows"
                   cp "$DEBIAN_LATEST_WORKFLOW_FILE" "$DEBIAN_TARGET_WORKFLOW_FILE"
                   isDebianDirty=true
@@ -236,19 +240,19 @@ jobs:
                   git commit -s -m "chore: sync pkg-pr-hook from qcom-build-utils" 2>&1 | sed 's/^/    /'
 
                   if [[ "$CONFIRMATION_INPUT" == "true" ]]; then
-                    echo "    🚀 Pushing changes and creating PR for $debian_branch"
+                    echo "    🚀 Pushing changes and creating PR for $packaging_branch"
                     git push origin "$debian_sync_branch" 2>&1 | sed 's/^/    /'
 
                     pr_url=$(gh pr create --repo "$ORG/$repo" \
                       --title "chore: sync pkg-pr-hook from qcom-build-utils" \
                       --body "This PR syncs \`pkg-pr-hook.yml\` from qcom-build-utils \`.github/pkg-workflows/debian/\`." \
                       --head "$debian_sync_branch" \
-                      --base "$debian_branch")
+                      --base "$packaging_branch")
 
                     PR_URLS+=("$pr_url")
-                    echo "    ✅ PR created: $pr_url"
+                    echo "    ✅ PR created for $packaging_branch: $pr_url"
                   else
-                    echo "    👀 Dry-run mode - No PR will be created for $debian_branch"
+                    echo "    👀 Dry-run mode - No PR will be created for $packaging_branch"
                   fi
                 fi
               done
