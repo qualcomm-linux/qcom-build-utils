@@ -16,10 +16,9 @@ on:
         required: true
 
       debian-branch:
-        description: The debian branch to apply the promotion to. For example branch "debian/qcom-next"
+        description: The debian branch to apply the promotion to. For example branch "qcom/debian/latest"
         type: string
         required: false
-        default: debian/qcom-next
 
       upstream-tag:
         description: The tag in the upstream repo to promote to.

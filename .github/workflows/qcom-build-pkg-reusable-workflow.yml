@@ -17,7 +17,6 @@ on:
         description: The debian ref to build. For example branch "qcom/debian/latest" or tag "debian/1.0.0-1"
         type: string
         required: true
-        default: qcom/debian/latest
 
       suite:
         description: The distribution codename or Debian suite to build for. Ex noble, questing, resolute, trixie, sid, unstable
