@@ -361,7 +361,8 @@ jobs:
           fetch-depth: 1
 
       - name: Validate installability from Debusine CI workspace
-        if: ${{ needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' }}
+        # Temporarily disabled while dependency repository injection is unresolved.
+        if: ${{ false }}
         env:
           DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
           DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
@@ -436,7 +437,8 @@ jobs:
           tar -C build-area -xzf docker-build-area.tgz
 
       - name: Validate installability from Docker build artifacts
-        if: ${{ needs.resolve.outputs.family == 'ubuntu' || needs.resolve.outputs.force_docker_build == 'true' }}
+        # Temporarily disabled while dependency repository injection is unresolved.
+        if: ${{ false }}
         run: |
           set -euxo pipefail
 
@@ -516,3 +518,14 @@ jobs:
           echo "workspace_url=${{ needs.test.outputs.workspace_url }}" >> "$GITHUB_OUTPUT"
           echo "srcpkg_name=${{ needs.test.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
           echo "srcpkg_version=${{ needs.test.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
+
+      - name: Note temporary installability policy
+        run: |
+          {
+            echo "## Temporary Test Policy"
+            echo
+            echo ":warning: Installability validation is temporarily disabled."
+            echo
+            echo "- Skipped: Validate installability from Debusine CI workspace"
+            echo "- Skipped: Validate installability from Docker build artifacts"
+          } >> "$GITHUB_STEP_SUMMARY"
