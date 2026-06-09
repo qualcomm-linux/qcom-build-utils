@@ -13,10 +13,9 @@ on:
         required: true
 
       debian-branch:
-        description: The debian branch to use to execute the release from. For example branch "debian/qcom-next"
+        description: The debian branch to use to execute the release from. For example branch "qcom/debian/latest"
         type: string
         required: false
-        default: debian/qcom-next
 
       suite:
         description: The distribution codename or Debian suite to build and release for. Ex noble, questing, resolute, trixie, sid

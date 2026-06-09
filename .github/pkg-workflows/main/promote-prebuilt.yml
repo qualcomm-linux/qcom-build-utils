@@ -5,10 +5,10 @@ on:
     inputs:
 
       debian-branch:
-        description: The debian branch to apply the promotion to. For example "debian/qcom-next"
+        description: The debian branch to apply the promotion to. For example "qcom/debian/latest"
         type: string
         required: false
-        default: debian/qcom-next
+        default: qcom/debian/latest
 
       new-tag:
         description: |
