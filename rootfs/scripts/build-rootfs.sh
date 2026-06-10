@@ -17,7 +17,9 @@
 #   - Supports JSON package manifest for additional package installation
 #     (via apt or local .deb) inside the rootfs.
 #   - Supports injecting custom apt sources from the package manifest.
-#   - Injects custom kernel and firmware .deb packages.
+#   - Optionally injects custom kernel and firmware .deb packages.
+#   - Supports installing local .deb packages (--local-debs) with full dependency resolution
+#     via a temporary local APT repository built inside the rootfs.
 #   - Installs user-specified packages from seed and/or overlay manifest.
 #   - Dynamically deduces and generates base and custom package manifests.
 #   - Configures GRUB bootloader, hostname, DNS, and other system settings.
@@ -27,18 +29,28 @@
 #   ./build-rootfs.sh \
 #     --product-conf qcom-product.conf \
 #     --seed seed_file \
-#     --kernel-package kernel.deb \
+#     [--kernel-package kernel.deb] \
 #     [--firmware firmware.deb] \
 #     [--overlay package-manifest.json] \
-#     [--variant desktop]
+#     [--variant desktop] \
+#     [--local-debs pkg-a.deb] \
+#     [--local-debs debs/]
 #
 # ARGUMENTS:
 #   --product-conf <qcom-product.conf>     Required. Product configuration file.
 #   --seed <seed_file>                     Required. Seed file: one package per line (# comments allowed).
-#   --kernel-package <kernel.deb>          Required. Custom kernel package.
+#   --kernel-package <kernel.deb>          Optional. Custom kernel package.
 #   --firmware <firmware.deb>              Optional. Custom firmware package.
 #   --overlay <package-manifest.json>      Optional. JSON manifest specifying extra packages/apt sources.
 #   --variant <variant_name>               Optional. System variant (default: desktop).
+#   --local-debs <path>                    Optional. A .deb file OR a directory of .deb files to install
+#                                          via a local APT repo (repeatable). May be specified multiple
+#                                          times. Inter-package dependencies are resolved automatically
+#                                          via a temporary local APT repository built inside the rootfs.
+#                                          Installed after manifest packages (--overlay).
+#                                          Examples:
+#                                            --local-debs mypkg.deb
+#                                            --local-debs debs/
 #
 # OUTPUT:
 #   rootfs.img                             Flashable ext4 rootfs image.
@@ -69,21 +81,26 @@ MANIFEST=""          # internal name retained (overlay JSON)
 KERNEL_DEB=""
 FIRMWARE_DEB=""
 VARIANT_INPUT=""     # New variable to hold the variant argument
+LOCAL_DEBS=()        # Array of local .deb file paths (--local-debs, repeatable)
 USE_CONF=0
 USE_MANIFEST=0
 TARGET=""
 
 print_usage() {
     echo "Usage:"
-    echo "  $0 --product-conf <qcom-product.conf> --seed <seed_file> --kernel-package <kernel.deb> [--firmware <firmware.deb>] [--overlay <package-manifest.json>] [--variant <variant>]"
+    echo "  $0 --product-conf <qcom-product.conf> --seed <seed_file> [--kernel-package <kernel.deb>] [--firmware <firmware.deb>] [--overlay <package-manifest.json>] [--variant <variant>] [--local-debs <pkg.deb>] ..."
     echo
     echo "Arguments:"
     echo "  --product-conf   Required. qcom-product.conf"
     echo "  --seed           Required. Seed file (one package per line; supports # comments)"
-    echo "  --kernel-package Required. Kernel .deb"
+    echo "  --kernel-package Optional. Kernel .deb"
     echo "  --firmware       Optional. Firmware .deb"
     echo "  --overlay        Optional. package-manifest.json (same schema as current manifest)"
     echo "  --variant        Optional. System variant (default: desktop)"
+    echo "  --local-debs     Optional. A .deb file OR a directory of .deb files to install via a"
+    echo "                   local APT repo (repeatable). Specify once per path. Dependencies"
+    echo "                   between packages are resolved automatically. Installed after manifest."
+    echo "                   Examples: --local-debs mypkg.deb   --local-debs debs/"
 }
 
 # Parse named options
@@ -102,6 +119,8 @@ while [[ $# -gt 0 ]]; do
             MANIFEST="${2-}"; shift 2 ;;
         --variant)
             VARIANT_INPUT="${2-}"; shift 2 ;;
+        --local-debs)
+            if [[ -n "${2-}" ]]; then LOCAL_DEBS+=("${2-}"); fi; shift 2 ;;
         -h|--help)
             print_usage
             exit 0
@@ -115,7 +134,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate required args
-if [[ -z "${CONF}" || -z "${SEED}" || -z "${KERNEL_DEB}" ]]; then
+if [[ -z "${CONF}" || -z "${SEED}" ]]; then
     echo "[ERROR] Missing required argument(s)."
     print_usage
     exit 1
@@ -129,13 +148,25 @@ fi
 
 [[ -f "$CONF" ]] || { echo "[ERROR] Config file not found: $CONF"; exit 1; }
 [[ -f "$SEED" ]] || { echo "[ERROR] Seed file not found: $SEED"; exit 1; }
-[[ -f "$KERNEL_DEB" ]] || { echo "[ERROR] Kernel package not found: $KERNEL_DEB"; exit 1; }
+if [[ -n "$KERNEL_DEB" ]]; then
+    [[ -f "$KERNEL_DEB" ]] || { echo "[ERROR] Kernel package not found: $KERNEL_DEB"; exit 1; }
+fi
 if [[ -n "$FIRMWARE_DEB" ]]; then
     [[ -f "$FIRMWARE_DEB" ]] || { echo "[ERROR] Firmware package not found: $FIRMWARE_DEB"; exit 1; }
 fi
 if [[ "$USE_MANIFEST" -eq 1 && -n "$MANIFEST" ]]; then
     [[ -f "$MANIFEST" ]] || { echo "[ERROR] Manifest/overlay file not found: $MANIFEST"; exit 1; }
 fi
+for _deb in "${LOCAL_DEBS[@]}"; do
+    if [[ -d "$_deb" ]]; then
+        : # directory — may contain zero or more .deb files; handled gracefully at copy time
+    elif [[ -f "$_deb" ]]; then
+        : # valid .deb file path
+    else
+        echo "[ERROR] --local-debs path not found (not a file or directory): $_deb"
+        exit 1
+    fi
+done
 
 WORKDIR=$(pwd)
 MNT_DIR="$WORKDIR/mnt"
@@ -391,7 +422,9 @@ fi
 # Step 4: Inject Kernel, Firmware, and Working resolv.conf
 # ==============================================================================
 echo "[INFO] Copying kernel and firmware packages into rootfs..."
-cp "$KERNEL_DEB" "$ROOTFS_DIR/"
+if [[ -n "$KERNEL_DEB" ]]; then
+    cp "$KERNEL_DEB" "$ROOTFS_DIR/"
+fi
 if [[ -n "$FIRMWARE_DEB" ]]; then
     cp "$FIRMWARE_DEB" "$ROOTFS_DIR/"
 fi
@@ -464,6 +497,27 @@ EOF
 chmod +x "$ROOTFS_DIR/install_manifest_pkgs.sh"
 
 # ==============================================================================
+# Step 6.5: Copy local .deb packages into rootfs (if provided)
+# ==============================================================================
+if [[ ${#LOCAL_DEBS[@]} -gt 0 ]]; then
+    echo "[INFO] Copying local .deb packages into rootfs for local APT repository..."
+    mkdir -p "$ROOTFS_DIR/opt/local-debs"
+    for _deb in "${LOCAL_DEBS[@]}"; do
+        if [[ -d "$_deb" ]]; then
+            echo "[INFO]   -> directory: $_deb"
+            for _f in "$_deb"/*.deb; do
+                [[ -f "$_f" ]] || continue   # skip if glob matched nothing (empty dir)
+                echo "[INFO]      $(basename "$_f")"
+                cp "$_f" "$ROOTFS_DIR/opt/local-debs/"
+            done
+        else
+            echo "[INFO]   -> $(basename "$_deb")"
+            cp "$_deb" "$ROOTFS_DIR/opt/local-debs/"
+        fi
+    done
+fi
+
+# ==============================================================================
 # Step 7: Bind Mount System Directories for chroot
 # ==============================================================================
 echo "[INFO] Binding system directories..."
@@ -516,6 +570,13 @@ else
     CMD_FW_INSTALL="echo '[CHROOT] Skipping firmware installation.'"
 fi
 
+CMD_KERNEL_INSTALL=""
+if [[ -n "$KERNEL_DEB" ]]; then
+    CMD_KERNEL_INSTALL="yes \"\" | dpkg -i /$(basename "$KERNEL_DEB")"
+else
+    CMD_KERNEL_INSTALL="echo '[CHROOT] Skipping kernel installation (no kernel package provided).'"
+fi
+
 echo "[INFO] Entering chroot to install packages and configure GRUB..."
 env DISTRO="$DISTRO" CODENAME="$CODENAME" VARIANT="$VARIANT" \
     chroot "$ROOTFS_DIR" /bin/bash -c "
@@ -562,7 +623,7 @@ dpkg-query -W -f='\${Package} \${Version}\n' > /tmp/\${CODENAME}_base.manifest
 
 echo '[CHROOT] Installing custom firmware and kernel...'
 $CMD_FW_INSTALL
-yes \"\" | dpkg -i /$(basename "$KERNEL_DEB")
+$CMD_KERNEL_INSTALL
 
 # Run update-grub explicitly: the zz-update-grub hook skips it in a chroot
 # because systemd is not running (/run/systemd/system absent).
@@ -574,6 +635,23 @@ usermod -aG sudo qcom
 
 echo '[CHROOT] Installing manifest packages (if any)...'
 /install_manifest_pkgs.sh || true
+
+echo '[CHROOT] Installing local .deb packages via local APT repository (if any)...'
+if ls /opt/local-debs/*.deb >/dev/null 2>&1; then
+    echo '[CHROOT] Setting up local .deb APT repository...'
+    apt-get install -y --no-install-recommends dpkg-dev
+    cd /opt/local-debs
+    dpkg-scanpackages . /dev/null > Packages
+    cd /
+    echo 'deb [trusted=yes] file:///opt/local-debs ./' > /etc/apt/sources.list.d/local-debs.list
+    apt-get update
+    LOCAL_PKG_NAMES=\$(for deb in /opt/local-debs/*.deb; do dpkg-deb --field \"\$deb\" Package; done | tr '\n' ' ')
+    echo \"[CHROOT] Installing local packages: \$LOCAL_PKG_NAMES\"
+    apt-get install -y \$LOCAL_PKG_NAMES
+    echo '[CHROOT] Local .deb packages installed successfully.'
+else
+    echo '[CHROOT] No local .deb packages found; skipping.'
+fi
 
 echo '[CHROOT] Capturing post-install package list...'
 dpkg-query -W -f='\${Package} \${Version}\n' > /tmp/\${CODENAME}_post.manifest
