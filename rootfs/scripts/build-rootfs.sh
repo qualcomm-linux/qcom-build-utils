@@ -18,6 +18,8 @@
 #     (via apt or local .deb) inside the rootfs.
 #   - Supports injecting custom apt sources from the package manifest.
 #   - Optionally injects custom kernel and firmware .deb packages.
+#   - Supports installing kernel packages via APT through the --overlay manifest
+#     (source: apt); update-grub runs after all installs regardless of kernel path.
 #   - Supports installing local .deb packages (--local-debs) with full dependency resolution
 #     via a temporary local APT repository built inside the rootfs.
 #   - Installs user-specified packages from seed and/or overlay manifest.
@@ -625,10 +627,6 @@ echo '[CHROOT] Installing custom firmware and kernel...'
 $CMD_FW_INSTALL
 $CMD_KERNEL_INSTALL
 
-# Run update-grub explicitly: the zz-update-grub hook skips it in a chroot
-# because systemd is not running (/run/systemd/system absent).
-update-grub
-
 adduser --disabled-password --gecos '' qcom
 echo 'qcom:qcom' | chpasswd
 usermod -aG sudo qcom
@@ -653,20 +651,15 @@ else
     echo '[CHROOT] No local .deb packages found; skipping.'
 fi
 
-echo '[CHROOT] Capturing post-install package list...'
-dpkg-query -W -f='\${Package} \${Version}\n' > /tmp/\${CODENAME}_post.manifest
-
-echo '[CHROOT] Sorting and computing package delta...'
-sort /tmp/\${CODENAME}_base.manifest > /tmp/sorted_base.manifest
-sort /tmp/\${CODENAME}_post.manifest > /tmp/sorted_post.manifest
-DATE=\$(date +%Y-%m-%d)
-comm -13 /tmp/sorted_base.manifest /tmp/sorted_post.manifest > /tmp/packages_\${DATE}.manifest
-
-echo '[CHROOT] Cleaning up intermediate files...'
-rm -f /tmp/\${CODENAME}_post.manifest /tmp/sorted_base.manifest /tmp/sorted_post.manifest
-
-echo '[CHROOT] Base package list preserved as /tmp/\${CODENAME}_base.manifest'
-echo '[CHROOT] Custom installed packages saved to /tmp/packages_\${DATE}.manifest'
+# ==============================================================================
+# Run update-grub after ALL installs (firmware, kernel via dpkg or apt, manifest,
+# local-debs). This ensures GRUB sees whichever kernel was installed last,
+# regardless of the delivery path.
+# The zz-update-grub hook skips update-grub in a chroot because systemd is not
+# running (/run/systemd/system absent), so we call it explicitly here.
+# ==============================================================================
+echo '[CHROOT] Running update-grub after all package installs...'
+update-grub
 
 # ==============================================================================
 # GRUB Configuration Cleanup & Standardization
@@ -686,27 +679,43 @@ sed -i 's/root=\/dev\/[^ ]* //g' /boot/grub/grub.cfg
 # Device Tree Configuration for Debian platforms
 # ==============================================================================
 
-if [ \"\${distro_lc}\" = \"debian\" ]; then
+if [ "\${distro_lc}" = "debian" ]; then
     echo '[INFO][CHROOT] Debian target detected. Configuring platform Device Tree...'
 
     # Locate the platform Device Tree Blob (DTB) in standard library or firmware paths
-    DTB_PATH=\$(find /usr/lib /lib/firmware -name \"glymur-crd.dtb\" -print -quit)
+    DTB_PATH=\$(find /usr/lib /lib/firmware -name "glymur-crd.dtb" -print -quit)
 
-    if [ -n \"\$DTB_PATH\" ]; then
-        echo \"[INFO][CHROOT] Platform DTB resolved: \$DTB_PATH\"
+    if [ -n "\$DTB_PATH" ]; then
+        echo "[INFO][CHROOT] Platform DTB resolved: \$DTB_PATH"
         
         # Ensure DTB is accessible in the bootloader's filesystem scope
-        ln -sf \"\$DTB_PATH\" /boot/dtb
+        ln -sf "\$DTB_PATH" /boot/dtb
         
         # Inject the devicetree directive into the generated GRUB configuration.
         # This appends the command immediately following the 'initrd' load.
-        sed -i \"/^[[:space:]]*initrd/a \    devicetree /boot/dtb\" /boot/grub/grub.cfg
+        sed -i "/^[[:space:]]*initrd/a \    devicetree /boot/dtb" /boot/grub/grub.cfg
         
         echo '[SUCCESS][CHROOT] Device Tree directive injected into /boot/grub/grub.cfg'
     else
         echo '[WARN][CHROOT] Target DTB (glymur-crd.dtb) not found. Skipping injection.'
     fi
 fi
+
+echo '[CHROOT] Capturing post-install package list...'
+dpkg-query -W -f='\${Package} \${Version}\n' > /tmp/\${CODENAME}_post.manifest
+
+echo '[CHROOT] Sorting and computing package delta...'
+sort /tmp/\${CODENAME}_base.manifest > /tmp/sorted_base.manifest
+sort /tmp/\${CODENAME}_post.manifest > /tmp/sorted_post.manifest
+DATE=\$(date +%Y-%m-%d)
+comm -13 /tmp/sorted_base.manifest /tmp/sorted_post.manifest > /tmp/packages_\${DATE}.manifest
+
+echo '[CHROOT] Cleaning up intermediate files...'
+rm -f /tmp/\${CODENAME}_post.manifest /tmp/sorted_base.manifest /tmp/sorted_post.manifest
+
+echo '[CHROOT] Base package list preserved as /tmp/\${CODENAME}_base.manifest'
+echo '[CHROOT] Custom installed packages saved to /tmp/packages_\${DATE}.manifest'
+
 "
 
 # ==============================================================================
