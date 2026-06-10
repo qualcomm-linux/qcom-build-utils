@@ -139,7 +139,7 @@ fi
 
 WORKDIR=$(pwd)
 MNT_DIR="$WORKDIR/mnt"
-ROOTFS_DIR="$WORKDIR/rootfs"
+ROOTFS_DIR="$WORKDIR/rootfs_work"
 ROOTFS_IMG="rootfs.img"
 mkdir -p "$MNT_DIR" "$ROOTFS_DIR"
 
