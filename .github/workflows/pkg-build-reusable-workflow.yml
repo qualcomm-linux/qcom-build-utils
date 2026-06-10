@@ -113,8 +113,7 @@ permissions:
   packages: read
 
 env:
-  # TODO: update to main once feat/generate-source-package-non-gbp-quilt is merged.
-  DEBUSINE_ACTION_REF: feat/generate-source-package-non-gbp-quilt
+  DEBUSINE_ACTION_REF: main
 
 jobs:
   resolve:
