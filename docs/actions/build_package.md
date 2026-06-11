@@ -13,6 +13,39 @@
 | `build-dir` | Yes | - | Directory where build artifacts will be placed |
 | `run-lintian` | No | `false` | Whether to run lintian quality checks |
 
+## Optional Repo File
+
+If the package repository contains `debian/extra-repositories.txt`, each
+active entry is forwarded to `sbuild` as:
+
+```bash
+--extra-repository "<line>"
+```
+
+This applies to all build modes (source/gbp and prebuilt/native/quilt).
+
+Supported entry forms:
+
+```text
+# Applies to all suites:
+deb [arch=arm64 signed-by=/etc/apt/keyrings/vendor.gpg] https://repo.example.org/debian {suite} main
+
+# Applies only to specific suites:
+[noble,questing,resolute] deb [arch=arm64 trusted=yes] https://ppa.launchpadcontent.net/example/team/ubuntu noble main
+```
+
+Notes:
+- Lines beginning with `#` and empty lines are ignored.
+- Suite filters support `all` or `*` as wildcards.
+- Suite placeholders are expanded at runtime: `{suite}`, `{SUITE}`, `${suite}`, `${SUITE}`, `@suite@`, `@SUITE@`.
+
+Example:
+
+```text
+# Extra dependency repositories for this package
+deb [arch=arm64 signed-by=/etc/apt/keyrings/vendor.gpg] https://ppa.launchpadcontent.net/example/team/ubuntu noble main
+```
+
 ## Process Flow
 
 ```mermaid
@@ -23,11 +56,11 @@ flowchart TD
     D -->|quilt| E[Quilt Format OK]
     D -->|native| F[Native Format OK]
     D -->|unknown| G[Error: Unsupported]
-    E --> H{Check for Extra Repo}
+    E --> H{debian/extra-repositories.txt exists?}
     F --> H
-    H -->|Available| I[Add pkg.qualcomm.com repo]
-    H -->|Not Available| J[Skip Extra Repo]
-    I --> K[Run gbp buildpackage]
+    H -->|Yes| I[Pass each entry as --extra-repository]
+    H -->|No| J[Use default apt repositories only]
+    I --> K[Run sbuild/gbp buildpackage]
     J --> K
     K --> L{Lintian Enabled?}
     L -->|Yes| M[Run with --run-lintian]
@@ -53,15 +86,14 @@ The action determines the build configuration based on the runner architecture:
 The action runs git-buildpackage with sbuild:
 
 ```bash
-gbp buildpackage \
-  --git-ignore-branch \
-  --git-builder="sbuild --host=arm64 \
-                        --build=${BUILD_ARCH} \
-                        --dist=${suite} \
-                        ${lintian_flag} \
-                        --build-dir ../${build-dir} \
-                        --build-dep-resolver=apt \
-                        ${EXTRA_REPO}"
+sbuild --no-clean-source \
+  --host=arm64 \
+  --build=${BUILD_ARCH} \
+  --dist=${suite} \
+  ${lintian_flag} \
+  --build-dir ../${build-dir} \
+  --build-dep-resolver=apt \
+  [--extra-repository "<entry>" ...]
 ```
 
 ## Key Features
@@ -69,7 +101,7 @@ gbp buildpackage \
 - **Cross-compilation support**: Can build ARM64 packages on x86_64 hosts
 - **Native builds**: Can build ARM64 packages on ARM64 hosts (faster)
 - **Chroot isolation**: Uses sbuild with unshare mode for clean builds
-- **Extra repository**: Automatically adds internal Qualcomm repo if available
+- **Extra repositories**: Loads repo-specific entries from `debian/extra-repositories.txt` and passes them via `--extra-repository`
 - **Error handling**: Prints build log tail on failure for debugging
 - **Source format detection**: Supports both quilt and native formats
 

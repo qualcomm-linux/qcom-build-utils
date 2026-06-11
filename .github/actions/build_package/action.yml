@@ -160,6 +160,87 @@ runs:
         # subsequent cd operations might change the working directory.
         BUILD_DIR_ABS=$(realpath "../${{inputs.build-dir}}")
 
+        # Optional repo-local extension point for additional build-dependency apt repos.
+        # Each non-empty, non-comment line in debian/extra-repositories.txt is passed
+        # through to sbuild as --extra-repository "<line>".
+        #
+        # Supported entry formats:
+        #   deb [arch=arm64 ...] https://example.org/repo {suite} main
+        #     -> applies to all suites
+        #
+        #   [noble,questing] deb [arch=arm64 ...] https://ppa.launchpadcontent.net/org/ppa/ubuntu noble main
+        #     -> applies only when target suite is listed
+        #
+        # Placeholders replaced with the runtime suite:
+        #   {suite}, {SUITE}, ${suite}, ${SUITE}, @suite@, @SUITE@
+        EXTRA_REPOSITORIES_FILE="./debian/extra-repositories.txt"
+        target_suite="${{inputs.suite}}"
+        if [[ "$target_suite" == "unstable" ]]; then
+          target_suite="sid"
+        fi
+        extra_repository_values=()
+        extra_repository_args=()
+        declare -A extra_repository_seen=()
+
+        if [[ -f "$EXTRA_REPOSITORIES_FILE" ]]; then
+          echo "ℹ️ Found ${EXTRA_REPOSITORIES_FILE}; loading extra sbuild repositories"
+
+          while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+            line="$(printf '%s' "$raw_line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+            [[ -n "$line" ]] || continue
+            [[ "$line" =~ ^# ]] && continue
+
+            repo_entry="$line"
+
+            if [[ "$line" =~ ^\[([^][]+)\][[:space:]]+(.+)$ ]]; then
+              suites_csv="${BASH_REMATCH[1]}"
+              repo_entry="${BASH_REMATCH[2]}"
+              include_entry=false
+
+              IFS=',' read -ra suite_filters <<< "$suites_csv"
+              for suite_filter in "${suite_filters[@]}"; do
+                suite_filter="$(printf '%s' "$suite_filter" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+                [[ -n "$suite_filter" ]] || continue
+                if [[ "$suite_filter" == "$target_suite" || "$suite_filter" == "all" || "$suite_filter" == "*" ]]; then
+                  include_entry=true
+                  break
+                fi
+              done
+
+              if [[ "$include_entry" != true ]]; then
+                echo "ℹ️ Skipping entry with suite filter [${suites_csv}] for target suite ${target_suite}"
+                continue
+              fi
+            fi
+
+            repo_entry="${repo_entry//\$\{suite\}/$target_suite}"
+            repo_entry="${repo_entry//\$\{SUITE\}/$target_suite}"
+            repo_entry="${repo_entry//\{suite\}/$target_suite}"
+            repo_entry="${repo_entry//\{SUITE\}/$target_suite}"
+            repo_entry="${repo_entry//@suite@/$target_suite}"
+            repo_entry="${repo_entry//@SUITE@/$target_suite}"
+            repo_entry="$(printf '%s' "$repo_entry" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+            [[ -n "$repo_entry" ]] || continue
+
+            if [[ -n "${extra_repository_seen[$repo_entry]+x}" ]]; then
+              continue
+            fi
+            extra_repository_seen["$repo_entry"]=1
+
+            extra_repository_values+=("$repo_entry")
+            extra_repository_args+=(--extra-repository "$repo_entry")
+          done < "$EXTRA_REPOSITORIES_FILE"
+
+          if (( ${#extra_repository_values[@]} > 0 )); then
+            echo "ℹ️ Loaded ${#extra_repository_values[@]} extra repository entries:"
+            printf '  - %s\n' "${extra_repository_values[@]}"
+          else
+            echo "ℹ️ ${EXTRA_REPOSITORIES_FILE} has no active entries (only blank/comment lines)"
+          fi
+        else
+          echo "ℹ️ No ${EXTRA_REPOSITORIES_FILE} found; using default repositories only"
+        fi
+
         set +e
 
         if [[ "$PREBUILT_MODE" == "true" ]]; then
@@ -201,6 +282,7 @@ runs:
                    $lintian_flag \
                    --build-dir "$BUILD_DIR_ABS" \
                    --build-dep-resolver=apt \
+                   "${extra_repository_args[@]}" \
                    "$DSC_FILE"
           else
             # ℹ️ Prebuilt mode + native source format: invoke sbuild directly —
@@ -212,7 +294,8 @@ runs:
                    --dist=${{inputs.suite}} \
                    $lintian_flag \
                    --build-dir "$BUILD_DIR_ABS" \
-                   --build-dep-resolver=apt
+                   --build-dep-resolver=apt \
+                   "${extra_repository_args[@]}"
           fi
 
         else
@@ -220,17 +303,26 @@ runs:
           # --git-ignore-branch is necessary because the debian branch actually checked out can be any (ex, debian/1.0.0) because we can build any previous tag
           # ℹ️ chroot mode unshare is important to bypass privilege issues with the mounting
           # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
+          sbuild_builder_cmd=(
+            sbuild
+            --no-clean-source
+            --dpkg-source-opt=--extend-diff-ignore=^\\.github
+            --host=arm64
+            --build=${{env.BUILD_ARCH}}
+            --dist=${{inputs.suite}}
+            "$lintian_flag"
+            --build-dir
+            "$BUILD_DIR_ABS"
+            --build-dep-resolver=apt
+            "${extra_repository_args[@]}"
+          )
+          printf -v sbuild_builder_escaped '%q ' "${sbuild_builder_cmd[@]}"
+          sbuild_builder_escaped="${sbuild_builder_escaped% }"
+
           gbp buildpackage \
             --git-no-pristine-tar \
             --git-ignore-branch \
-            --git-builder="sbuild --no-clean-source \
-                                  --dpkg-source-opt="--extend-diff-ignore=^\\.github" \
-                                   --host=arm64 \
-                                   --build=${{env.BUILD_ARCH}} \
-                                   --dist=${{inputs.suite}} \
-                                   $lintian_flag \
-                                   --build-dir $BUILD_DIR_ABS \
-                                   --build-dep-resolver=apt"
+            --git-builder="$sbuild_builder_escaped"
         fi
 
         RET=$?
