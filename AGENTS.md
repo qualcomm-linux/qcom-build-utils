@@ -29,6 +29,18 @@ orchestration around build, test, promotion, and release flows.
   published from `qualcomm-linux/debusine-action`, while the Ubuntu-capable `pkg-builder` images
   are still consumed from GHCR by the local path.
 
+## Package Repo Extra Repositories
+
+- The `build_package` composite action supports an optional
+  `debian/extra-repositories.txt` file in package repositories.
+- Active entries are passed to `sbuild` as `--extra-repository`.
+- Supported entry styles:
+  - global entries (apply to all suites)
+  - suite-filtered entries (for example `[noble,questing] deb ...`)
+  - wildcards (`[all]` or `[*]`)
+- Suite placeholders are expanded at runtime:
+  - `{suite}`, `{SUITE}`, `${suite}`, `${SUITE}`, `@suite@`, `@SUITE@`
+
 ## Workflow Naming Convention
 
 - `pkg-*` workflow names are for package lifecycle flows (`build`, `promote`, `release`, and
