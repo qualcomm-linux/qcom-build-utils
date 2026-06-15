@@ -37,9 +37,8 @@ orchestration around build, test, promotion, and release flows.
 - Supported entry styles:
   - global entries (apply to all suites)
   - suite-filtered entries (for example `[noble,questing] deb ...`)
-  - wildcards (`[all]` or `[*]`)
-- Suite placeholders are expanded at runtime:
-  - `{suite}`, `{SUITE}`, `${suite}`, `${SUITE}`, `@suite@`, `@SUITE@`
+- Suite filters are exact matches against the build suite.
+- `unstable` and `sid` are treated as equivalent for suite-filter matching.
 
 ## Workflow Naming Convention
 

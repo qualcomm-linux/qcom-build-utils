@@ -162,17 +162,14 @@ runs:
 
         # Optional repo-local extension point for additional build-dependency apt repos.
         # Each non-empty, non-comment line in debian/extra-repositories.txt is passed
-        # through to sbuild as --extra-repository "<line>".
+        # to sbuild as --extra-repository "<line>".
         #
         # Supported entry formats:
-        #   deb [arch=arm64 ...] https://example.org/repo {suite} main
+        #   deb [arch=arm64 ...] https://example.org/repo noble main
         #     -> applies to all suites
         #
         #   [noble,questing] deb [arch=arm64 ...] https://ppa.launchpadcontent.net/org/ppa/ubuntu noble main
         #     -> applies only when target suite is listed
-        #
-        # Placeholders replaced with the runtime suite:
-        #   {suite}, {SUITE}, ${suite}, ${SUITE}, @suite@, @SUITE@
         EXTRA_REPOSITORIES_FILE="./debian/extra-repositories.txt"
         target_suite="${{inputs.suite}}"
         if [[ "$target_suite" == "unstable" ]]; then
@@ -192,33 +189,35 @@ runs:
 
             repo_entry="$line"
 
-            if [[ "$line" =~ ^\[([^][]+)\][[:space:]]+(.+)$ ]]; then
-              suites_csv="${BASH_REMATCH[1]}"
-              repo_entry="${BASH_REMATCH[2]}"
-              include_entry=false
+            if [[ "$line" == \[* ]]; then
+              if [[ "$line" =~ ^\[([^][]+)\][[:space:]]+(.+)$ ]]; then
+                suites_csv="${BASH_REMATCH[1]}"
+                repo_entry="${BASH_REMATCH[2]}"
+                include_entry=false
 
-              IFS=',' read -ra suite_filters <<< "$suites_csv"
-              for suite_filter in "${suite_filters[@]}"; do
-                suite_filter="$(printf '%s' "$suite_filter" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
-                [[ -n "$suite_filter" ]] || continue
-                if [[ "$suite_filter" == "$target_suite" || "$suite_filter" == "all" || "$suite_filter" == "*" ]]; then
-                  include_entry=true
-                  break
+                IFS=',' read -ra suite_filters <<< "$suites_csv"
+                for suite_filter in "${suite_filters[@]}"; do
+                  suite_filter="$(printf '%s' "$suite_filter" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+                  [[ -n "$suite_filter" ]] || continue
+                  if [[ "$suite_filter" == "unstable" ]]; then
+                    suite_filter="sid"
+                  fi
+                  if [[ "$suite_filter" == "$target_suite" ]]; then
+                    include_entry=true
+                    break
+                  fi
+                done
+
+                if [[ "$include_entry" != true ]]; then
+                  echo "ℹ️ Skipping entry with suite filter [${suites_csv}] for target suite ${target_suite}"
+                  continue
                 fi
-              done
-
-              if [[ "$include_entry" != true ]]; then
-                echo "ℹ️ Skipping entry with suite filter [${suites_csv}] for target suite ${target_suite}"
-                continue
+              else
+                echo "::error::Invalid ${EXTRA_REPOSITORIES_FILE} entry '${line}'. Expected '[suite1,suite2] deb ...' or a plain 'deb ...' line."
+                exit 1
               fi
             fi
 
-            repo_entry="${repo_entry//\$\{suite\}/$target_suite}"
-            repo_entry="${repo_entry//\$\{SUITE\}/$target_suite}"
-            repo_entry="${repo_entry//\{suite\}/$target_suite}"
-            repo_entry="${repo_entry//\{SUITE\}/$target_suite}"
-            repo_entry="${repo_entry//@suite@/$target_suite}"
-            repo_entry="${repo_entry//@SUITE@/$target_suite}"
             repo_entry="$(printf '%s' "$repo_entry" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
             [[ -n "$repo_entry" ]] || continue
 

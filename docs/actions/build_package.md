@@ -28,7 +28,7 @@ Supported entry forms:
 
 ```text
 # Applies to all suites:
-deb [arch=arm64 signed-by=/etc/apt/keyrings/vendor.gpg] https://repo.example.org/debian {suite} main
+deb [arch=arm64 signed-by=/etc/apt/keyrings/vendor.gpg] https://repo.example.org/debian noble main
 
 # Applies only to specific suites:
 [noble,questing,resolute] deb [arch=arm64 trusted=yes] https://ppa.launchpadcontent.net/example/team/ubuntu noble main
@@ -36,8 +36,8 @@ deb [arch=arm64 signed-by=/etc/apt/keyrings/vendor.gpg] https://repo.example.org
 
 Notes:
 - Lines beginning with `#` and empty lines are ignored.
-- Suite filters support `all` or `*` as wildcards.
-- Suite placeholders are expanded at runtime: `{suite}`, `{SUITE}`, `${suite}`, `${SUITE}`, `@suite@`, `@SUITE@`.
+- Suite filters are exact matches against the build suite.
+- `unstable` and `sid` are treated as equivalent for suite-filter matching.
 
 Example:
 
