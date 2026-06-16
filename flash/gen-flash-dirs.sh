@@ -178,7 +178,8 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
         CDT_SRC=$(find "${BOOT_BINS_DIR}/cdt_${BOARD_NAME}" \
             -name "$CDT_FILENAME" 2>/dev/null | head -1 || true)
         if [[ -z "$CDT_SRC" ]]; then
-            echo "[WARN] CDT file '${CDT_FILENAME}' not found for board ${BOARD_NAME}"
+            echo "[ERROR] CDT file '${CDT_FILENAME}' not found for board ${BOARD_NAME}"
+            exit 1
         else
             echo "[INFO] CDT file: ${CDT_SRC}"
         fi
@@ -264,7 +265,8 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
             cp --preserve=mode,timestamps -av "${BOOT_BIN_SRC}/." "${STORAGE_DIR}/"
             echo "[INFO] Copied boot bins from: ${BOOT_BIN_SRC}"
         else
-            echo "[WARN] Boot bins directory not found: ${BOOT_BIN_SRC}"
+            echo "[ERROR] Boot bins directory not found: ${BOOT_BIN_SRC}"
+            exit 1
         fi
 
         # 2. Copy ptool-generated partition files — overwrites any partition
@@ -289,7 +291,8 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
                     cp --preserve=mode,timestamps -v \
                         "${SYSTEM_IMAGES_DIR}/dtb.bin" "${STORAGE_DIR}/dtb.bin"
                 else
-                    echo "[WARN] dtb.bin not found for spinor"
+                    echo "[ERROR] dtb.bin not found for spinor"
+                    exit 1
                 fi
                 ;;
             nvme|ufs|emmc)
@@ -299,7 +302,8 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
                 if [[ -f "$EFI_SRC" ]]; then
                     cp --preserve=mode,timestamps -v "$EFI_SRC" "${STORAGE_DIR}/efi.bin"
                 else
-                    echo "[WARN] efi.bin not found for ${storage} (sector size ${SECTOR_SIZE})"
+                    echo "[ERROR] efi.bin not found for ${storage} (sector size ${SECTOR_SIZE})"
+                    exit 1
                 fi
 
                 if [[ "$HAS_SPINOR" == "false" ]]; then
@@ -307,7 +311,8 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
                         cp --preserve=mode,timestamps -v \
                             "${SYSTEM_IMAGES_DIR}/dtb.bin" "${STORAGE_DIR}/dtb.bin"
                     else
-                        echo "[WARN] dtb.bin not found for ${storage} (no spinor)"
+                        echo "[ERROR] dtb.bin not found for ${storage} (no spinor)"
+                        exit 1
                     fi
                 fi
                 ;;
