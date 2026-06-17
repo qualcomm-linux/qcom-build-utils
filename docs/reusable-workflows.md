@@ -43,13 +43,13 @@ flowchart TD
 |-----------|------|----------|---------|-------------|
 | `qcom-build-utils-ref` | string | Yes | - | The ref (branch/tag) of qcom-build-utils to use |
 | `debian-ref` | string | Yes | `debian/qcom-next` | The package-repository ref to check out and build |
-| `suite` | string | No | `unstable` | Distribution codename or Debian suite |
 | `run-lintian` | boolean | No | `true` | Used by the Ubuntu/pkg-builder path |
 | `run-abi-checker` | boolean | No | `false` | Used by the Ubuntu/pkg-builder path |
 | `is-prebuilt` | string | No | `""` | Passed through to the Ubuntu/pkg-builder `build_package` action |
 | `job-index` | string | No | `"0"` | Optional matrix index used to keep Debusine child workspace names unique |
 | `release` | boolean | No | `false` | Whether to prepare the release bundle before generating the Debian release source package |
 | `debusine-parent-workspace` | string | No | `ci` | Parent Debusine workspace used to create child CI workspaces for Debian builds |
+| `srcpkg-artifact` | string | No | `""` | Optional pre-prepared source-tree artifact used instead of checking out `debian-ref` |
 
 ### Secrets
 
@@ -62,7 +62,8 @@ flowchart TD
 
 | Output | Description |
 |--------|-------------|
-| `target_suite` | The resolved suite/codename actually used by the workflow |
+| `family` | The resolved distro family (`debian` or `ubuntu`) |
+| `suite` | The resolved suite/codename actually used by the workflow |
 | `workspace` | Debusine child workspace name |
 | `workspace_url` | Debusine web URL for that child workspace |
 | `srcpkg_name` | Source package name |
@@ -86,7 +87,6 @@ jobs:
     with:
       qcom-build-utils-ref: development
       debian-ref: debian/qcom-next
-      suite: trixie
       debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE }}
 ```
 
@@ -99,7 +99,6 @@ jobs:
     with:
       qcom-build-utils-ref: development
       debian-ref: refs/heads/${{ matrix.target_branch }}
-      suite: ${{ matrix.suite }}
       job-index: ${{ strategy.job-index }}
 ```
 
@@ -112,21 +111,19 @@ repositories.
 
 **File**: `.github/workflows/pkg-release-reusable-workflow.yml`
 
-**Purpose**: Release through a hybrid flow: Debian suites use Debusine build/test/publish, while Ubuntu codenames keep the older local `pkg-builder` + S3 release process.
+**Purpose**: Release through a hybrid flow: Debian suites use Debusine build/test/publish, while Ubuntu codenames prepare release source locally, build once through `pkg-build-reusable-workflow`, pass through manual environment approval, then publish provenance and upload already-built artifacts to S3.
 
 ### Workflow Diagram
 
 ```mermaid
 flowchart TD
-    A[Workflow Called] --> B[Resolve suite family]
-    B -->|Debian| C[Prepare release bundle + build/test in Debusine]
-    C --> D{test-run?}
-    D -->|true| E[Stop after validation]
-    D -->|false| F[Publish CI workspace to Debusine prod]
-    F --> G[Push release tag and reopen development]
-    B -->|Ubuntu| H[Run local release/tag/provenance flow]
-    H --> I[Build in pkg-builder]
-    I --> J[Upload artifacts to S3]
+    A[Workflow Called] --> B[Prepare Ubuntu release source commit/tag local-only]
+    B --> C[Build and test via pkg-build-reusable-workflow]
+    C --> D[Manual environment approval + provenance generation]
+    D -->|Debian + !test-run| E[Publish to Debusine prod and push git state]
+    E --> F[Publish provenance]
+    D -->|Ubuntu| G[Push git state and publish provenance]
+    G --> H[Upload already-built artifacts to S3]
 ```
 
 ### Inputs
@@ -135,8 +132,7 @@ flowchart TD
 |-----------|------|----------|---------|-------------|
 | `qcom-build-utils-ref` | string | Yes | - | The ref (branch/tag) of qcom-build-utils to invoke |
 | `debian-branch` | string | No | `debian/qcom-next` | The packaging branch to release from |
-| `suite` | string | No | `noble` | Distribution codename or Debian suite to build/test/release |
-| `test-run` | boolean | No | `true` | Debian: stop after Debusine build/test. Ubuntu: keep the older release flow and upload to the test S3 location |
+| `test-run` | boolean | No | `true` | Debian: stop after Debusine build/test. Ubuntu: still stateful, but upload to test/proposed destination based on this input |
 | `debusine-parent-workspace` | string | No | `ci` | Parent Debusine workspace passed through to the Debian build/test phase |
 
 ### Secrets
@@ -160,14 +156,16 @@ flowchart TD
 
 ### Workflow Steps
 
-1. **Resolve suite family**: Decide whether the release follows the Debian or Ubuntu branch
-2. **Debian branch**: Reuse `pkg-build-reusable-workflow` with `release=true`, then optionally publish to Debusine prod and push git state
-3. **Ubuntu branch**: Restore the earlier local release flow with changelog/tag handling, provenance generation, local `pkg-builder` build, and S3 upload
+1. **Prepare release source**: For Ubuntu branches, finalize changelog and create local release commit/tag, then upload the prepared git repo as an artifact
+2. **Build and test once**: Reuse `pkg-build-reusable-workflow` (`release=true`) and feed the prepared source artifact when Ubuntu
+3. **Environment gate + provenance file**: Require `pkg-release-approval` after build/test and generate provenance from the exact built source state
+4. **Debian release path**: For Debian and `test-run=false`, publish Debusine CI workspace to prod, push git state, then publish provenance
+5. **Ubuntu release path**: Push git state atomically (branch + tag), publish provenance, and upload previously-built Docker artifacts to S3
 
 ### Caller Requirements
 
 - Debian callers should pass `DEBUSINE_RELEASE_TOKEN` when they want the reusable workflow to publish to Debusine prod
-- Ubuntu callers do not use the Debusine secrets, but still need `PAT` for the release git/S3/dispatch flow
+- Ubuntu callers do not use the Debusine secrets, but still need `PAT` for prepared source, git push, provenance publish, S3 upload, and dispatch flow
 
 ### Usage Example
 
@@ -177,8 +175,7 @@ jobs:
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-release-reusable-workflow.yml@development
     with:
       qcom-build-utils-ref: development
-      suite: trixie
-      debian-branch: debian/qcom-next
+      debian-branch: qcom/ubuntu/resolute
       test-run: false
       debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE }}
     secrets:

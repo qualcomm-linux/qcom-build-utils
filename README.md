@@ -74,12 +74,31 @@ Package repositories call these workflows from their own `.github/workflows/` di
 | **pkg-build-reusable-workflow** | Main package build workflow — routes Debian suites through Debusine and Ubuntu codenames through the local pkg-builder path. |
 | **pkg-promote-reusable-workflow** | Promotes a new upstream release into a package repo — merges upstream code, updates changelog, and creates a PR. |
 | **pkg-upstream-pr-build-reusable-workflow** | Validates that PRs in an upstream repo won't break the Debian package build. Called from the upstream repo. |
-| **pkg-release-reusable-workflow** | Triggers a formal release — Debian suites use Debusine publish, Ubuntu codenames keep the local pkg-builder/S3 release path. |
+| **pkg-release-reusable-workflow** | Triggers a formal release — Debian suites use Debusine publish; Ubuntu codenames prepare release source, build once, gate on environment approval, then publish provenance and upload the built artifacts to S3. |
 | **qcom-preflight-checks** | Security and quality gates — runs repolinter, semgrep, license checks, and dependency review. |
 
 `pkg-*` and `qcom-*` naming intentionally distinguish scope:
 - `pkg-*` workflows are package-lifecycle workflows used by `pkg-*` repositories.
 - `qcom-*` workflows are qcom-wide infrastructure/preflight workflows.
+
+### Build Routing Convention (`pkg-build`)
+
+`pkg-build-reusable-workflow.yml` now resolves `family` and `suite` from the
+`debian-ref` branch name instead of taking a separate `suite` input.
+
+Expected branch pattern:
+
+- `<prefix>/<family>/<suite>`
+- `family` must be `debian` or `ubuntu`
+
+Examples:
+
+- `qcom/debian/latest` (maps to `sid`)
+- `qcom/debian/bookworm`
+- `qcom/ubuntu/resolute`
+
+For PR jobs that build transient heads (for example `debian/pr/*`), workflow
+routing falls back to the PR base branch (`github.base_ref`).
 
 ## Builder Images
 
@@ -133,14 +152,14 @@ See [pkg-example](https://github.com/qualcomm-linux/pkg-example) for a complete 
   debian/qcom-next      and tagged         to staging repo
         │
         ▼
-  Release triggered ──▶ changelog finalized ──▶ upload to S3
+  Release triggered ──▶ changelog finalized ──▶ build/test ──▶ approval/provenance ──▶ upload to S3
 ```
 
 1. **Pre-merge**: A PR against `debian/qcom-next` triggers a build and ABI compatibility check.
 2. **Post-merge**: On merge, the package is built, pushed to the staging APT repo, and tagged `debian/<version>`.
 3. **Upstream promotion**: When the upstream project tags a new release, the promote workflow merges it into the packaging branch and opens a PR.
 4. **Upstream PR validation**: PRs in the upstream repo are validated against the package build to catch breakages early.
-5. **Release**: A manual dispatch finalizes the changelog, builds the package, uploads artifacts to S3, and notifies [qcom-distro-images](https://github.com/qualcomm-linux/qcom-distro-images).
+5. **Release**: A manual dispatch finalizes changelog state, builds and tests once, waits on `pkg-release-approval`, then pushes release git state, publishes provenance, uploads artifacts to S3, and notifies [qcom-distro-images](https://github.com/qualcomm-linux/qcom-distro-images).
 
 ## Build Infrastructure
 
