@@ -69,6 +69,25 @@ flowchart TD
 | `srcpkg_name` | Source package name |
 | `srcpkg_version` | Source package version |
 
+### Branch Parsing Rule (`debian-ref`)
+
+- The resolver splits the normalized branch name on `/`.
+- It takes the last two fields as `<family>/<suite>`.
+- `family` must be `debian` or `ubuntu`.
+
+Valid examples:
+
+- `qcom/ubuntu/resolute` -> `family=ubuntu`, `suite=resolute`
+- `test/qcom/ubuntu/resolute` -> `family=ubuntu`, `suite=resolute`
+- `ubuntu/resolute` -> `family=ubuntu`, `suite=resolute`
+- `dev/whatever/yo/debian/trixie` -> `family=debian`, `suite=trixie`
+
+Invalid examples:
+
+- `resolute`
+- `ubuntu`
+- `ubuntu-resolute`
+
 ### Workflow Steps
 
 1. **Resolve suite family**: Normalize the caller input and decide whether the run is Debian or Ubuntu
@@ -134,6 +153,10 @@ flowchart TD
 | `debian-branch` | string | No | `debian/qcom-next` | The packaging branch to release from |
 | `test-run` | boolean | No | `true` | Debian: stop after Debusine build/test. Ubuntu: still stateful, but upload to test/proposed destination based on this input |
 | `debusine-parent-workspace` | string | No | `ci` | Parent Debusine workspace passed through to the Debian build/test phase |
+
+`debian-branch` uses the same parsing rule as `debian-ref` in the build
+reusable workflow: split on `/`, take the last two fields as
+`<family>/<suite>`, and require `family` to be `debian` or `ubuntu`.
 
 ### Secrets
 

@@ -67,6 +67,13 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Checkout qcom-build-utils scripts
+        uses: actions/checkout@v5
+        with:
+          repository: qualcomm-linux/qcom-build-utils
+          ref: ${{ inputs.qcom-build-utils-ref }}
+          path: qcom-build-utils
+
       - name: Resolve family and suite from branch
         id: resolve
         env:
@@ -74,53 +81,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          normalize_ref() {
-            local ref="$1"
-            if [[ "$ref" == refs/heads/* ]]; then
-              ref="${ref#refs/heads/}"
-            fi
-            if [[ "$ref" == refs/remotes/* ]]; then
-              ref="${ref#refs/remotes/}"
-            fi
-            if [[ "$ref" == origin/* ]]; then
-              ref="${ref#origin/}"
-            fi
-            printf '%s\n' "$ref"
-          }
-
-          resolve_from_ref() {
-            local ref="$1"
-            local -n out_family="$2"
-            local -n out_suite="$3"
-            local -a ref_parts
-
-            IFS='/' read -r -a ref_parts <<< "$ref"
-            if (( ${#ref_parts[@]} < 3 )); then
-              return 1
-            fi
-
-            local family_idx suite_idx
-            family_idx=$((${#ref_parts[@]} - 2))
-            suite_idx=$((${#ref_parts[@]} - 1))
-            out_family="${ref_parts[$family_idx]}"
-            out_suite="${ref_parts[$suite_idx]}"
-
-            case "$out_family" in
-              debian|ubuntu)
-                return 0
-                ;;
-              *)
-                return 1
-                ;;
-            esac
-          }
-
-          normalized_ref="$(normalize_ref "$DEBIAN_REF_INPUT")"
-
-          if ! resolve_from_ref "$normalized_ref" family suite; then
-            echo "::error::Unable to resolve release target from debian-branch '$DEBIAN_REF_INPUT'. Expected '<prefix>/<family>/<suite>' such as 'qcom/ubuntu/resolute'."
+          RESOLVER_SCRIPT="${GITHUB_WORKSPACE}/qcom-build-utils/scripts/resolve_branch_family_suite.sh"
+          if ! resolved_kv="$("$RESOLVER_SCRIPT" "$DEBIAN_REF_INPUT")"; then
+            echo "::error::Unable to resolve release target from debian-branch '$DEBIAN_REF_INPUT'. Expected a branch ending in '/<family>/<suite>' (for example 'ubuntu/resolute' or 'qcom/ubuntu/resolute')."
             exit 1
           fi
+
+          normalized_ref=""
+          family=""
+          suite=""
+          while IFS='=' read -r key value; do
+            case "$key" in
+              normalized_ref) normalized_ref="$value" ;;
+              family) family="$value" ;;
+              suite) suite="$value" ;;
+            esac
+          done <<< "$resolved_kv"
 
           if [[ "$family" == "debian" ]] && [[ "$suite" == "latest" || "$suite" == "unstable" ]]; then
             suite=sid

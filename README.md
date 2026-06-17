@@ -86,9 +86,9 @@ Package repositories call these workflows from their own `.github/workflows/` di
 `pkg-build-reusable-workflow.yml` now resolves `family` and `suite` from the
 `debian-ref` branch name instead of taking a separate `suite` input.
 
-Expected branch pattern:
+Branch parsing rule:
 
-- `<prefix>/<family>/<suite>`
+- take the last two `/`-delimited fields as `<family>/<suite>`
 - `family` must be `debian` or `ubuntu`
 
 Examples:
@@ -96,6 +96,15 @@ Examples:
 - `qcom/debian/latest` (maps to `sid`)
 - `qcom/debian/bookworm`
 - `qcom/ubuntu/resolute`
+- `test/qcom/ubuntu/resolute`
+- `ubuntu/resolute`
+- `dev/whatever/yo/debian/trixie`
+
+Invalid examples:
+
+- `resolute`
+- `ubuntu`
+- `ubuntu-resolute`
 
 For PR jobs that build transient heads (for example `debian/pr/*`), workflow
 routing falls back to the PR base branch (`github.base_ref`).

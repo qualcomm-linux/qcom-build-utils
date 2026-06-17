@@ -132,6 +132,28 @@ Shell script for merging upstream changes into Debian packaging branch.
 ./scripts/merge_debian_packaging_upstream upstream/main
 ```
 
+### 4. resolve_branch_family_suite.sh
+
+Helper used by reusable workflows to resolve `family`/`suite` from branch-like refs.
+
+**Rule:**
+- Normalize refs like `refs/heads/*`, `refs/remotes/*`, and `origin/*`
+- Split by `/`
+- Take the last two fields as `<family>/<suite>`
+- Require `family` to be `debian` or `ubuntu`
+
+**Usage:**
+```bash
+./scripts/resolve_branch_family_suite.sh <ref>
+```
+
+**Output:**
+```text
+normalized_ref=<normalized-ref>
+family=<debian|ubuntu>
+suite=<suite>
+```
+
 ## Common Workflows
 
 ### Building a Single Package

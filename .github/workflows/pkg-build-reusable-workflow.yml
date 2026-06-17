@@ -123,6 +123,13 @@ jobs:
       force_docker_build: ${{ steps.resolve.outputs.force_docker_build }}
       suite: ${{ steps.resolve.outputs.suite }}
     steps:
+      - name: Checkout qcom-build-utils scripts
+        uses: actions/checkout@v5
+        with:
+          repository: qualcomm-linux/qcom-build-utils
+          ref: ${{ inputs.qcom-build-utils-ref }}
+          path: qcom-build-utils
+
       - name: Resolve family and suite from branch
         id: resolve
         shell: bash
@@ -134,61 +141,40 @@ jobs:
         run: |
           set -euo pipefail
 
-          normalize_ref() {
-            local ref="$1"
-            if [[ "$ref" == refs/heads/* ]]; then
-              ref="${ref#refs/heads/}"
-            fi
-            if [[ "$ref" == refs/remotes/* ]]; then
-              ref="${ref#refs/remotes/}"
-            fi
-            if [[ "$ref" == origin/* ]]; then
-              ref="${ref#origin/}"
-            fi
-            printf '%s\n' "$ref"
+          RESOLVER_SCRIPT="${GITHUB_WORKSPACE}/qcom-build-utils/scripts/resolve_branch_family_suite.sh"
+
+          parse_resolved_values() {
+            local resolved_kv="$1"
+            local key value
+
+            normalized_ref=""
+            family=""
+            suite=""
+            while IFS='=' read -r key value; do
+              case "$key" in
+                normalized_ref) normalized_ref="$value" ;;
+                family) family="$value" ;;
+                suite) suite="$value" ;;
+              esac
+            done <<< "$resolved_kv"
           }
 
-          resolve_from_ref() {
-            local ref="$1"
-            local -n out_family="$2"
-            local -n out_suite="$3"
-            local -a ref_parts
-
-            IFS='/' read -r -a ref_parts <<< "$ref"
-            if (( ${#ref_parts[@]} < 3 )); then
-              return 1
-            fi
-
-            local family_idx suite_idx
-            family_idx=$((${#ref_parts[@]} - 2))
-            suite_idx=$((${#ref_parts[@]} - 1))
-            out_family="${ref_parts[$family_idx]}"
-            out_suite="${ref_parts[$suite_idx]}"
-
-            case "$out_family" in
-              debian|ubuntu)
-                return 0
-                ;;
-              *)
-                return 1
-                ;;
-            esac
-          }
-
-          normalized_ref="$(normalize_ref "$DEBIAN_REF_INPUT")"
-          source_ref="$normalized_ref"
-          if ! resolve_from_ref "$normalized_ref" family suite; then
+          source_ref=""
+          if resolved_kv="$("$RESOLVER_SCRIPT" "$DEBIAN_REF_INPUT")"; then
+            parse_resolved_values "$resolved_kv"
+            source_ref="$normalized_ref"
+          else
             if [[ -n "$BASE_REF_INPUT" ]]; then
-              normalized_base_ref="$(normalize_ref "$BASE_REF_INPUT")"
-              if resolve_from_ref "$normalized_base_ref" family suite; then
-                source_ref="$normalized_base_ref"
-                echo "::warning::debian-ref '$DEBIAN_REF_INPUT' does not match '<prefix>/<family>/<suite>'; falling back to base-ref '$BASE_REF_INPUT' for suite routing."
+              if resolved_kv="$("$RESOLVER_SCRIPT" "$BASE_REF_INPUT")"; then
+                parse_resolved_values "$resolved_kv"
+                source_ref="$normalized_ref"
+                echo "::warning::debian-ref '$DEBIAN_REF_INPUT' does not end with '/<family>/<suite>'; falling back to base-ref '$BASE_REF_INPUT' for suite routing."
               else
-                echo "::error::Unable to resolve build target from debian-ref '$DEBIAN_REF_INPUT' or base-ref '$BASE_REF_INPUT'. Expected '<prefix>/<family>/<suite>' such as 'qcom/ubuntu/resolute'."
+                echo "::error::Unable to resolve build target from debian-ref '$DEBIAN_REF_INPUT' or base-ref '$BASE_REF_INPUT'. Expected a branch ending in '/<family>/<suite>' (for example 'ubuntu/resolute' or 'qcom/ubuntu/resolute')."
                 exit 1
               fi
             else
-              echo "::error::Unable to resolve build target from debian-ref '$DEBIAN_REF_INPUT'. Expected '<prefix>/<family>/<suite>' such as 'qcom/ubuntu/resolute'."
+              echo "::error::Unable to resolve build target from debian-ref '$DEBIAN_REF_INPUT'. Expected a branch ending in '/<family>/<suite>' (for example 'ubuntu/resolute' or 'qcom/ubuntu/resolute')."
               exit 1
             fi
           fi

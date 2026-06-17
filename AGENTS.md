@@ -40,7 +40,7 @@ orchestration around build, test, promotion, and release flows.
 ## Build Branch Convention (Caller Contract)
 
 For `pkg-build-reusable-workflow.yml`, callers should pass a `debian-ref` branch
-name that ends with:
+name where the last two `/`-delimited fields are:
 
 - `<family>/<suite>`
 
@@ -54,6 +54,15 @@ Examples:
 - `qcom/debian/latest` (normalized to suite `sid`)
 - `qcom/debian/bookworm`
 - `qcom/ubuntu/resolute`
+- `test/qcom/ubuntu/resolute`
+- `ubuntu/resolute`
+- `dev/whatever/yo/debian/trixie`
+
+Invalid examples:
+
+- `resolute`
+- `ubuntu`
+- `ubuntu-resolute`
 
 `pkg-build-reusable-workflow.yml` no longer takes a separate `suite` input for
 routing; it resolves family/suite from `debian-ref`.
