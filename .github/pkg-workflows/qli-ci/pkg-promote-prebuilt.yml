@@ -1,4 +1,4 @@
-name: Promote New Prebuilt Binary Version
+name: Promote Prebuilt
 
 on:
   workflow_dispatch:

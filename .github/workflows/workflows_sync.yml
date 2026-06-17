@@ -123,8 +123,8 @@ jobs:
               isDirty=true
             fi
 
-            # Remove legacy main-branch caller workflow names. New names are
-            # synced from .github/pkg-workflows/main/*.yml below.
+            # Remove legacy default-branch caller workflow names. New names are
+            # synced from .github/pkg-workflows/qli-ci/*.yml below.
             for legacy_main_workflow in build-debian-package.yml promote-prebuilt.yml promote-upstream.yml release.yml; do
               legacy_main_path=".github/workflows/$legacy_main_workflow"
               if [[ -f "$legacy_main_path" ]]; then
@@ -135,7 +135,7 @@ jobs:
             done
 
             # Compare and sync workflow files
-            for workflow in ../qcom-build-utils/.github/pkg-workflows/main/*.yml; do
+            for workflow in ../qcom-build-utils/.github/pkg-workflows/qli-ci/*.yml; do
               workflow_name=$(basename "$workflow")
 
               target_workflow=".github/workflows/$workflow_name"
@@ -156,9 +156,9 @@ jobs:
               fi
             done
 
-              # Create branch, commit, and push main branch changes if needed
+              # Create branch, commit, and push default branch changes if needed
               if [[ "$isDirty" == "true" ]]; then
-                echo "    📝 Creating branch and committing main branch changes"
+                echo "    📝 Creating branch and committing default branch changes"
                 git checkout -b sync/qcom-build-utils-workflows 2>&1 | sed 's/^/    /'
                 git add -A .github/workflows/
                 git commit -s -m "chore: sync workflows from qcom-build-utils" 2>&1 | sed 's/^/    /'
@@ -182,7 +182,7 @@ jobs:
                 # Return to default branch before packaging-branch sync
                 git checkout "$default_branch" 2>&1 | sed 's/^/    /'
               else
-                echo "    ✨ No main branch changes needed for $repo"
+                echo "    ✨ No default branch changes needed for $repo"
               fi
 
               # Sync pkg-pr-hook.yml to every managed packaging branch family.

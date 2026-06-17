@@ -1,4 +1,4 @@
-name: Promote New Upstream Version
+name: Promote
 
 on:
   workflow_dispatch:
@@ -7,8 +7,7 @@ on:
       debian-branch:
         description: The debian branch to apply the promotion to. For example branch "qcom/debian/latest"
         type: string
-        required: false
-        default: qcom/debian/latest
+        required: true
 
       upstream-tag:
         description: The upstream tag to promote this package repo to. Eg, v1.1.0 or 1.2.0, depending on the versioning style
@@ -22,6 +21,7 @@ permissions:
 
 jobs:
   promote:
+    name: Promote
 
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-promote-reusable-workflow.yml@main
     with:
