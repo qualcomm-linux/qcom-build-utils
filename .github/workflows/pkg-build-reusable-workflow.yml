@@ -96,7 +96,7 @@ permissions:
   packages: read
 
 env:
-  DEBUSINE_ACTION_REF: main
+  DEBUSINE_ACTION_REF: dev/sbeaudoi-extra-repositories
 
 jobs:
   resolve:
