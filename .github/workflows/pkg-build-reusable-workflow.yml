@@ -1,4 +1,4 @@
-name: Qualcomm Build Debian Package Reusable Workflow
+name: Build Reusable Workflow
 description: |
   This reusable workflow is called by debian-packaging repos to offer a consistent
   build-and-test process.
@@ -17,11 +17,6 @@ on:
         description: The debian ref to build. For example branch "qcom/debian/latest" or tag "debian/1.0.0-1"
         type: string
         required: true
-
-      suite:
-        description: The distribution codename or Debian suite to build for. Ex noble, questing, resolute, trixie, sid, unstable
-        type: string
-        default: unstable
 
       run-lintian:
         description: Run lintian or not during the Docker pkg-builder build path
@@ -58,7 +53,7 @@ on:
 
       force-docker-build:
         description: |
-          When the suite is Debian-family, force the local sbuild pkg-builder path instead of Debusine.
+          When the resolved family is Debian, force the local sbuild pkg-builder path instead of Debusine.
           Automatically set to true when DEBUSINE_TOKEN is absent.
         type: boolean
         default: false
@@ -66,10 +61,11 @@ on:
       srcpkg-artifact:
         description: |
           Name of a GitHub Actions artifact containing a pre-prepared source tree
-          to use as srcpkg/. When set, the debian-ref checkout is skipped and the
-          artifact is downloaded instead. Used for packages like pkg-linux-qcom
-          where the source tree is assembled at CI time rather than managed in a
-          single git repository.
+          used as the build source checkout. When set, debian-ref checkout is
+          skipped and the artifact is downloaded instead for both Docker and
+          Debusine build paths. Used for packages like pkg-linux-qcom where the
+          source tree is assembled at CI time rather than managed in a single
+          git repository.
         type: string
         default: ""
 
@@ -89,21 +85,24 @@ on:
         required: false
 
     outputs:
-      target_suite:
+      family:
+        description: The resolved distro family (`debian` or `ubuntu`)
+        value: ${{ jobs.resolve.outputs.family }}
+      suite:
         description: The resolved suite/codename actually used by the workflow
-        value: ${{ jobs.finalize.outputs.target_suite }}
+        value: ${{ jobs.resolve.outputs.suite }}
       workspace:
         description: Debusine workspace ID for Debusine builds; empty for Docker builds
-        value: ${{ jobs.finalize.outputs.workspace }}
+        value: ${{ jobs.test.outputs.workspace }}
       workspace_url:
         description: Debusine workspace URL for Debusine builds; empty for Docker builds
-        value: ${{ jobs.finalize.outputs.workspace_url }}
+        value: ${{ jobs.test.outputs.workspace_url }}
       srcpkg_name:
         description: Source package name
-        value: ${{ jobs.finalize.outputs.srcpkg_name }}
+        value: ${{ jobs.test.outputs.srcpkg_name }}
       srcpkg_version:
         description: Source package version
-        value: ${{ jobs.finalize.outputs.srcpkg_version }}
+        value: ${{ jobs.test.outputs.srcpkg_version }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.release && 'release' || github.run_id }}
@@ -117,56 +116,103 @@ env:
 
 jobs:
   resolve:
-    name: Resolve suite family
+    name: Resolve branch target
     runs-on: ubuntu-latest
     outputs:
       family: ${{ steps.resolve.outputs.family }}
       force_docker_build: ${{ steps.resolve.outputs.force_docker_build }}
-      target_suite: ${{ steps.resolve.outputs.target_suite }}
+      suite: ${{ steps.resolve.outputs.suite }}
     steps:
-      - name: Classify suite
+      - name: Resolve family and suite from branch
         id: resolve
         shell: bash
         env:
-          SUITE_INPUT: ${{ inputs.suite }}
+          DEBIAN_REF_INPUT: ${{ inputs.debian-ref }}
+          BASE_REF_INPUT: ${{ github.base_ref }}
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
           FORCE_DOCKER_BUILD: ${{ inputs.force-docker-build }}
         run: |
           set -euo pipefail
 
-          target_suite="$SUITE_INPUT"
+          normalize_ref() {
+            local ref="$1"
+            if [[ "$ref" == refs/heads/* ]]; then
+              ref="${ref#refs/heads/}"
+            fi
+            if [[ "$ref" == refs/remotes/* ]]; then
+              ref="${ref#refs/remotes/}"
+            fi
+            if [[ "$ref" == origin/* ]]; then
+              ref="${ref#origin/}"
+            fi
+            printf '%s\n' "$ref"
+          }
 
-          # 'latest' is not a valid suite name — map to sid (Debian unstable)
-          if [[ "$target_suite" == "latest" ]]; then
-            target_suite=sid
+          resolve_from_ref() {
+            local ref="$1"
+            local -n out_family="$2"
+            local -n out_suite="$3"
+            local -a ref_parts
+
+            IFS='/' read -r -a ref_parts <<< "$ref"
+            if (( ${#ref_parts[@]} < 3 )); then
+              return 1
+            fi
+
+            local family_idx suite_idx
+            family_idx=$((${#ref_parts[@]} - 2))
+            suite_idx=$((${#ref_parts[@]} - 1))
+            out_family="${ref_parts[$family_idx]}"
+            out_suite="${ref_parts[$suite_idx]}"
+
+            case "$out_family" in
+              debian|ubuntu)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          normalized_ref="$(normalize_ref "$DEBIAN_REF_INPUT")"
+          source_ref="$normalized_ref"
+          if ! resolve_from_ref "$normalized_ref" family suite; then
+            if [[ -n "$BASE_REF_INPUT" ]]; then
+              normalized_base_ref="$(normalize_ref "$BASE_REF_INPUT")"
+              if resolve_from_ref "$normalized_base_ref" family suite; then
+                source_ref="$normalized_base_ref"
+                echo "::warning::debian-ref '$DEBIAN_REF_INPUT' does not match '<prefix>/<family>/<suite>'; falling back to base-ref '$BASE_REF_INPUT' for suite routing."
+              else
+                echo "::error::Unable to resolve build target from debian-ref '$DEBIAN_REF_INPUT' or base-ref '$BASE_REF_INPUT'. Expected '<prefix>/<family>/<suite>' such as 'qcom/ubuntu/resolute'."
+                exit 1
+              fi
+            else
+              echo "::error::Unable to resolve build target from debian-ref '$DEBIAN_REF_INPUT'. Expected '<prefix>/<family>/<suite>' such as 'qcom/ubuntu/resolute'."
+              exit 1
+            fi
           fi
 
-          case "$target_suite" in
-            trixie|sid|unstable|bookworm|forky)
-              family=debian
-              ;;
-            *)
-              family=ubuntu
-              ;;
-          esac
-
-          if [[ "$target_suite" == "unstable" ]]; then
-            target_suite=sid
+          # Preserve Debian aliases used in branch names.
+          if [[ "$family" == "debian" ]] && [[ "$suite" == "latest" || "$suite" == "unstable" ]]; then
+            suite=sid
           fi
 
           force_docker_build=false
           if [[ "$family" == "debian" ]] && [[ -z "$DEBUSINE_TOKEN" || "$FORCE_DOCKER_BUILD" == "true" ]]; then
             force_docker_build=true
             if [[ -z "$DEBUSINE_TOKEN" ]]; then
-              echo "::warning::DEBUSINE_TOKEN is not set or not accessible (fork PR secrets are unavailable to workflows triggered by external contributors) — falling back to local pkg-builder for suite '$target_suite'"
+              echo "::warning::DEBUSINE_TOKEN is not set or not accessible (fork PR secrets are unavailable to workflows triggered by external contributors) — falling back to local pkg-builder for suite '$suite'"
             else
-              echo "::notice::force-docker-build is set — using local pkg-builder for suite '$target_suite'"
+              echo "::notice::force-docker-build is set — using local pkg-builder for suite '$suite'"
             fi
           fi
 
+          echo "::notice title=Resolved build target::debian-ref='${DEBIAN_REF_INPUT}', source-ref='${source_ref}', family='${family}', suite='${suite}', force-docker-build='${force_docker_build}'"
+
           echo "family=$family" >> "$GITHUB_OUTPUT"
           echo "force_docker_build=$force_docker_build" >> "$GITHUB_OUTPUT"
-          echo "target_suite=$target_suite" >> "$GITHUB_OUTPUT"
+          echo "suite=$suite" >> "$GITHUB_OUTPUT"
 
   docker-build:
     name: Build (Docker)
@@ -180,7 +226,7 @@ jobs:
       run:
         shell: bash
     container:
-      image: ghcr.io/qualcomm-linux/pkg-builder:${{ needs.resolve.outputs.target_suite }}
+      image: ghcr.io/qualcomm-linux/pkg-builder:${{ needs.resolve.outputs.suite }}
       options: --privileged
       credentials:
         username: ${{ github.actor }}
@@ -198,12 +244,28 @@ jobs:
             scripts
 
       - name: Checkout Repository
+        if: ${{ inputs.srcpkg-artifact == '' }}
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.debian-ref }}
           path: package-repo
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Download pre-prepared source tree
+        if: ${{ inputs.srcpkg-artifact != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.srcpkg-artifact }}
+          path: /tmp/srcpkg-artifact
+
+      - name: Extract pre-prepared source tree
+        if: ${{ inputs.srcpkg-artifact != '' }}
+        run: |
+          # Single *.tar.gz in the artifact; glob decouples from producer naming.
+          mkdir package-repo
+          tar xzf /tmp/srcpkg-artifact/*.tar.gz \
+            -C package-repo --strip-components=1 --no-same-owner
 
       - name: Collect source package metadata
         id: metadata
@@ -215,7 +277,7 @@ jobs:
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package
         with:
-          suite: ${{ needs.resolve.outputs.target_suite }}
+          suite: ${{ needs.resolve.outputs.suite }}
           pkg-dir: package-repo
           build-dir: build-area
           run-lintian: ${{ inputs.run-lintian }}
@@ -225,7 +287,7 @@ jobs:
         if: ${{ inputs.run-abi-checker }}
         uses: ./qcom-build-utils/.github/actions/abi_checker
         with:
-          apt-repository: "deb [arch=arm64 trusted=yes] https://qartifactory-edge.qualcomm.com/artifactory/qsc-deb-releases ${{ needs.resolve.outputs.target_suite }} main"
+          apt-repository: "deb [arch=arm64 trusted=yes] https://qartifactory-edge.qualcomm.com/artifactory/qsc-deb-releases ${{ needs.resolve.outputs.suite }} main"
 
       - name: Upload Docker build artifacts
         run: |
@@ -245,7 +307,7 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ needs.resolve.outputs.target_suite }}
+      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ needs.resolve.outputs.suite }}
       options: --user 0:0
       credentials:
         username: ${{ github.actor }}
@@ -297,12 +359,12 @@ jobs:
           # unambiguous while decoupling this step from the producer's filename.
           mkdir srcpkg
           tar xzf /tmp/srcpkg-artifact/*.tar.gz \
-            -C srcpkg --strip-components=1
+            -C srcpkg --strip-components=1 --no-same-owner
 
       - name: Prepare release
         if: ${{ inputs.release }}
         env:
-          SUITE_INPUT: ${{ needs.resolve.outputs.target_suite }}
+          SUITE_INPUT: ${{ needs.resolve.outputs.suite }}
         run: |
           set -ex
           echo "::group::Prepare release"
@@ -312,7 +374,7 @@ jobs:
       - name: Generate source package
         id: generate-source-package
         env:
-          SUITE_INPUT: ${{ needs.resolve.outputs.target_suite }}
+          SUITE_INPUT: ${{ needs.resolve.outputs.suite }}
           DEBUSINE_ASSEMBLE_ORIG: ${{ inputs.assemble-orig }}
         run: |
           set -ex
@@ -329,7 +391,7 @@ jobs:
           DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
           DEBUSINE_PARENT_WORKSPACE: ${{ inputs.debusine-parent-workspace }}
-          SUITE: ${{ needs.resolve.outputs.target_suite }}
+          SUITE: ${{ needs.resolve.outputs.suite }}
         run: |
           set -euxo pipefail
           debusine-action/lib/build
@@ -351,7 +413,22 @@ jobs:
 
   test:
     name: Test
-    if: ${{ always() && ((needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' && needs.debian-build.result == 'success') || ((needs.resolve.outputs.family == 'ubuntu' || needs.resolve.outputs.force_docker_build == 'true') && needs.docker-build.result == 'success')) }}
+    if: >-
+      ${{
+        always() && (
+          (
+            needs.resolve.outputs.family == 'debian' &&
+            needs.resolve.outputs.force_docker_build != 'true' &&
+            needs.debian-build.result == 'success'
+          ) || (
+            (
+              needs.resolve.outputs.family == 'ubuntu' ||
+              needs.resolve.outputs.force_docker_build == 'true'
+            ) &&
+            needs.docker-build.result == 'success'
+          )
+        )
+      }}
     needs:
       - resolve
       - debian-build
@@ -363,7 +440,7 @@ jobs:
       srcpkg_version: ${{ steps.select.outputs.srcpkg_version }}
     runs-on: ubuntu-24.04-arm
     container:
-      image: ${{ format('ghcr.io/qualcomm-linux/pkg-builder:{0}', needs.resolve.outputs.target_suite) }}
+      image: ${{ format('ghcr.io/qualcomm-linux/pkg-builder:{0}', needs.resolve.outputs.suite) }}
       options: --user 0:0
       credentials:
         username: ${{ github.actor }}
@@ -416,7 +493,7 @@ jobs:
           # producer's filename (see build-job extract step for rationale).
           mkdir srcpkg
           tar xzf /tmp/srcpkg-artifact/*.tar.gz \
-            -C srcpkg --strip-components=1
+            -C srcpkg --strip-components=1 --no-same-owner
 
       - name: Validate installability from Debusine CI workspace
         # Temporarily disabled while dependency repository injection is unresolved.
@@ -427,7 +504,7 @@ jobs:
           DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
           DEBUSINE_WORKSPACE: ${{ needs.debian-build.outputs.workspace }}
-          SUITE: ${{ needs.resolve.outputs.target_suite }}
+          SUITE: ${{ needs.resolve.outputs.suite }}
         run: |
           set -euxo pipefail
 
@@ -501,7 +578,7 @@ jobs:
           set -euxo pipefail
 
           # Add qsc-deb-releases so Qualcomm package dependencies are resolvable
-          suite="${{ needs.resolve.outputs.target_suite }}"
+          suite="${{ needs.resolve.outputs.suite }}"
           install -d /etc/apt/keyrings /etc/apt/sources.list.d
           cat > /etc/apt/keyrings/qsc-deb-releases.asc <<'KEYEOF'
           -----BEGIN PGP PUBLIC KEY BLOCK-----
@@ -552,30 +629,6 @@ jobs:
             echo "srcpkg_name=${{ needs.docker-build.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
             echo "srcpkg_version=${{ needs.docker-build.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
           fi
-
-  finalize:
-    name: Finalize outputs
-    if: ${{ always() && needs.resolve.result == 'success' && needs.test.result == 'success' }}
-    needs:
-      - resolve
-      - test
-    runs-on: ubuntu-latest
-    outputs:
-      target_suite: ${{ steps.select.outputs.target_suite }}
-      workspace: ${{ steps.select.outputs.workspace }}
-      workspace_url: ${{ steps.select.outputs.workspace_url }}
-      srcpkg_name: ${{ steps.select.outputs.srcpkg_name }}
-      srcpkg_version: ${{ steps.select.outputs.srcpkg_version }}
-    steps:
-      - name: Select workflow outputs
-        id: select
-        shell: bash
-        run: |
-          echo "target_suite=${{ needs.resolve.outputs.target_suite }}" >> "$GITHUB_OUTPUT"
-          echo "workspace=${{ needs.test.outputs.workspace }}" >> "$GITHUB_OUTPUT"
-          echo "workspace_url=${{ needs.test.outputs.workspace_url }}" >> "$GITHUB_OUTPUT"
-          echo "srcpkg_name=${{ needs.test.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
-          echo "srcpkg_version=${{ needs.test.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
 
       - name: Note temporary installability policy
         run: |
