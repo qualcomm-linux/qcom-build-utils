@@ -46,7 +46,6 @@ flowchart TD
 | `run-lintian` | boolean | No | `true` | Used by the Ubuntu/pkg-builder path |
 | `run-abi-checker` | boolean | No | `false` | Used by the Ubuntu/pkg-builder path |
 | `is-prebuilt` | string | No | `""` | Passed through to the Ubuntu/pkg-builder `build_package` action |
-| `job-index` | string | No | `"0"` | Optional matrix index used to keep Debusine child workspace names unique |
 | `release` | boolean | No | `false` | Whether to prepare the release bundle before generating the Debian release source package |
 | `debusine-parent-workspace` | string | No | `ci` | Parent Debusine workspace used to create child CI workspaces for Debian builds |
 
@@ -117,7 +116,6 @@ jobs:
     with:
       qcom-build-utils-ref: development
       debian-ref: refs/heads/${{ matrix.target_branch }}
-      job-index: ${{ strategy.job-index }}
 ```
 
 This workflow is the low-level build/test primitive used directly by package

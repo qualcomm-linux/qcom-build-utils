@@ -204,6 +204,7 @@ jobs:
           name: prepared-release-source
           path: prepared-release-source.tar.gz
           if-no-files-found: error
+          retention-days: 1
 
       - name: Select source preparation outputs
         id: select
@@ -607,6 +608,7 @@ jobs:
           name: release-provenance
           path: build/provenance.json
           if-no-files-found: error
+          retention-days: 1
 
       - name: Persist metadata to qcom-distro-artifacts
         env:

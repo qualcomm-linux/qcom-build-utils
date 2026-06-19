@@ -37,11 +37,6 @@ on:
         type: string
         default: ""
 
-      job-index:
-        description: Uniquely identifying index for matrix-expanded callers so Debusine child workspaces stay distinct
-        type: string
-        default: "0"
-
       release:
         description: Prepare a release bundle (finalizes changelog, creates git bundle for push-release) for the Debian Debusine path
         type: boolean
@@ -259,6 +254,7 @@ jobs:
           name: docker-build-area
           path: docker-build-area.tgz
           if-no-files-found: error
+          retention-days: 1
 
   debian-build:
     name: Build (Debusine)
@@ -323,7 +319,6 @@ jobs:
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
-          JOB_INDEX: ${{ inputs.job-index }}
           DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
           DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
@@ -347,6 +342,7 @@ jobs:
           name: release-bundle
           path: release.bundle
           if-no-files-found: error
+          retention-days: 1
 
   test:
     name: Test
