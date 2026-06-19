@@ -49,7 +49,6 @@ flowchart TD
 | `job-index` | string | No | `"0"` | Optional matrix index used to keep Debusine child workspace names unique |
 | `release` | boolean | No | `false` | Whether to prepare the release bundle before generating the Debian release source package |
 | `debusine-parent-workspace` | string | No | `ci` | Parent Debusine workspace used to create child CI workspaces for Debian builds |
-| `srcpkg-artifact` | string | No | `""` | Optional pre-prepared source-tree artifact used instead of checking out `debian-ref` |
 
 ### Secrets
 
@@ -180,7 +179,7 @@ reusable workflow: split on `/`, take the last two fields as
 ### Workflow Steps
 
 1. **Prepare release source**: For Ubuntu branches, finalize changelog and create local release commit/tag, then upload the prepared git repo as an artifact
-2. **Build and test once**: Reuse `pkg-build-reusable-workflow` (`release=true`) and feed the prepared source artifact when Ubuntu
+2. **Build and test once**: Reuse `pkg-build-reusable-workflow` (`release=true`) with `debian-branch` as the build source ref
 3. **Environment gate + provenance file**: Require `pkg-release-approval` after build/test and generate provenance from the exact built source state
 4. **Debian release path**: For Debian and `test-run=false`, publish Debusine CI workspace to prod, push git state, then publish provenance
 5. **Ubuntu release path**: Push git state atomically (branch + tag), publish provenance, and upload previously-built Docker artifacts to S3

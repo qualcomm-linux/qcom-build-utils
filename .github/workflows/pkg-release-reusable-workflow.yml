@@ -222,7 +222,6 @@ jobs:
       debian-ref: ${{ inputs.debian-branch }}
       release: true
       debusine-parent-workspace: ${{ inputs.debusine-parent-workspace }}
-      srcpkg-artifact: ${{ needs.prepare-release-source.outputs.srcpkg_artifact }}
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
