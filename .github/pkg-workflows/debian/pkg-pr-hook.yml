@@ -12,6 +12,7 @@ permissions:
 jobs:
   resolve-suite:
     name: Resolve suite from branch
+    if: github.repository_owner == 'qualcomm-linux' && github.repository != 'qualcomm-linux/pkg-template'
     runs-on: ubuntu-latest
     outputs:
       suite: ${{ steps.resolve.outputs.suite }}
