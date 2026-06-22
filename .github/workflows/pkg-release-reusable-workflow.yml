@@ -242,6 +242,7 @@ jobs:
         shell: bash
     container:
       image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ needs.build-and-test.outputs.suite }}
+      options: --user 0:0
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
