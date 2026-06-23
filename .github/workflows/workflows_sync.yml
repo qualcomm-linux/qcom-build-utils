@@ -64,6 +64,7 @@ jobs:
           DEBIAN_LATEST_WORKFLOW_FILE="$(pwd)/qcom-build-utils/.github/pkg-workflows/debian/pkg-pr-hook.yml"
           DEBIAN_TARGET_WORKFLOW_FILE=".github/workflows/pkg-pr-hook.yml"
           DEBIAN_LEGACY_WORKFLOW_FILE=".github/workflows/pr-pre-post-merge.yml"
+          LEGACY_UPSTREAM_HELPER_DIR=".github/TO_PASTE_IN_UPSTREAM_REPO"
           echo "📄 Using pkg-pr-hook.yml from pkg-workflows/debian/"
 
           for repo in $repos; do
@@ -123,6 +124,14 @@ jobs:
               isDirty=true
             fi
 
+            # Remove obsolete helper folder that used to be copied manually into
+            # upstream repos.
+            if [[ -d "$LEGACY_UPSTREAM_HELPER_DIR" ]]; then
+              echo "    🗑️ Removing obsolete $LEGACY_UPSTREAM_HELPER_DIR"
+              rm -rf "$LEGACY_UPSTREAM_HELPER_DIR"
+              isDirty=true
+            fi
+
             # Remove legacy default-branch caller workflow names. New names are
             # synced from .github/pkg-workflows/qli-ci/*.yml below.
             for legacy_main_workflow in build-debian-package.yml promote-prebuilt.yml promote-upstream.yml release.yml; do
@@ -160,7 +169,7 @@ jobs:
               if [[ "$isDirty" == "true" ]]; then
                 echo "    📝 Creating branch and committing default branch changes"
                 git checkout -b sync/qcom-build-utils-workflows 2>&1 | sed 's/^/    /'
-                git add -A .github/workflows/
+                git add -A .github/
                 git commit -s -m "chore: sync workflows from qcom-build-utils" 2>&1 | sed 's/^/    /'
 
                 if [[ "$CONFIRMATION_INPUT" == "true" ]]; then
@@ -219,6 +228,12 @@ jobs:
                   isDebianDirty=true
                 fi
 
+                if [[ -d "$LEGACY_UPSTREAM_HELPER_DIR" ]]; then
+                  echo "    🗑️ Removing obsolete $LEGACY_UPSTREAM_HELPER_DIR on $packaging_branch"
+                  rm -rf "$LEGACY_UPSTREAM_HELPER_DIR"
+                  isDebianDirty=true
+                fi
+
                 if [[ -f "$DEBIAN_TARGET_WORKFLOW_FILE" ]]; then
                   if diff -q "$DEBIAN_LATEST_WORKFLOW_FILE" "$DEBIAN_TARGET_WORKFLOW_FILE" > /dev/null; then
                     echo "    ✅ pkg-pr-hook.yml is up to date on $packaging_branch"
@@ -236,7 +251,7 @@ jobs:
 
                 if [[ "$isDebianDirty" == "true" ]]; then
                   git checkout -b "$debian_sync_branch" 2>&1 | sed 's/^/    /'
-                  git add -A .github/workflows/
+                  git add -A .github/
                   git commit -s -m "chore: sync pkg-pr-hook from qcom-build-utils" 2>&1 | sed 's/^/    /'
 
                   if [[ "$CONFIRMATION_INPUT" == "true" ]]; then
