@@ -2,7 +2,7 @@ name: Qualcomm Release Debian Package Reusable Workflow
 description: |
   This reusable workflow performs a package release.
   Debian suites use the Debusine-backed release path, while Ubuntu codenames keep
-  using the local pkg-builder and S3 release flow.
+  using the local pkg-builder release flow with direct apt-artifactory upload.
 
 on:
   workflow_call:
@@ -13,19 +13,14 @@ on:
         required: true
 
       debian-branch:
-        description: The debian branch to use to execute the release from. For example branch "qcom/debian/latest"
+        description: The debian ref to use to execute the release from. For example branch "qcom/debian/latest" or tag "debian/1.0.0-1"
         type: string
-        required: false
-
-      suite:
-        description: The distribution codename or Debian suite to build and release for. Ex noble, questing, resolute, trixie, sid
-        type: string
-        default: noble
+        required: true
 
       test-run:
         description: |
           Debian path: if true, stop after the Debusine build and installability test.
-          Ubuntu path: preserve the previous release flow, including upload to the test S3 location.
+          Ubuntu path remains stateful and still runs the full release flow.
         type: boolean
         default: true
 
@@ -46,23 +41,9 @@ on:
       DEBUSINE_RELEASE_TOKEN:
         description: Debusine production token used only for the Debian publish-to-prod step.
         required: false
-
-    outputs:
-      workspace:
-        description: Debusine child workspace name for Debian releases; empty for Ubuntu releases
-        value: ${{ jobs.finalize.outputs.workspace }}
-      workspace_url:
-        description: Debusine web URL for the child workspace for Debian releases; empty for Ubuntu releases
-        value: ${{ jobs.finalize.outputs.workspace_url }}
-      srcpkg_name:
-        description: Source package name prepared for release
-        value: ${{ jobs.finalize.outputs.srcpkg_name }}
-      srcpkg_version:
-        description: Source package version prepared for release
-        value: ${{ jobs.finalize.outputs.srcpkg_version }}
-      complete_version:
-        description: Alias for the released source package version
-        value: ${{ jobs.finalize.outputs.complete_version }}
+      QSC_API_KEY:
+        description: QArtifactory API key used for Ubuntu apt upload.
+        required: false
 
 permissions:
   contents: read
@@ -72,72 +53,174 @@ env:
   DEBUSINE_ACTION_REF: main
 
 jobs:
-  validate-inputs:
-    name: Validate suite/branch combination
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check resolute uses qcom/ubuntu/resolute
-        shell: bash
-        env:
-          SUITE: ${{ inputs.suite }}
-          DEBIAN_BRANCH: ${{ inputs.debian-branch }}
-        run: |
-          set -euo pipefail
-          if [[ "$SUITE" == "resolute" && "$DEBIAN_BRANCH" != "qcom/ubuntu/resolute" ]]; then
-            echo "::error::Suite 'resolute' must be released from branch 'qcom/ubuntu/resolute' but '$DEBIAN_BRANCH' was provided."
-            exit 1
-          fi
-          echo "✅ Input validation passed"
-
-  resolve:
-    name: Resolve suite family
-    needs: validate-inputs
-    runs-on: ubuntu-latest
+  prepare-release-source:
+    name: Prepare Release Source
+    runs-on: ubuntu-24.04-arm
     outputs:
       family: ${{ steps.resolve.outputs.family }}
-      debian_builder_suite: ${{ steps.resolve.outputs.debian_builder_suite }}
-    steps:
-      - name: Classify suite
-        id: resolve
+      suite: ${{ steps.resolve.outputs.suite }}
+      branch_ref: ${{ steps.resolve.outputs.normalized_ref }}
+      srcpkg_artifact: ${{ steps.select.outputs.srcpkg_artifact }}
+      srcpkg_name: ${{ steps.select.outputs.srcpkg_name }}
+      release_version: ${{ steps.select.outputs.release_version }}
+    defaults:
+      run:
         shell: bash
+    steps:
+      - name: Checkout qcom-build-utils scripts
+        uses: actions/checkout@v5
+        with:
+          repository: qualcomm-linux/qcom-build-utils
+          ref: ${{ inputs.qcom-build-utils-ref }}
+          path: qcom-build-utils
+
+      - name: Resolve family and suite from branch
+        id: resolve
         env:
-          TARGET_SUITE: ${{ inputs.suite }}
+          DEBIAN_REF_INPUT: ${{ inputs.debian-branch }}
         run: |
           set -euo pipefail
 
-          # 'latest' is not a valid suite name — map to sid (Debian unstable)
-          if [[ "$TARGET_SUITE" == "latest" ]]; then
-            TARGET_SUITE=sid
+          RESOLVER_SCRIPT="${GITHUB_WORKSPACE}/qcom-build-utils/scripts/resolve_branch_family_suite.sh"
+          if ! resolved_kv="$("$RESOLVER_SCRIPT" "$DEBIAN_REF_INPUT")"; then
+            echo "::error::Unable to resolve release target from debian-branch '$DEBIAN_REF_INPUT'. Expected a branch ending in '/<family>/<suite>' (for example 'ubuntu/resolute' or 'qcom/ubuntu/resolute')."
+            exit 1
           fi
 
-          case "$TARGET_SUITE" in
-            trixie|sid|unstable|bookworm|forky)
-              family=debian
-              ;;
-            *)
-              family=ubuntu
-              ;;
-          esac
+          normalized_ref=""
+          family=""
+          suite=""
+          while IFS='=' read -r key value; do
+            case "$key" in
+              normalized_ref) normalized_ref="$value" ;;
+              family) family="$value" ;;
+              suite) suite="$value" ;;
+            esac
+          done <<< "$resolved_kv"
 
-          debian_builder_suite="$TARGET_SUITE"
-          if [[ "$TARGET_SUITE" == "unstable" ]]; then
-            debian_builder_suite=sid
+          if [[ "$family" == "debian" ]] && [[ "$suite" == "latest" || "$suite" == "unstable" ]]; then
+            suite=sid
           fi
+
+          echo "::notice title=Resolved release target::debian-branch='${DEBIAN_REF_INPUT}', family='${family}', suite='${suite}'"
 
           echo "family=$family" >> "$GITHUB_OUTPUT"
-          echo "debian_builder_suite=$debian_builder_suite" >> "$GITHUB_OUTPUT"
+          echo "suite=$suite" >> "$GITHUB_OUTPUT"
+          echo "normalized_ref=$normalized_ref" >> "$GITHUB_OUTPUT"
 
-  debian-build:
-    name: Build and Test (Debian)
-    if: ${{ needs.resolve.outputs.family == 'debian' }}
+      - name: Install packaging tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends devscripts dpkg-dev
+
+      - name: Checkout Packaging Repo
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.PAT }}
+          persist-credentials: false
+          path: package-repo
+          ref: ${{ steps.resolve.outputs.normalized_ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Prepare release source state
+        id: prepare
+        env:
+          FAMILY: ${{ steps.resolve.outputs.family }}
+          DISTRO_CODENAME: ${{ steps.resolve.outputs.suite }}
+          BOT_NAME: ${{ vars.DEB_PKG_BOT_CI_NAME }}
+          BOT_EMAIL: ${{ vars.DEB_PKG_BOT_CI_EMAIL }}
+        run: |
+          set -euxo pipefail
+
+          cd package-repo
+
+          git config user.name "${BOT_NAME}"
+          git config user.email "${BOT_EMAIL}"
+
+          export DEBFULLNAME="${BOT_NAME}"
+          export DEBEMAIL="${BOT_EMAIL}"
+
+          echo "Initial changelog content:"
+          cat debian/changelog | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
+
+          if ! head -1 debian/changelog | grep -q 'UNRELEASED'; then
+            echo "Error: The suite in the latest changelog entry is not UNRELEASED." \
+                 "The release process expects the latest entry to be UNRELEASED at any point except in the commit (this one) that represents the release"
+            exit 1
+          fi
+
+          version=$(dpkg-parsechangelog --show-field Version)
+          srcpkg_name=$(dpkg-parsechangelog --show-field Source)
+
+          if [[ "${FAMILY}" == "ubuntu" ]]; then
+            # Guard: refuse to release a WIP placeholder
+            if [[ "${version}" == *~ ]]; then
+              echo "Error: version '${version}' ends with '~' — update debian/changelog and remove the '~' suffix before releasing" >&2
+              exit 1
+            fi
+            if grep -q 'WIP' debian/changelog; then
+              echo "Error: debian/changelog contains 'WIP' — update changelog entry before releasing" >&2
+              exit 1
+            fi
+
+            # dch expects the suite name; sid is the codename for unstable
+            dch_suite="${DISTRO_CODENAME}"
+            if [[ "${dch_suite}" == "sid" ]]; then
+              dch_suite=unstable
+            fi
+
+            echo "Releasing version: ${version} for suite '${dch_suite}'" | sed 's/^/\x1b[32m/' | sed 's/$/\x1b[0m/'
+
+            dch --release --distribution="${dch_suite}" "Release"
+
+            echo "Updated changelog content:"
+            cat debian/changelog | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
+
+            git commit -a -m "debian/changelog: Release version ${version} for suite '${dch_suite}'"
+
+            tag_name="${DISTRO_CODENAME}/${version}"
+            if git rev-parse -q --verify "refs/tags/${tag_name}" >/dev/null; then
+              echo "Error: local tag '${tag_name}' already exists" >&2
+              exit 1
+            fi
+            git tag "${tag_name}"
+          fi
+
+          git log --graph --oneline -n 10 --color=always
+
+          echo "release_version=${version}" >> "$GITHUB_OUTPUT"
+          echo "srcpkg_name=${srcpkg_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Archive prepared source repository
+        run: |
+          set -euxo pipefail
+          tar -C package-repo -czf prepared-release-source.tar.gz .
+
+      - name: Upload prepared source repository
+        uses: actions/upload-artifact@v6
+        with:
+          name: prepared-release-source
+          path: prepared-release-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Select source preparation outputs
+        id: select
+        run: |
+          echo "srcpkg_artifact=prepared-release-source" >> "$GITHUB_OUTPUT"
+          echo "srcpkg_name=${{ steps.prepare.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
+          echo "release_version=${{ steps.prepare.outputs.release_version }}" >> "$GITHUB_OUTPUT"
+
+  build-and-test:
+    name: Build and Test
     needs:
-      - validate-inputs
-      - resolve
+      - prepare-release-source
     uses: ./.github/workflows/pkg-build-reusable-workflow.yml
     with:
       qcom-build-utils-ref: ${{ inputs.qcom-build-utils-ref }}
       debian-ref: ${{ inputs.debian-branch }}
-      suite: ${{ inputs.suite }}
       release: true
       debusine-parent-workspace: ${{ inputs.debusine-parent-workspace }}
     secrets:
@@ -146,11 +229,11 @@ jobs:
 
   debian-release:
     name: Release (Debian)
-    if: ${{ needs.resolve.outputs.family == 'debian' && !inputs.test-run }}
+    if: ${{ needs.build-and-test.outputs.family == 'debian' && !inputs.test-run }}
     needs:
-      - resolve
-      - debian-build
+      - build-and-test
     runs-on: ubuntu-latest
+    environment: pkg-release-approval
     permissions:
       contents: write
       packages: read
@@ -158,7 +241,8 @@ jobs:
       run:
         shell: bash
     container:
-      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ needs.resolve.outputs.debian_builder_suite }}
+      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ needs.build-and-test.outputs.suite }}
+      options: --user 0:0
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -201,11 +285,11 @@ jobs:
           DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
           DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}
-          DEBUSINE_CI_WORKSPACE: ${{ needs.debian-build.outputs.workspace }}
+          DEBUSINE_CI_WORKSPACE: ${{ needs.build-and-test.outputs.workspace }}
           DEBUSINE_TARGET_WORKSPACE: prod
-          SRCPKG_NAME: ${{ needs.debian-build.outputs.srcpkg_name }}
-          SRCPKG_VERSION: ${{ needs.debian-build.outputs.srcpkg_version }}
-          SUITE: ${{ inputs.suite }}
+          SRCPKG_NAME: ${{ needs.build-and-test.outputs.srcpkg_name }}
+          SRCPKG_VERSION: ${{ needs.build-and-test.outputs.srcpkg_version }}
+          SUITE: ${{ needs.build-and-test.outputs.suite }}
         run: |
           set -euxo pipefail
 
@@ -217,199 +301,66 @@ jobs:
 
           debusine-action/lib/push-release
 
-  ubuntu-pkg-release:
+  ubuntu-release:
     name: Release (Ubuntu)
-    if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
+    if: ${{ needs.build-and-test.outputs.family == 'ubuntu' }}
     needs:
-      - validate-inputs
-      - resolve
-    runs-on: ubuntu-24.04-arm
-    outputs:
-      complete_version: ${{ steps.changelog.outputs.version }}
-      srcpkg_name: ${{ steps.metadata.outputs.srcpkg_name }}
-      srcpkg_version: ${{ steps.changelog.outputs.version }}
+      - prepare-release-source
+      - build-and-test
+    runs-on: lecore-prd-u2404-arm64-xlrg-od-ephem
+    environment: pkg-release-approval
     defaults:
       run:
         shell: bash
-    container:
-      image: ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite }}
-      options: --privileged
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Checkout qcom-build-utils
-        uses: actions/checkout@v5
-        with:
-          repository: qualcomm-linux/qcom-build-utils
-          ref: ${{ inputs.qcom-build-utils-ref }}
-          path: qcom-build-utils
-          fetch-depth: 1
-          sparse-checkout: |
-            .github
-            scripts
-
-      - name: Checkout Packaging Repo
-        uses: actions/checkout@v5
-        with:
-          token: ${{ secrets.PAT }}
-          path: package-repo
-          ref: ${{ inputs.debian-branch }}
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Collect source package metadata
-        id: metadata
+      - name: Install release tools
         run: |
-          cd package-repo
-          echo "srcpkg_name=$(dpkg-parsechangelog --show-field Source)" >> "$GITHUB_OUTPUT"
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends devscripts jq
 
-      - name: Changelog suite name change
-        id: changelog
+      - name: Download prepared source repository
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.prepare-release-source.outputs.srcpkg_artifact }}
+          path: .
+
+      - name: Extract prepared source repository
+        run: |
+          set -euxo pipefail
+          mkdir package-repo
+          tar -C package-repo -xzf prepared-release-source.tar.gz --strip-components=1 --no-same-owner
+
+      - name: Configure git identity
+        working-directory: ./package-repo
         env:
-          DEBIAN_BRANCH: ${{ inputs.debian-branch }}
-          DISTRO_CODENAME: ${{ inputs.suite }}
           BOT_NAME: ${{ vars.DEB_PKG_BOT_CI_NAME }}
           BOT_EMAIL: ${{ vars.DEB_PKG_BOT_CI_EMAIL }}
         run: |
-          cd ./package-repo
-
+          set -euxo pipefail
           git config user.name "${BOT_NAME}"
           git config user.email "${BOT_EMAIL}"
-
           export DEBFULLNAME="${BOT_NAME}"
           export DEBEMAIL="${BOT_EMAIL}"
-
-          git checkout "${DEBIAN_BRANCH}"
-
-          echo "Initial changelog content:"
-          cat debian/changelog | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
-
-          if ! head -1 debian/changelog | grep -q 'UNRELEASED'; then
-            echo "Error: The suite in the latest changelog entry is not UNRELEASED." \
-                 "The release process expects the latest entry to be UNRELEASED at any point except in the commit (this one) that represents the release"
-            exit 1
-          fi
-
-          version=$(dpkg-parsechangelog --show-field Version)
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-          # Guard: refuse to release a WIP placeholder
-          if [[ "${version}" == *~ ]]; then
-            echo "Error: version '${version}' ends with '~' — update debian/changelog and remove the '~' suffix before releasing" >&2
-            exit 1
-          fi
-          if grep -q 'WIP' debian/changelog; then
-            echo "Error: debian/changelog contains 'WIP' — update changelog entry before releasing" >&2
-            exit 1
-          fi
-
-          # dch expects the suite name; sid is the codename for unstable
-          dch_suite="${DISTRO_CODENAME}"
-          if [[ "${dch_suite}" == "sid" ]]; then
-            dch_suite=unstable
-          fi
-
-          echo "Releasing version: ${version} for suite '${dch_suite}'" | sed 's/^/\x1b[32m/' | sed 's/$/\x1b[0m/'
-
-          dch --release --distribution="${dch_suite}" "Release"
-
-          echo "Updated changelog content:"
-          cat debian/changelog | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
-
-          git commit -a -m "debian/changelog: Release version ${version} for suite '${dch_suite}'"
-
-          git tag "${DISTRO_CODENAME}/${version}"
-
-          git log --graph --oneline -n 10 --color=always
-
-      - name: Create provenance file
-        env:
-          DISTRO_CODENAME: ${{ inputs.suite }}
-          DEBIAN_BRANCH: ${{ inputs.debian-branch }}
-          UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO_GITHUB_NAME }}
-          PKG_VERSION: ${{ steps.changelog.outputs.version }}
-          PKG_REPO: ${{ github.repository }}
-        run: |
-          mkdir build
-
-          cd package-repo
-
-          SOURCE=$(grep-dctrl -n -s Source -r '' debian/control | head -n1)
-          ALL_PKGS=$(grep-dctrl -n -s Package -r '' debian/control | sort -u)
-          ALL_PKGS_JSON=$(printf '%s\n' "$ALL_PKGS" | jq -c -R -s 'split("\n") | map(select(length>0))')
-
-          PACKAGE_REPO_TAG=$(git describe --tags --match "${DISTRO_CODENAME}/*" --abbrev=0 "${DEBIAN_BRANCH}")
-
-          if [[ -f "upstream.conf" ]]; then
-            echo "ℹ️ upstream.conf found — generating provenance for prebuilt binary package"
-            source upstream.conf
-
-            cat > ../build/provenance.json << EOF
-          {
-            "$SOURCE" : {
-              "source_pkg_version": "${PKG_VERSION}",
-
-              "upstream_type": "prebuilt_binary",
-              "upstream_repo": "$ARTIFACTORY",
-              "upstream_repo_tag": "$TAG",
-              "src_distro": "$DISTRO",
-              "src_package_name": "$PACKAGE_NAME",
-
-              "pkg_repo": "${PKG_REPO}",
-              "pkg_repo_tag": "$PACKAGE_REPO_TAG",
-              "pkg_repo_commit": "$(git rev-parse HEAD)",
-
-              "binary_pkgs": $ALL_PKGS_JSON
-            }
-          }
-          EOF
-          else
-            echo "ℹ️ No upstream.conf — generating provenance for source package"
-
-            NEAREST_UPSTREAM_BRANCH_TAG=$(git describe --tags --match 'upstream/*' --abbrev=0)
-            NEAREST_UPSTREAM_COMMIT=$(git rev-list -n 1 "$NEAREST_UPSTREAM_BRANCH_TAG")
-            NEAREST_UPSTREAM_TAG=$(git ls-remote --tags "https://github.com/${UPSTREAM_REPO}.git" | \
-              awk -v commit="$NEAREST_UPSTREAM_COMMIT" '$1 == commit && $2 ~ /refs\/tags\// { sub("refs/tags/", "", $2); print $2 }' | head -n1)
-
-            cat > ../build/provenance.json << EOF
-          {
-            "$SOURCE" : {
-              "source_pkg_version": "${PKG_VERSION}",
-
-              "upstream_type": "source",
-              "upstream_repo": "${UPSTREAM_REPO}",
-              "upstream_repo_tag": "$NEAREST_UPSTREAM_TAG",
-              "upstream_repo_commit": "$NEAREST_UPSTREAM_COMMIT",
-
-              "pkg_repo": "${PKG_REPO}",
-              "pkg_repo_tag": "$PACKAGE_REPO_TAG",
-              "pkg_repo_commit": "$(git rev-parse HEAD)",
-              "pkg_repo_upstream_tag": "$NEAREST_UPSTREAM_BRANCH_TAG",
-
-              "binary_pkgs": $ALL_PKGS_JSON
-            }
-          }
-          EOF
-          fi
-
-          echo "Content of the provenance file:"
-          cat ../build/provenance.json | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
-
-      - name: Build Debian Packages
-        uses: ./qcom-build-utils/.github/actions/build_package
-        with:
-          suite: ${{ inputs.suite }}
-          pkg-dir: package-repo
-          build-dir: build
 
       - name: Commit changelog suite change
         working-directory: ./package-repo
         env:
-          DEBIAN_BRANCH: ${{ inputs.debian-branch }}
-          DISTRO_CODENAME: ${{ inputs.suite }}
+          RELEASE_VERSION: ${{ needs.prepare-release-source.outputs.release_version }}
+          DISTRO_CODENAME: ${{ needs.build-and-test.outputs.suite }}
+          BOT_NAME: ${{ vars.DEB_PKG_BOT_CI_NAME }}
+          BOT_EMAIL: ${{ vars.DEB_PKG_BOT_CI_EMAIL }}
         run: |
+          set -euxo pipefail
+
+          export DEBFULLNAME="${BOT_NAME}"
+          export DEBEMAIL="${BOT_EMAIL}"
+
           version=$(dpkg-parsechangelog --show-field Version)
+          if [[ "${version}" != "${RELEASE_VERSION}" ]]; then
+            echo "Error: expected release changelog version '${RELEASE_VERSION}', found '${version}'" >&2
+            exit 1
+          fi
 
           if [[ "$version" != *-* ]]; then
             echo "Error: version '$version' has no debian revision part" >&2
@@ -431,19 +382,245 @@ jobs:
 
           git commit -a -m "debian/changelog: bump to ${newversion}"
 
-          git push origin "${DEBIAN_BRANCH}"
-          git push origin "${DISTRO_CODENAME}/${version}"
-
           git log --graph --oneline -n 10 --color=always
 
-      - name: Push provenance to qcom-distro-artifacts
-        if: ${{ !inputs.test-run }}
+      - name: Push release git state
+        working-directory: ./package-repo
         env:
           GH_PAT: ${{ secrets.PAT }}
-          SUITE: ${{ inputs.suite }}
+          DEBIAN_BRANCH: ${{ needs.prepare-release-source.outputs.branch_ref }}
+          DISTRO_CODENAME: ${{ needs.build-and-test.outputs.suite }}
+          RELEASE_VERSION: ${{ needs.prepare-release-source.outputs.release_version }}
+        run: |
+          set -euxo pipefail
+
+          tag_name="${DISTRO_CODENAME}/${RELEASE_VERSION}"
+          git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag_name}" >/dev/null; then
+            echo "Error: remote tag '${tag_name}' already exists" >&2
+            exit 1
+          fi
+
+          git push --atomic origin "HEAD:${DEBIAN_BRANCH}" "${tag_name}"
+
+      - name: Download Docker build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: docker-build-area
+          path: .
+
+      - name: Extract Docker build artifacts
+        run: |
+          set -euxo pipefail
+          mkdir -p build
+          tar -C build -xzf docker-build-area.tgz
+
+      - name: Prepare build logs for upload
+        working-directory: ./build/
+        run: |
+          set -euxo pipefail
+
+          shopt -s nullglob
+          for build_file in *.build; do
+            if [ -L "$build_file" ]; then
+              BUILD_TARGET=$(readlink "$build_file")
+              rm "$build_file"
+              mv "$BUILD_TARGET" "$build_file"
+            fi
+          done
+
+          for build_file in *.build; do
+            renamed="${build_file//:/_}"
+            if [ "$renamed" != "$build_file" ]; then
+              mv "$build_file" "$renamed"
+            fi
+          done
+
+      - name: Require QArtifactory API key
+        env:
+          QSC_API_KEY: ${{ secrets.QSC_API_KEY }}
+        run: |
+          if [ -z "$QSC_API_KEY" ]; then
+            echo "QSC_API_KEY is required when publishing Ubuntu releases" >&2
+            exit 1
+          fi
+
+      - name: Prepare APT artifactory upload
+        id: pre-upload
+        working-directory: ./build
+        run: |
+          set -euo pipefail
+
+          CHANGES_FILE=$(find . -maxdepth 1 -type f -name "*.changes" | head -n 1)
+          if [ -z "$CHANGES_FILE" ]; then
+            echo "ERROR: No .changes file found in build artifacts." >&2
+            exit 1
+          fi
+          CHANGES_FILE_ABS=$(realpath "$CHANGES_FILE")
+          echo "changes_path=$CHANGES_FILE_ABS" >> "$GITHUB_OUTPUT"
+
+          COMMIT=$(git -C ../package-repo rev-parse HEAD)
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+          WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "workflow_url=$WORKFLOW_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to apt artifactory
+        uses: qualcomm-linux/apt-artifactory-action/upload@main
+        with:
+          qsc_api_key: ${{ secrets.QSC_API_KEY }}
+          server_url: https://qartifactory.pe.jfrog.io
+          target_base_repo: qsc-debian-local
+          changes_path: ${{ steps.pre-upload.outputs.changes_path }}
+          provenance_info: |
+            {
+              "commit": "${{ steps.pre-upload.outputs.commit }}",
+              "workflow": "${{ steps.pre-upload.outputs.workflow_url }}"
+            }
+          debug: ${{ inputs.test-run }}
+
+  persistance:
+    name: Release Metadata Persistence
+    needs:
+      - prepare-release-source
+      - build-and-test
+      - debian-release
+      - ubuntu-release
+    runs-on: ubuntu-latest
+    if: ${{ always() && ((needs.build-and-test.outputs.family == 'ubuntu' && needs.ubuntu-release.result == 'success') || (needs.build-and-test.outputs.family == 'debian' && !inputs.test-run && needs.debian-release.result == 'success')) }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Packaging Repo
+        if: ${{ needs.build-and-test.outputs.family != 'ubuntu' }}
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.PAT }}
+          path: package-repo
+          ref: ${{ inputs.debian-branch }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Download prepared source repository
+        if: ${{ needs.build-and-test.outputs.family == 'ubuntu' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.prepare-release-source.outputs.srcpkg_artifact }}
+          path: .
+
+      - name: Extract prepared source repository
+        if: ${{ needs.build-and-test.outputs.family == 'ubuntu' }}
+        run: |
+          set -euxo pipefail
+          mkdir package-repo
+          tar -C package-repo -xzf prepared-release-source.tar.gz --strip-components=1 --no-same-owner
+
+      - name: Create provenance file
+        env:
+          DISTRO_CODENAME: ${{ needs.build-and-test.outputs.suite }}
+          UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO_GITHUB_NAME }}
+          PKG_VERSION: ${{ needs.build-and-test.outputs.srcpkg_version }}
+          PKG_REPO: ${{ github.repository }}
+          SRCPKG_NAME: ${{ needs.build-and-test.outputs.srcpkg_name }}
+        run: |
+          set -euxo pipefail
+
+          mkdir build
+          cd package-repo
+
+          SOURCE="${SRCPKG_NAME}"
+          ALL_PKGS=$(awk '/^Package:/{print $2}' debian/control | sort -u)
+          ALL_PKGS_JSON=$(printf '%s\n' "$ALL_PKGS" | jq -c -R -s 'split("\n") | map(select(length>0))')
+
+          if PACKAGE_REPO_TAG=$(git describe --tags --match "${DISTRO_CODENAME}/*" --abbrev=0 2>/dev/null); then
+            echo "Using package repo tag from git history: ${PACKAGE_REPO_TAG}"
+          else
+            PACKAGE_REPO_TAG="${DISTRO_CODENAME}/${PKG_VERSION}"
+            echo "No matching local tag found; using derived tag: ${PACKAGE_REPO_TAG}"
+          fi
+
+          PACKAGE_REPO_COMMIT="$(git rev-parse HEAD)"
+
+          if [[ -f "upstream.conf" ]]; then
+            echo "ℹ️ upstream.conf found — generating provenance for prebuilt binary package"
+            # shellcheck source=/dev/null
+            source upstream.conf
+
+            cat > ../build/provenance.json << EOF2
+          {
+            "$SOURCE" : {
+              "source_pkg_version": "${PKG_VERSION}",
+
+              "upstream_type": "prebuilt_binary",
+              "upstream_repo": "$ARTIFACTORY",
+              "upstream_repo_tag": "$TAG",
+              "src_distro": "$DISTRO",
+              "src_package_name": "$PACKAGE_NAME",
+
+              "pkg_repo": "${PKG_REPO}",
+              "pkg_repo_tag": "$PACKAGE_REPO_TAG",
+              "pkg_repo_commit": "$PACKAGE_REPO_COMMIT",
+
+              "binary_pkgs": $ALL_PKGS_JSON
+            }
+          }
+          EOF2
+          else
+            echo "ℹ️ No upstream.conf — generating provenance for source package"
+
+            NEAREST_UPSTREAM_BRANCH_TAG=$(git describe --tags --match 'upstream/*' --abbrev=0)
+            NEAREST_UPSTREAM_COMMIT=$(git rev-list -n 1 "$NEAREST_UPSTREAM_BRANCH_TAG")
+            NEAREST_UPSTREAM_TAG="${NEAREST_UPSTREAM_BRANCH_TAG#upstream/}"
+
+            if [[ "$NEAREST_UPSTREAM_TAG" == "$NEAREST_UPSTREAM_BRANCH_TAG" ]]; then
+              echo "::warning::Unexpected upstream tag format '${NEAREST_UPSTREAM_BRANCH_TAG}'; using it as-is"
+            else
+              echo "::notice::Using upstream tag '${NEAREST_UPSTREAM_TAG}' derived from '${NEAREST_UPSTREAM_BRANCH_TAG}'"
+            fi
+
+            cat > ../build/provenance.json << EOF2
+          {
+            "$SOURCE" : {
+              "source_pkg_version": "${PKG_VERSION}",
+
+              "upstream_type": "source",
+              "upstream_repo": "${UPSTREAM_REPO}",
+              "upstream_repo_tag": "$NEAREST_UPSTREAM_TAG",
+              "upstream_repo_commit": "$NEAREST_UPSTREAM_COMMIT",
+
+              "pkg_repo": "${PKG_REPO}",
+              "pkg_repo_tag": "$PACKAGE_REPO_TAG",
+              "pkg_repo_commit": "$PACKAGE_REPO_COMMIT",
+              "pkg_repo_upstream_tag": "$NEAREST_UPSTREAM_BRANCH_TAG",
+
+              "binary_pkgs": $ALL_PKGS_JSON
+            }
+          }
+          EOF2
+          fi
+
+          echo "Content of the provenance file:"
+          cat ../build/provenance.json | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
+
+      - name: Upload provenance artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-provenance
+          path: build/provenance.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Persist metadata to qcom-distro-artifacts
+        env:
+          GH_PAT: ${{ secrets.PAT }}
+          SUITE: ${{ needs.build-and-test.outputs.suite }}
           BOT_NAME: ${{ vars.DEB_PKG_BOT_CI_NAME }}
           BOT_EMAIL: ${{ vars.DEB_PKG_BOT_CI_EMAIL }}
+          NEW_PROVENANCE: ${{ github.workspace }}/build/provenance.json
         run: |
+          set -euxo pipefail
+
           git clone "https://x-access-token:${GH_PAT}@github.com/qualcomm-linux/qcom-distro-artifacts.git" ./qcom-distro-artifacts
 
           cd qcom-distro-artifacts
@@ -454,7 +631,6 @@ jobs:
           mkdir -p "${SUITE}"
 
           SUITE_PROVENANCE="${SUITE}/provenance.json"
-          NEW_PROVENANCE="../build/provenance.json"
 
           if [[ -f "${SUITE_PROVENANCE}" ]]; then
             jq -s --indent 2 '.[0] * .[1]' "${SUITE_PROVENANCE}" "${NEW_PROVENANCE}" > /tmp/merged_provenance.json
@@ -477,111 +653,4 @@ jobs:
               echo "Push attempt ${attempt} failed, rebasing and retrying..."
               git pull --rebase origin main
             done
-          fi
-
-      - name: Prepare build logs for upload
-        working-directory: ./build/
-        run: |
-          BUILD_LINK=$(find . -maxdepth 1 -name "*.build" -type l)
-          if [ -n "$BUILD_LINK" ]; then
-            BUILD_TARGET=$(readlink "$BUILD_LINK")
-            rm "$BUILD_LINK"
-            mv "$BUILD_TARGET" "$BUILD_LINK"
-          fi
-
-          sed -i 's/:/_/g' *.build
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: build-artifacts
-          path: build/
-
-  ubuntu-upload-to-s3:
-    name: Upload to S3 (Ubuntu)
-    if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
-    needs:
-      - resolve
-      - ubuntu-pkg-release
-    runs-on: lecore-prd-u2404-arm64-xlrg-od-ephem
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: build-artifacts
-          path: build/
-
-      - name: Build S3 destination environment variables
-        run: |
-          OWNER_NAME="${{ github.repository_owner }}"
-          REPO_NAME="${{ github.event.repository.name }}"
-          CATEGORY_FOLDER="${{ inputs.test-run == true && 'test' || 'proposed' }}"
-          SUITE_NAME="${{ inputs.suite }}"
-          VERSION_NAME="${{ needs.ubuntu-pkg-release.outputs.complete_version }}"
-          WORKFLOW_BUILD_ID="${{ github.run_id }}"
-          WORKFLOW_RUN_ID="${{ github.run_attempt }}"
-
-          S3_BUCKET_PATH="${OWNER_NAME}/pkg/${CATEGORY_FOLDER}/${WORKFLOW_BUILD_ID}-${WORKFLOW_RUN_ID}/${REPO_NAME}/${SUITE_NAME}/${VERSION_NAME}/"
-
-          echo "ORG_NAME=${OWNER_NAME}"
-          echo "REPO_NAME=${REPO_NAME}"
-          echo "CATEGORY_FOLDER=${CATEGORY_FOLDER}"
-          echo "SUITE_NAME=${SUITE_NAME}"
-          echo "VERSION_NAME=${VERSION_NAME}"
-
-          echo "S3 Bucket Path: ${S3_BUCKET_PATH}"
-
-          echo "S3_BUCKET_PATH=${S3_BUCKET_PATH}" >> "$GITHUB_ENV"
-
-      - name: Upload released debian package to S3
-        uses: qualcomm-linux/upload-private-artifact-action@aws
-        with:
-          s3_bucket: qli-prd-lecore-gh-artifacts
-          path: build
-          destination: ${{ env.S3_BUCKET_PATH }}
-
-      - name: Notify qcom-distro-images of new release via repository dispatch
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.PAT }}
-          repository: qualcomm-linux/qcom-distro-images
-          event-type: pkg-repo-release
-          client-payload: >-
-            {
-              "artifact_path":"${{ env.S3_BUCKET_PATH }}"
-            }
-
-  finalize:
-    name: Finalize outputs
-    needs:
-      - validate-inputs
-      - resolve
-      - debian-build
-      - debian-release
-      - ubuntu-pkg-release
-      - ubuntu-upload-to-s3
-    runs-on: ubuntu-latest
-    outputs:
-      workspace: ${{ steps.select.outputs.workspace }}
-      workspace_url: ${{ steps.select.outputs.workspace_url }}
-      srcpkg_name: ${{ steps.select.outputs.srcpkg_name }}
-      srcpkg_version: ${{ steps.select.outputs.srcpkg_version }}
-      complete_version: ${{ steps.select.outputs.complete_version }}
-    steps:
-      - name: Select workflow outputs
-        id: select
-        shell: bash
-        run: |
-          if [[ "${{ needs.resolve.outputs.family }}" == "debian" ]]; then
-            echo "workspace=${{ needs.debian-build.outputs.workspace }}" >> "$GITHUB_OUTPUT"
-            echo "workspace_url=${{ needs.debian-build.outputs.workspace_url }}" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_name=${{ needs.debian-build.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_version=${{ needs.debian-build.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
-            echo "complete_version=${{ needs.debian-build.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "workspace=" >> "$GITHUB_OUTPUT"
-            echo "workspace_url=" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_name=${{ needs.ubuntu-pkg-release.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_version=${{ needs.ubuntu-pkg-release.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
-            echo "complete_version=${{ needs.ubuntu-pkg-release.outputs.complete_version }}" >> "$GITHUB_OUTPUT"
           fi

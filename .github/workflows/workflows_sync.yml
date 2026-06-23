@@ -64,6 +64,7 @@ jobs:
           DEBIAN_LATEST_WORKFLOW_FILE="$(pwd)/qcom-build-utils/.github/pkg-workflows/debian/pkg-pr-hook.yml"
           DEBIAN_TARGET_WORKFLOW_FILE=".github/workflows/pkg-pr-hook.yml"
           DEBIAN_LEGACY_WORKFLOW_FILE=".github/workflows/pr-pre-post-merge.yml"
+          LEGACY_UPSTREAM_HELPER_DIR=".github/TO_PASTE_IN_UPSTREAM_REPO"
           echo "📄 Using pkg-pr-hook.yml from pkg-workflows/debian/"
 
           for repo in $repos; do
@@ -123,8 +124,31 @@ jobs:
               isDirty=true
             fi
 
-            # Remove legacy main-branch caller workflow names. New names are
-            # synced from .github/pkg-workflows/main/*.yml below.
+            # Remove obsolete helper folder that used to be copied manually into
+            # upstream repos.
+            if [[ -d "$LEGACY_UPSTREAM_HELPER_DIR" ]]; then
+              echo "    🗑️ Removing obsolete $LEGACY_UPSTREAM_HELPER_DIR"
+              rm -rf "$LEGACY_UPSTREAM_HELPER_DIR"
+              isDirty=true
+            fi
+
+            # Remove any workflow files that still use pull_request_target.
+            # Those are legacy/stale and should not remain in pkg-repos.
+            if [[ -d ".github/workflows" ]]; then
+              pr_target_workflows=$(grep -R -l --include='*.yml' --include='*.yaml' 'pull_request_target' .github/workflows 2>/dev/null || true)
+              if [[ -n "$pr_target_workflows" ]]; then
+                echo "    🗑️ Removing workflows containing pull_request_target"
+                while IFS= read -r workflow_file; do
+                  [[ -z "$workflow_file" ]] && continue
+                  echo "      - $workflow_file"
+                  rm -f "$workflow_file"
+                done <<< "$pr_target_workflows"
+                isDirty=true
+              fi
+            fi
+
+            # Remove legacy default-branch caller workflow names. New names are
+            # synced from .github/pkg-workflows/qli-ci/*.yml below.
             for legacy_main_workflow in build-debian-package.yml promote-prebuilt.yml promote-upstream.yml release.yml; do
               legacy_main_path=".github/workflows/$legacy_main_workflow"
               if [[ -f "$legacy_main_path" ]]; then
@@ -135,7 +159,7 @@ jobs:
             done
 
             # Compare and sync workflow files
-            for workflow in ../qcom-build-utils/.github/pkg-workflows/main/*.yml; do
+            for workflow in ../qcom-build-utils/.github/pkg-workflows/qli-ci/*.yml; do
               workflow_name=$(basename "$workflow")
 
               target_workflow=".github/workflows/$workflow_name"
@@ -156,11 +180,11 @@ jobs:
               fi
             done
 
-              # Create branch, commit, and push main branch changes if needed
+              # Create branch, commit, and push default branch changes if needed
               if [[ "$isDirty" == "true" ]]; then
-                echo "    📝 Creating branch and committing main branch changes"
+                echo "    📝 Creating branch and committing default branch changes"
                 git checkout -b sync/qcom-build-utils-workflows 2>&1 | sed 's/^/    /'
-                git add -A .github/workflows/
+                git add -A .github/
                 git commit -s -m "chore: sync workflows from qcom-build-utils" 2>&1 | sed 's/^/    /'
 
                 if [[ "$CONFIRMATION_INPUT" == "true" ]]; then
@@ -182,8 +206,73 @@ jobs:
                 # Return to default branch before packaging-branch sync
                 git checkout "$default_branch" 2>&1 | sed 's/^/    /'
               else
-                echo "    ✨ No main branch changes needed for $repo"
+                echo "    ✨ No default branch changes needed for $repo"
               fi
+
+              # Cleanup-only pass for non-packaging branches:
+              # delete stale workflows that still contain pull_request_target.
+              other_branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin/* \
+                | sed 's|^origin/||' \
+                | grep -Ev '^HEAD$' \
+                | grep -Ev '^origin$' \
+                | grep -Ev '(^|/)pr/' \
+                | grep -Ev '^sync/' \
+                | grep -v "^${default_branch}$" \
+                | grep -Ev '^(debian/|ubuntu/|qcom/debian/|qcom/ubuntu/)' \
+                | sort -u)
+
+              for other_branch in $other_branches; do
+                echo "  🌿 Checking stale pull_request_target workflows on branch: $other_branch"
+                safe_branch_name="${other_branch//\//-}"
+                cleanup_sync_branch="sync/qcom-build-utils-pr-target-cleanup-${safe_branch_name}"
+
+                git checkout "$other_branch" 2>&1 | sed 's/^/    /'
+                isCleanupDirty=false
+
+                if [[ -d ".github/workflows" ]]; then
+                  pr_target_workflows=$(grep -R -l --include='*.yml' --include='*.yaml' 'pull_request_target' .github/workflows 2>/dev/null || true)
+                  if [[ -n "$pr_target_workflows" ]]; then
+                    echo "    🗑️ Removing workflows containing pull_request_target on $other_branch"
+                    while IFS= read -r workflow_file; do
+                      [[ -z "$workflow_file" ]] && continue
+                      echo "      - $workflow_file"
+                      rm -f "$workflow_file"
+                    done <<< "$pr_target_workflows"
+                    isCleanupDirty=true
+                  fi
+                fi
+
+                if [[ "$isCleanupDirty" == "true" ]]; then
+                  if git ls-remote --exit-code --heads origin "$cleanup_sync_branch" > /dev/null 2>&1; then
+                    echo "    🧹 Deleting existing $cleanup_sync_branch"
+                    git push origin --delete "$cleanup_sync_branch" 2>&1 | sed 's/^/    /'
+                  fi
+
+                  git checkout -b "$cleanup_sync_branch" 2>&1 | sed 's/^/    /'
+                  git add -A .github/
+                  git commit -s -m "chore: remove pull_request_target workflows" 2>&1 | sed 's/^/    /'
+
+                  if [[ "$CONFIRMATION_INPUT" == "true" ]]; then
+                    echo "    🚀 Pushing changes and creating PR for $other_branch"
+                    git push origin "$cleanup_sync_branch" 2>&1 | sed 's/^/    /'
+
+                    pr_url=$(gh pr create --repo "$ORG/$repo" \
+                      --title "chore: remove pull_request_target workflows" \
+                      --body "This PR removes stale workflow files that still contain \`pull_request_target\`." \
+                      --head "$cleanup_sync_branch" \
+                      --base "$other_branch")
+
+                    PR_URLS+=("$pr_url")
+                    echo "    ✅ PR created for $other_branch: $pr_url"
+                  else
+                    echo "    👀 Dry-run mode - No PR will be created for $other_branch"
+                  fi
+                else
+                  echo "    ✨ No pull_request_target workflow cleanup needed on $other_branch"
+                fi
+
+                git checkout "$default_branch" 2>&1 | sed 's/^/    /'
+              done
 
               # Sync pkg-pr-hook.yml to every managed packaging branch family.
               # Supported families:
@@ -192,8 +281,9 @@ jobs:
               #   - qcom/debian/*
               #   - qcom/ubuntu/*
               # Exclude transient promotion branches (*/pr/*).
-              packaging_branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin \
+              packaging_branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin/* \
                 | sed 's|^origin/||' \
+                | grep -Ev '^origin$' \
                 | grep -E '^(debian/|ubuntu/|qcom/debian/|qcom/ubuntu/)' \
                 | grep -Ev '(^|/)pr/' \
                 | sort -u)
@@ -219,6 +309,25 @@ jobs:
                   isDebianDirty=true
                 fi
 
+                if [[ -d "$LEGACY_UPSTREAM_HELPER_DIR" ]]; then
+                  echo "    🗑️ Removing obsolete $LEGACY_UPSTREAM_HELPER_DIR on $packaging_branch"
+                  rm -rf "$LEGACY_UPSTREAM_HELPER_DIR"
+                  isDebianDirty=true
+                fi
+
+                if [[ -d ".github/workflows" ]]; then
+                  pr_target_workflows=$(grep -R -l --include='*.yml' --include='*.yaml' 'pull_request_target' .github/workflows 2>/dev/null || true)
+                  if [[ -n "$pr_target_workflows" ]]; then
+                    echo "    🗑️ Removing workflows containing pull_request_target on $packaging_branch"
+                    while IFS= read -r workflow_file; do
+                      [[ -z "$workflow_file" ]] && continue
+                      echo "      - $workflow_file"
+                      rm -f "$workflow_file"
+                    done <<< "$pr_target_workflows"
+                    isDebianDirty=true
+                  fi
+                fi
+
                 if [[ -f "$DEBIAN_TARGET_WORKFLOW_FILE" ]]; then
                   if diff -q "$DEBIAN_LATEST_WORKFLOW_FILE" "$DEBIAN_TARGET_WORKFLOW_FILE" > /dev/null; then
                     echo "    ✅ pkg-pr-hook.yml is up to date on $packaging_branch"
@@ -236,7 +345,7 @@ jobs:
 
                 if [[ "$isDebianDirty" == "true" ]]; then
                   git checkout -b "$debian_sync_branch" 2>&1 | sed 's/^/    /'
-                  git add -A .github/workflows/
+                  git add -A .github/
                   git commit -s -m "chore: sync pkg-pr-hook from qcom-build-utils" 2>&1 | sed 's/^/    /'
 
                   if [[ "$CONFIRMATION_INPUT" == "true" ]]; then

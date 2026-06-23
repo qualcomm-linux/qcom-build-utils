@@ -1,4 +1,4 @@
-name: Release Version
+name: Release
 description: |
   Release a new package version.
   This workflow is manually triggered via workflow_dispatch.
@@ -7,30 +7,15 @@ on:
   workflow_dispatch:
     inputs:
 
-      suite:
-        description: The distribution codename or Debian suite to release for. Ex noble, questing, resolute, trixie, bookworm, sid, unstable
-        type: choice
-        default: noble
-        options:
-          - noble
-          - questing
-          - resolute
-          - unstable
-          - forky
-          - trixie
-          - bookworm
-          - sid
-
       debian-branch:
-        description: The debian branch to use to execute the release from. For example branch "qcom/debian/latest"
+        description: The debian branch to release. For example branch "qcom/debian/trixie"
         type: string
-        required: false
-        default: qcom/debian/latest
+        required: true
 
       test-run:
         description: |
-          Debian suites: if true, stop after the Debusine build and installability test.
-          Ubuntu codenames: preserve the previous release flow, including upload to the test S3 location.
+          Debian: if true, stop after build/test.
+          Ubuntu: still runs the full release flow.
         type: boolean
         default: true
 
@@ -39,12 +24,10 @@ permissions:
   packages: read
 
 jobs:
-  release:
-
+  Release:
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-release-reusable-workflow.yml@main
     with:
       qcom-build-utils-ref: main
-      suite: ${{ github.event.inputs.suite }}
       debian-branch: ${{ github.event.inputs.debian-branch }}
       test-run: ${{ github.event.inputs.test-run == 'true' && true || false }}
       debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE }}
@@ -53,3 +36,4 @@ jobs:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
       DEBUSINE_RELEASE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}
+      QSC_API_KEY: ${{ secrets.DEB_PKG_BOT_CI_QSC_TOKEN }}

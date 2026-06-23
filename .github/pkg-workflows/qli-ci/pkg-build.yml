@@ -1,4 +1,4 @@
-name: Build Debian Package
+name: Build
 description: |
   Builds the debian package represented by this repo at the ref pointed by the debain-ref argument.
 
@@ -12,20 +12,6 @@ on:
         required: true
         default: qcom/debian/latest
 
-      suite:
-        description: The distribution codename or Debian suite to build for. Ex noble, questing, resolute, trixie, sid, unstable
-        type: choice
-        default: unstable
-        options:
-          - noble
-          - questing
-          - resolute
-          - unstable
-          - forky
-          - trixie
-          - bookworm
-          - sid
-
       force-docker-build:
         description: Force local pkg-builder instead of Debusine for Debian-family suites
         type: boolean
@@ -37,11 +23,11 @@ permissions:
 
 jobs:
   build:
+    name: Build
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-build-reusable-workflow.yml@main
     with:
       qcom-build-utils-ref: main
       debian-ref: ${{ inputs.debian-ref }}
-      suite: ${{ inputs.suite }}
       force-docker-build: ${{ inputs.force-docker-build }}
       debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE }}
     secrets:

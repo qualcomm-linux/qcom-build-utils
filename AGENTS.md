@@ -14,6 +14,10 @@ orchestration around build, test, promotion, and release flows.
     `qualcomm-linux/debusine-action` and Debusine builder images
   - Ubuntu codenames (`noble`, `questing`, `resolute`, and similar Ubuntu targets) use the
     older local `pkg-builder` path with qcom-build-utils composite actions
+- Ubuntu release path now prepares release changelog/tag state as an artifact,
+  builds once via `pkg-build-reusable-workflow.yml`, then gates on environment
+  `pkg-release-approval` before pushing git state, publishing provenance, and
+  uploading the already-built artifacts directly to apt artifactory.
 - Debian-path helper entrypoints come from checked-out `debusine-action/lib/`:
   - `prepare-release`
   - `generate-source-package`
@@ -33,12 +37,44 @@ orchestration around build, test, promotion, and release flows.
   installed broadly (for example `qcom-preflight-checks.yml`).
 - Keep this split so package-specific automation remains easy to identify in `pkg-*` repositories.
 
+## Build Branch Convention (Caller Contract)
+
+For `pkg-build-reusable-workflow.yml`, callers should pass a `debian-ref` branch
+name where the last two `/`-delimited fields are:
+
+- `<family>/<suite>`
+
+Expected values:
+
+- `family`: `debian` or `ubuntu`
+- `suite`: distro codename/suite such as `sid`, `bookworm`, `noble`, `resolute`
+
+Examples:
+
+- `qcom/debian/latest` (normalized to suite `sid`)
+- `qcom/debian/bookworm`
+- `qcom/ubuntu/resolute`
+- `test/qcom/ubuntu/resolute`
+- `ubuntu/resolute`
+- `dev/whatever/yo/debian/trixie`
+
+Invalid examples:
+
+- `resolute`
+- `ubuntu`
+- `ubuntu-resolute`
+
+`pkg-build-reusable-workflow.yml` no longer takes a separate `suite` input for
+routing; it resolves family/suite from `debian-ref`.
+For PR validation where `debian-ref` is a transient branch (for example
+`debian/pr/*`), routing falls back to `github.base_ref`.
+
 ## Important Workflows
 
 - `.github/workflows/pkg-build-reusable-workflow.yml`
   - main hybrid package build/test entrypoint for package repos
 - `.github/workflows/pkg-release-reusable-workflow.yml`
-  - hybrid release entrypoint: Debian via Debusine, Ubuntu via pkg-builder + S3 flow
+  - hybrid release entrypoint: Debian via Debusine, Ubuntu via pkg-builder + direct apt upload
 - `.github/workflows/pkg-promote-reusable-workflow.yml`
   - upstream-to-packaging promotion flow
 - `.github/workflows/pkg-upstream-pr-build-reusable-workflow.yml`

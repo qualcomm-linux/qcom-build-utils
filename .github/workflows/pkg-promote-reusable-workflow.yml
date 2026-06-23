@@ -18,7 +18,7 @@ on:
       debian-branch:
         description: The debian branch to apply the promotion to. For example branch "qcom/debian/latest"
         type: string
-        required: false
+        required: true
 
       upstream-tag:
         description: The tag in the upstream repo to promote to.
@@ -45,6 +45,7 @@ env:
 
 jobs:
   promote-upstream-version:
+    name: Promote
 
     runs-on: ubuntu-24.04-arm
 
