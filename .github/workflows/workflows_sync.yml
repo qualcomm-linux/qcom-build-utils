@@ -211,9 +211,10 @@ jobs:
 
               # Cleanup-only pass for non-packaging branches:
               # delete stale workflows that still contain pull_request_target.
-              other_branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin \
+              other_branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin/* \
                 | sed 's|^origin/||' \
                 | grep -Ev '^HEAD$' \
+                | grep -Ev '^origin$' \
                 | grep -Ev '(^|/)pr/' \
                 | grep -Ev '^sync/' \
                 | grep -v "^${default_branch}$" \
@@ -280,8 +281,9 @@ jobs:
               #   - qcom/debian/*
               #   - qcom/ubuntu/*
               # Exclude transient promotion branches (*/pr/*).
-              packaging_branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin \
+              packaging_branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin/* \
                 | sed 's|^origin/||' \
+                | grep -Ev '^origin$' \
                 | grep -E '^(debian/|ubuntu/|qcom/debian/|qcom/ubuntu/)' \
                 | grep -Ev '(^|/)pr/' \
                 | sort -u)
