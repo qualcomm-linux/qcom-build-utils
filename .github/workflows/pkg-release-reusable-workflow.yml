@@ -487,7 +487,7 @@ jobs:
       - build-and-test
       - debian-release
       - ubuntu-release
-    runs-on: ubuntu-latest
+    runs-on: lecore-prd-u2404-arm64-xlrg-od-ephem
     if: ${{ always() && ((needs.build-and-test.outputs.family == 'ubuntu' && needs.ubuntu-release.result == 'success') || (needs.build-and-test.outputs.family == 'debian' && !inputs.test-run && needs.debian-release.result == 'success')) }}
     permissions:
       contents: read
@@ -654,3 +654,57 @@ jobs:
               git pull --rebase origin main
             done
           fi
+
+      - name: Stage provenance for S3 upload
+        if: ${{ needs.build-and-test.outputs.family == 'ubuntu' }}
+        env:
+          SUITE: ${{ needs.build-and-test.outputs.suite }}
+        run: |
+          set -euxo pipefail
+          mkdir -p s3-provenance
+          cp build/provenance.json "s3-provenance/provenance_${SUITE}.json"
+
+      - name: Upload provenance to S3
+        if: ${{ needs.build-and-test.outputs.family == 'ubuntu' }}
+        uses: qualcomm-linux/upload-private-artifact-action@aws-v4
+        with:
+          s3_bucket: qli-prd-lecore-gh-artifacts
+          path: s3-provenance
+          destination: qualcomm-linux/pkg/proposed/${{ github.run_id }}/
+
+  upload-debs-to-s3:
+    name: Upload Debs to S3 (Ubuntu)
+    if: ${{ needs.build-and-test.outputs.family == 'ubuntu' }}
+    needs:
+      - build-and-test
+    runs-on: lecore-prd-u2404-arm64-xlrg-od-ephem
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download Docker build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: docker-build-area
+          path: .
+
+      - name: Extract Docker build artifacts
+        run: |
+          set -euxo pipefail
+          mkdir -p build-area
+          tar -C build-area -xzf docker-build-area.tgz
+
+      - name: Stage debs for S3 proposed upload
+        env:
+          SUITE: ${{ needs.build-and-test.outputs.suite }}
+        run: |
+          set -euxo pipefail
+          mkdir -p s3-proposed/debs
+          find build-area -maxdepth 1 -name "*.deb" -exec cp {} s3-proposed/debs/ \;
+
+      - name: Upload proposed debs and provenance to S3
+        uses: qualcomm-linux/upload-private-artifact-action@aws-v4
+        with:
+          s3_bucket: qli-prd-lecore-gh-artifacts
+          path: s3-proposed
+          destination: qualcomm-linux/pkg/proposed/${{ github.run_id }}/
