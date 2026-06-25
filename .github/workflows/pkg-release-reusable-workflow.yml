@@ -670,7 +670,7 @@ jobs:
         with:
           s3_bucket: qli-prd-lecore-gh-artifacts
           path: s3-provenance
-          destination: qualcomm-linux/pkg/proposed/${{ github.run_id }}/
+          destination: qualcomm-linux/pkg/proposed/${{ github.run_id }}-${{ github.run_attempt }}/
 
   upload-debs-to-s3:
     name: Upload Debs to S3 (Ubuntu)
@@ -707,4 +707,4 @@ jobs:
         with:
           s3_bucket: qli-prd-lecore-gh-artifacts
           path: s3-proposed
-          destination: qualcomm-linux/pkg/proposed/${{ github.run_id }}/
+          destination: qualcomm-linux/pkg/proposed/${{ github.run_id }}-${{ github.run_attempt }}/
