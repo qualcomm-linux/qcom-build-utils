@@ -523,6 +523,7 @@ jobs:
           PKG_VERSION: ${{ needs.build-and-test.outputs.srcpkg_version }}
           PKG_REPO: ${{ github.repository }}
           SRCPKG_NAME: ${{ needs.build-and-test.outputs.srcpkg_name }}
+          PKG_REPO_BRANCH: ${{ needs.prepare-release-source.outputs.branch_ref }}
         run: |
           set -euxo pipefail
 
@@ -561,6 +562,7 @@ jobs:
               "pkg_repo": "${PKG_REPO}",
               "pkg_repo_tag": "$PACKAGE_REPO_TAG",
               "pkg_repo_commit": "$PACKAGE_REPO_COMMIT",
+              "pkg_repo_branch": "${PKG_REPO_BRANCH}",
 
               "binary_pkgs": $ALL_PKGS_JSON
             }
@@ -592,6 +594,7 @@ jobs:
               "pkg_repo": "${PKG_REPO}",
               "pkg_repo_tag": "$PACKAGE_REPO_TAG",
               "pkg_repo_commit": "$PACKAGE_REPO_COMMIT",
+              "pkg_repo_branch": "${PKG_REPO_BRANCH}",
               "pkg_repo_upstream_tag": "$NEAREST_UPSTREAM_BRANCH_TAG",
 
               "binary_pkgs": $ALL_PKGS_JSON
