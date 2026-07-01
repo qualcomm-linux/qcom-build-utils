@@ -95,6 +95,9 @@ OUTPUT_DIR=$(realpath "$OUTPUT_DIR")
 command -v python3   &>/dev/null || { echo "[ERROR] python3 is required"; exit 1; }
 command -v jq        &>/dev/null || { echo "[ERROR] jq is required";     exit 1; }
 command -v xmlstarlet &>/dev/null || { echo "[ERROR] xmlstarlet is required"; exit 1; }
+sudo apt-get install -y -q python3-venv
+python3 -m venv .venv
+source .venv/bin/activate
 
 # ------------------------------------------------------------------------------
 # Place rootfs.img at the output root (shared by all targets)
@@ -223,10 +226,10 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
                 PART_MAP="${PART_MAP},cdt=cdt.bin"
             fi
 
-            python3 "${PTOOL_DIR}/gen_partition.py" \
+            python3 "${PTOOL_DIR}/qcom_ptool/gen_partition.py" \
                 -i "$CONF" -o "partition_${storage}.xml" \
                 ${PART_MAP:+-m "$PART_MAP"}
-            python3 "${PTOOL_DIR}/ptool.py" \
+            python3 "${PTOOL_DIR}/qcom_ptool/ptool.py" \
                 -x "partition_${storage}.xml" \
                 -t "./partition_${storage}"
             cleanup_flash_dir "./partition_${storage}"
@@ -372,7 +375,7 @@ for k in $(seq 0 $((BOARD_COUNT - 1))); do
         CX_PARTITION_XML="${CX_PTOOL_WORK}/partition_spinor.xml"
         if [[ -n "$CX_TEMPLATE" && -f "$CX_PARTITION_XML" ]]; then
             CX_OUT="${CX_TARGET_DIR}/spinor/contents.xml"
-            python3 "${PTOOL_DIR}/gen_contents.py" \
+            python3 "${PTOOL_DIR}/qcom_ptool/gen_contents.py" \
                 -t "$CX_TEMPLATE" \
                 -p "$CX_PARTITION_XML" \
                 -o "$CX_OUT"
@@ -406,7 +409,7 @@ for k in $(seq 0 $((BOARD_COUNT - 1))); do
             CX_PARTITION_XML="${CX_PTOOL_WORK}/partition_${s}.xml"
             if [[ -n "$CX_TEMPLATE" && -f "$CX_PARTITION_XML" ]]; then
                 CX_OUT="${CX_TARGET_DIR}/${s}/contents.xml"
-                python3 "${PTOOL_DIR}/gen_contents.py" \
+                python3 "${PTOOL_DIR}/qcom_ptool/gen_contents.py" \
                     -t "$CX_TEMPLATE" \
                     -p "$CX_PARTITION_XML" \
                     -o "$CX_OUT"
@@ -423,6 +426,8 @@ for k in $(seq 0 $((BOARD_COUNT - 1))); do
         done
     fi
 done
+
+deactivate
 
 echo ""
 echo "[INFO] gen-flash-dirs.sh complete. Output: ${OUTPUT_DIR}"
