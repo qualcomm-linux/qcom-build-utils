@@ -384,26 +384,6 @@ jobs:
 
           git log --graph --oneline -n 10 --color=always
 
-      - name: Push release git state
-        working-directory: ./package-repo
-        env:
-          GH_PAT: ${{ secrets.PAT }}
-          DEBIAN_BRANCH: ${{ needs.prepare-release-source.outputs.branch_ref }}
-          DISTRO_CODENAME: ${{ needs.build-and-test.outputs.suite }}
-          RELEASE_VERSION: ${{ needs.prepare-release-source.outputs.release_version }}
-        run: |
-          set -euxo pipefail
-
-          tag_name="${DISTRO_CODENAME}/${RELEASE_VERSION}"
-          git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git"
-
-          if git ls-remote --exit-code --tags origin "refs/tags/${tag_name}" >/dev/null; then
-            echo "Error: remote tag '${tag_name}' already exists" >&2
-            exit 1
-          fi
-
-          git push --atomic origin "HEAD:${DEBIAN_BRANCH}" "${tag_name}"
-
       - name: Download Docker build artifacts
         uses: actions/download-artifact@v8
         with:
@@ -479,6 +459,26 @@ jobs:
               "workflow": "${{ steps.pre-upload.outputs.workflow_url }}"
             }
           debug: ${{ inputs.test-run }}
+
+      - name: Push release git state
+        working-directory: ./package-repo
+        env:
+          GH_PAT: ${{ secrets.PAT }}
+          DEBIAN_BRANCH: ${{ needs.prepare-release-source.outputs.branch_ref }}
+          DISTRO_CODENAME: ${{ needs.build-and-test.outputs.suite }}
+          RELEASE_VERSION: ${{ needs.prepare-release-source.outputs.release_version }}
+        run: |
+          set -euxo pipefail
+
+          tag_name="${DISTRO_CODENAME}/${RELEASE_VERSION}"
+          git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag_name}" >/dev/null; then
+            echo "Error: remote tag '${tag_name}' already exists" >&2
+            exit 1
+          fi
+
+          git push --atomic origin "HEAD:${DEBIAN_BRANCH}" "${tag_name}"
 
   persistance:
     name: Release Metadata Persistence
