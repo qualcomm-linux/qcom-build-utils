@@ -56,6 +56,10 @@ jobs:
   prepare-release-source:
     name: Prepare Release Source
     runs-on: ubuntu-24.04-arm
+    permissions:
+      actions: read
+      contents: read
+      packages: read
     outputs:
       family: ${{ steps.resolve.outputs.family }}
       suite: ${{ steps.resolve.outputs.suite }}
@@ -107,6 +111,42 @@ jobs:
           echo "family=$family" >> "$GITHUB_OUTPUT"
           echo "suite=$suite" >> "$GITHUB_OUTPUT"
           echo "normalized_ref=$normalized_ref" >> "$GITHUB_OUTPUT"
+
+      - name: Validate pkg-release-approval environment
+        if: ${{ steps.resolve.outputs.family == 'ubuntu' || !inputs.test-run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ENV_NAME: pkg-release-approval
+        run: |
+          set -euo pipefail
+
+          response_json=$(mktemp)
+          http_code=$(curl -sS -o "$response_json" -w "%{http_code}" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPO}/environments/${ENV_NAME}")
+
+          if [[ "$http_code" == "404" ]]; then
+            echo "::error::Environment '${ENV_NAME}' does not exist in '${REPO}'. Create it with at least one required reviewer before releasing."
+            exit 1
+          fi
+
+          if [[ "$http_code" != "200" ]]; then
+            echo "::error::Unexpected HTTP ${http_code} while checking environment '${ENV_NAME}'."
+            cat "$response_json"
+            exit 1
+          fi
+
+          required_reviewer_count=$(python3 -c 'import json,sys; payload=json.load(open(sys.argv[1], encoding="utf-8")); print(sum(len(rule.get("reviewers", [])) for rule in payload.get("protection_rules", []) if rule.get("type") == "required_reviewers"))' "$response_json")
+
+          if [[ "$required_reviewer_count" -eq 0 ]]; then
+            echo "::error::Environment '${ENV_NAME}' exists but has no required reviewers configured. Add at least one required reviewer before releasing."
+            exit 1
+          fi
+
+          echo "::notice::Environment '${ENV_NAME}' is configured with ${required_reviewer_count} required reviewer(s)."
 
       - name: Install packaging tools
         run: |
