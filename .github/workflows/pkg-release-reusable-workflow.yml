@@ -343,47 +343,6 @@ jobs:
           export DEBFULLNAME="${BOT_NAME}"
           export DEBEMAIL="${BOT_EMAIL}"
 
-      - name: Commit changelog suite change
-        working-directory: ./package-repo
-        env:
-          RELEASE_VERSION: ${{ needs.prepare-release-source.outputs.release_version }}
-          DISTRO_CODENAME: ${{ needs.build-and-test.outputs.suite }}
-          BOT_NAME: ${{ vars.DEB_PKG_BOT_CI_NAME }}
-          BOT_EMAIL: ${{ vars.DEB_PKG_BOT_CI_EMAIL }}
-        run: |
-          set -euxo pipefail
-
-          export DEBFULLNAME="${BOT_NAME}"
-          export DEBEMAIL="${BOT_EMAIL}"
-
-          version=$(dpkg-parsechangelog --show-field Version)
-          if [[ "${version}" != "${RELEASE_VERSION}" ]]; then
-            echo "Error: expected release changelog version '${RELEASE_VERSION}', found '${version}'" >&2
-            exit 1
-          fi
-
-          if [[ "$version" != *-* ]]; then
-            echo "Error: version '$version' has no debian revision part" >&2
-            exit 1
-          fi
-
-          upstream="${version%-*}"
-          rev="${version##*-}"
-
-          if ! [[ "$rev" =~ ^[0-9]+$ ]]; then
-            echo "Error: debian revision '$rev' is not numeric" >&2
-            exit 1
-          fi
-
-          rev=$((rev + 1))
-          newversion="${upstream}-${rev}~"
-          echo "Bumped version -> ${newversion}"
-          dch --newversion="${newversion}" --distribution=UNRELEASED --controlmaint "WIP — update changelog before next release"
-
-          git commit -a -m "debian/changelog: bump to ${newversion}"
-
-          git log --graph --oneline -n 10 --color=always
-
       - name: Download Docker build artifacts
         uses: actions/download-artifact@v8
         with:
@@ -459,6 +418,46 @@ jobs:
               "workflow": "${{ steps.pre-upload.outputs.workflow_url }}"
             }
           debug: ${{ inputs.test-run }}
+
+      - name: Commit next UNRELEASED changelog bump
+        working-directory: ./package-repo
+        env:
+          RELEASE_VERSION: ${{ needs.prepare-release-source.outputs.release_version }}
+          BOT_NAME: ${{ vars.DEB_PKG_BOT_CI_NAME }}
+          BOT_EMAIL: ${{ vars.DEB_PKG_BOT_CI_EMAIL }}
+        run: |
+          set -euxo pipefail
+
+          export DEBFULLNAME="${BOT_NAME}"
+          export DEBEMAIL="${BOT_EMAIL}"
+
+          version=$(dpkg-parsechangelog --show-field Version)
+          if [[ "${version}" != "${RELEASE_VERSION}" ]]; then
+            echo "Error: expected release changelog version '${RELEASE_VERSION}', found '${version}'" >&2
+            exit 1
+          fi
+
+          if [[ "$version" != *-* ]]; then
+            echo "Error: version '$version' has no debian revision part" >&2
+            exit 1
+          fi
+
+          upstream="${version%-*}"
+          rev="${version##*-}"
+
+          if ! [[ "$rev" =~ ^[0-9]+$ ]]; then
+            echo "Error: debian revision '$rev' is not numeric" >&2
+            exit 1
+          fi
+
+          rev=$((rev + 1))
+          newversion="${upstream}-${rev}~"
+          echo "Bumped version -> ${newversion}"
+          dch --newversion="${newversion}" --distribution=UNRELEASED --controlmaint "WIP — update changelog before next release"
+
+          git commit -a -m "debian/changelog: bump to ${newversion}"
+
+          git log --graph --oneline -n 10 --color=always
 
       - name: Push release git state
         working-directory: ./package-repo
