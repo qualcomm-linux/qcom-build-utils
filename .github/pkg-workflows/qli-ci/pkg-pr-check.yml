@@ -2,7 +2,9 @@ name: PR Build Check
 
 on:
   workflow_run:
-    workflows: [ "PR Build Hook" ]
+    # Include legacy names observed in existing repos to keep workflow_run wired
+    # during migration from older hook definitions.
+    workflows: [ "PR Build Hook", "PR Pre and Post Merge Build", "PR Build" ]
     types: [ completed ]
 
 permissions:
