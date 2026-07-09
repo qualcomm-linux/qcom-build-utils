@@ -41,6 +41,8 @@ permissions:
 
 env:
   NORMALIZED_VERSION: ""
+  UPSTREAM_PROMOTED_TAG: ""
+  UPSTREAM_TAG_TEMPLATE: ""
   UPSTREAM_TAG_ALREADY_EXISTS: false
 
 jobs:
@@ -108,10 +110,41 @@ jobs:
             git checkout - # Then revert back to the inputs.debian-branch branch as we will need to have it checked out for gbp later
           fi
 
+      - name: Resolve promoted upstream tag schema
+        working-directory: ./package-repo
+        env:
+          DEBIAN_BRANCH: ${{ inputs.debian-branch }}
+          NORMALIZED_VERSION_INPUT: ${{ env.NORMALIZED_VERSION }}
+        run: |
+          set -euo pipefail
+
+          git checkout "$DEBIAN_BRANCH"
+
+          # gbp reads debian/gbp.conf when present; otherwise this resolves to
+          # the default template upstream/%(version)s.
+          UPSTREAM_TAG_TEMPLATE=$(gbp config buildpackage.upstream-tag)
+
+          if [[ "$UPSTREAM_TAG_TEMPLATE" != *"%(version)s"* ]]; then
+            echo "❌ Invalid upstream tag template '$UPSTREAM_TAG_TEMPLATE'. Expected a '%(version)s' placeholder."
+            exit 1
+          fi
+
+          UPSTREAM_PROMOTED_TAG="${UPSTREAM_TAG_TEMPLATE//%(version)s/${NORMALIZED_VERSION_INPUT}}"
+          if [[ "$UPSTREAM_PROMOTED_TAG" != upstream/* ]]; then
+            echo "❌ Invalid promoted upstream tag '$UPSTREAM_PROMOTED_TAG'. Expected to remain in the 'upstream/' namespace."
+            exit 1
+          fi
+
+          echo "UPSTREAM_TAG_TEMPLATE=$UPSTREAM_TAG_TEMPLATE" >> "$GITHUB_ENV"
+          echo "UPSTREAM_PROMOTED_TAG=$UPSTREAM_PROMOTED_TAG" >> "$GITHUB_ENV"
+
+          echo "ℹ️ Using upstream tag template: $UPSTREAM_TAG_TEMPLATE"
+          echo "ℹ️ Resolved promoted upstream tag: $UPSTREAM_PROMOTED_TAG"
+
       - name: Make sure the upstream tag is not already part of the repo
         working-directory: ./package-repo
         run: |
-          if (git tag --list | grep "${{inputs.upstream-tag}}"); then
+          if git rev-parse --verify "refs/tags/${{inputs.upstream-tag}}" >/dev/null 2>&1; then
             echo "❌ The supplied upstream tag is wrong as it pertains to this repo already."
             exit 1
           fi
@@ -119,25 +152,35 @@ jobs:
       - name: Validate the upstream tag promotion state
         working-directory: ./package-repo
         run: |
-          # Check if the upstream/<normalized_version> tag does not already exists
-          if ! git tag --list | grep "upstream/${{env.NORMALIZED_VERSION}}"; then
+          # Check if the resolved promoted tag does not already exist
+          if ! git rev-parse --verify "refs/tags/${{env.UPSTREAM_PROMOTED_TAG}}" >/dev/null 2>&1; then
             echo "✅ The upstream tag '${{inputs.upstream-tag}}' has not been promoted yet. Continuing."
             exit 0
           fi
 
-          echo "⚠️ It appears like this repo has already integrated the upstream tag '${{inputs.upstream-tag}}'"
+          echo "⚠️ It appears like this repo has already integrated the upstream tag '${{inputs.upstream-tag}}' as '${{env.UPSTREAM_PROMOTED_TAG}}'"
 
-          LATEST_UPSTREAM_TAG=$(git tag --list 'upstream/*' | sort -V | tail -1)
+          LATEST_UPSTREAM_NORMALIZED_VERSION=$(
+            git tag --list 'upstream/*' \
+              | sed -e 's|^upstream/||' -e 's/^v//' \
+              | sort -V \
+              | tail -1
+          )
 
-          echo "ℹ️ The latest upstream tag in the repo is: $LATEST_UPSTREAM_TAG"
+          if [ -z "$LATEST_UPSTREAM_NORMALIZED_VERSION" ]; then
+            echo "❌ Could not determine the latest upstream tag version from tags under 'upstream/*'."
+            exit 1
+          fi
 
-          if [ "$LATEST_UPSTREAM_TAG" != "upstream/${{env.NORMALIZED_VERSION}}" ]; then
-            echo "❌ However, the existing tag 'upstream/${{env.NORMALIZED_VERSION}}' is NOT the latest upstream tag"
+          echo "ℹ️ The latest normalized upstream version in the repo is: $LATEST_UPSTREAM_NORMALIZED_VERSION"
+
+          if [ "$LATEST_UPSTREAM_NORMALIZED_VERSION" != "${{env.NORMALIZED_VERSION}}" ]; then
+            echo "❌ However, the existing tag '${{env.UPSTREAM_PROMOTED_TAG}}' is NOT the latest promoted upstream version"
             echo "❌ This means we are trying to promote an older tag. Aborting."
             exit 1
           fi
 
-          echo "ℹ️ The existing tag 'upstream/${{env.NORMALIZED_VERSION}}' is the latest upstream tag already."
+          echo "ℹ️ The existing tag '${{env.UPSTREAM_PROMOTED_TAG}}' maps to the latest normalized upstream version already."
           echo "ℹ️ This is likely a second attempt to promote the same upstream tag, where the first attempt already added the upstream tag in the upstram branch"
 
           # Check if there is a PR open for this already
@@ -149,7 +192,7 @@ jobs:
           fi
 
           # If we reach this point, it means the upstream tag exists but no PR is open for it
-          echo "⚠️ The upstream tag 'upstream/${{env.NORMALIZED_VERSION}}' already exists but no PR is open for it."
+          echo "⚠️ The upstream tag '${{env.UPSTREAM_PROMOTED_TAG}}' already exists but no PR is open for it."
           echo "⚠️ This likely means the previous promotion PR was closed without merging."
           echo "⚠️ We will proceed with the promotion, but please ensure to merge the resulting PR to avoid confusion like this."
           
@@ -252,10 +295,10 @@ jobs:
               # Push upstream/latest branch promoted to the tag
               git push origin upstream/latest
 
-              git tag upstream/${{env.NORMALIZED_VERSION}} upstream/latest
+              git tag ${{env.UPSTREAM_PROMOTED_TAG}} upstream/latest
 
               # Push that new tag
-              git push origin upstream/${{env.NORMALIZED_VERSION}}
+              git push origin ${{env.UPSTREAM_PROMOTED_TAG}}
           fi
 
           git push origin debian/pr/${{env.NORMALIZED_VERSION}}-1
@@ -266,4 +309,5 @@ jobs:
           ../qcom-build-utils/scripts/create_promotion_pr.py \
             --base-branch "${{inputs.debian-branch}}" \
             --upstream-tag "${{inputs.upstream-tag}}" \
-            --normalized-version "${{env.NORMALIZED_VERSION}}"
+            --normalized-version "${{env.NORMALIZED_VERSION}}" \
+            --promoted-upstream-tag "${{env.UPSTREAM_PROMOTED_TAG}}"

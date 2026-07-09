@@ -258,6 +258,7 @@ flowchart TD
 ### Environment Variables
 
 - `NORMALIZED_VERSION`: Version with 'v' prefix removed
+- `UPSTREAM_PROMOTED_TAG`: Resolved promoted tag created in the package repo
 
 ### Workflow Steps
 
@@ -288,7 +289,7 @@ jobs:
 ### Notes
 
 - Creates a PR branch: `debian/pr/{version}-1`
-- Creates an upstream tag: `upstream/{version}`
+- Creates an upstream tag from `debian/gbp.conf` `upstream-tag` when present, defaulting to `upstream/{version}`
 - Automatically updates the changelog
 - PR must be reviewed and merged manually
 - Uses git-buildpackage (gbp) tools for Debian packaging operations
