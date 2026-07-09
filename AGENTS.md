@@ -51,7 +51,7 @@ Expected values:
 
 Examples:
 
-- `qcom/debian/latest` (normalized to suite `sid`)
+- `qcom/debian/latest` (normalized to Debusine suite `forky`; Docker fallback uses `sid`)
 - `qcom/debian/bookworm`
 - `qcom/ubuntu/resolute`
 - `test/qcom/ubuntu/resolute`
