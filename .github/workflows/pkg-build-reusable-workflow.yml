@@ -443,7 +443,7 @@ jobs:
       srcpkg_version: ${{ steps.select.outputs.srcpkg_version }}
     runs-on: ubuntu-24.04-arm
     container:
-      image: ${{ (needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true') && format('ghcr.io/qualcomm-linux/debusine-pkg-builder:{0}', needs.resolve.outputs.suite) || format('ghcr.io/qualcomm-linux/pkg-builder:{0}', needs.resolve.outputs.docker_suite) }}
+      image: ${{ format('ghcr.io/qualcomm-linux/pkg-builder:{0}', needs.resolve.outputs.docker_suite) }}
       options: --user 0:0
       credentials:
         username: ${{ github.actor }}
