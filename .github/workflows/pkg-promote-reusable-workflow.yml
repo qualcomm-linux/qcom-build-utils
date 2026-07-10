@@ -112,26 +112,25 @@ jobs:
 
       - name: Resolve promoted upstream tag schema
         working-directory: ./package-repo
-        env:
-          DEBIAN_BRANCH: ${{ inputs.debian-branch }}
-          NORMALIZED_VERSION_INPUT: ${{ env.NORMALIZED_VERSION }}
         run: |
-          set -euo pipefail
+          # This should resolve from debian/gbp.conf when set. If no explicit
+          # value is set, fallback to gbp default template.
+          UPSTREAM_TAG_TEMPLATE="$(gbp config buildpackage.upstream-tag 2>/dev/null || true)"
+          if [ -z "$UPSTREAM_TAG_TEMPLATE" ]; then
+            UPSTREAM_TAG_TEMPLATE='upstream/%(version)s'
+            echo "ℹ️ buildpackage.upstream-tag not set; using default '$UPSTREAM_TAG_TEMPLATE'"
+          fi
 
-          git checkout "$DEBIAN_BRANCH"
-
-          # gbp reads debian/gbp.conf when present; otherwise this resolves to
-          # the default template upstream/%(version)s.
-          UPSTREAM_TAG_TEMPLATE=$(gbp config buildpackage.upstream-tag)
-
-          if [[ "$UPSTREAM_TAG_TEMPLATE" != *"%(version)s"* ]]; then
-            echo "❌ Invalid upstream tag template '$UPSTREAM_TAG_TEMPLATE'. Expected a '%(version)s' placeholder."
+          if ! echo "$UPSTREAM_TAG_TEMPLATE" | grep -qF '%(version)s'; then
+            echo "❌ Unsupported buildpackage.upstream-tag value '$UPSTREAM_TAG_TEMPLATE' (missing '%(version)s')."
             exit 1
           fi
 
-          UPSTREAM_PROMOTED_TAG="${UPSTREAM_TAG_TEMPLATE//%(version)s/${NORMALIZED_VERSION_INPUT}}"
-          if [[ "$UPSTREAM_PROMOTED_TAG" != upstream/* ]]; then
-            echo "❌ Invalid promoted upstream tag '$UPSTREAM_PROMOTED_TAG'. Expected to remain in the 'upstream/' namespace."
+          transformed_version="$(echo "$NORMALIZED_VERSION" | perl -pe 'y/:~/%_/; s/\.(?=\.|$|lock$)/.#/g')"
+          UPSTREAM_PROMOTED_TAG="$(echo "$UPSTREAM_TAG_TEMPLATE" | sed "s|%(version)s|$transformed_version|g" | sed 's/[^A-Za-z0-9.+/%_#()-]//g')"
+
+          if ! git check-ref-format "refs/tags/$UPSTREAM_PROMOTED_TAG"; then
+            echo "❌ Computed promoted upstream tag '$UPSTREAM_PROMOTED_TAG' is not a valid git ref."
             exit 1
           fi
 
