@@ -126,8 +126,19 @@ jobs:
             exit 1
           fi
 
+          SANITIZED_TEMPLATE="$(echo "$UPSTREAM_TAG_TEMPLATE" | sed 's/[^A-Za-z0-9.+/%_#()-]//g')"
+          if [ "$SANITIZED_TEMPLATE" != "$UPSTREAM_TAG_TEMPLATE" ]; then
+            echo "❌ Unsupported buildpackage.upstream-tag value '$UPSTREAM_TAG_TEMPLATE' (contains unsafe characters)."
+            exit 1
+          fi
+
           transformed_version="$(echo "$NORMALIZED_VERSION" | perl -pe 'y/:~/%_/; s/\.(?=\.|$|lock$)/.#/g')"
-          UPSTREAM_PROMOTED_TAG="$(echo "$UPSTREAM_TAG_TEMPLATE" | sed "s|%(version)s|$transformed_version|g" | sed 's/[^A-Za-z0-9.+/%_#()-]//g')"
+          RESOLVED_PROMOTED_TAG_RAW="$(echo "$UPSTREAM_TAG_TEMPLATE" | sed "s|%(version)s|$transformed_version|g")"
+          UPSTREAM_PROMOTED_TAG="$(echo "$RESOLVED_PROMOTED_TAG_RAW" | sed 's/[^A-Za-z0-9.+/%_#()-]//g')"
+          if [ "$UPSTREAM_PROMOTED_TAG" != "$RESOLVED_PROMOTED_TAG_RAW" ]; then
+            echo "❌ Resolved promoted upstream tag '$RESOLVED_PROMOTED_TAG_RAW' contains unsupported characters."
+            exit 1
+          fi
 
           if ! git check-ref-format "refs/tags/$UPSTREAM_PROMOTED_TAG"; then
             echo "❌ Computed promoted upstream tag '$UPSTREAM_PROMOTED_TAG' is not a valid git ref."
@@ -143,7 +154,7 @@ jobs:
       - name: Make sure the upstream tag is not already part of the repo
         working-directory: ./package-repo
         run: |
-          if git rev-parse --verify "refs/tags/${{inputs.upstream-tag}}" >/dev/null 2>&1; then
+          if (git tag --list | grep "${{inputs.upstream-tag}}"); then
             echo "❌ The supplied upstream tag is wrong as it pertains to this repo already."
             exit 1
           fi
@@ -159,21 +170,18 @@ jobs:
 
           echo "⚠️ It appears like this repo has already integrated the upstream tag '${{inputs.upstream-tag}}' as '${{env.UPSTREAM_PROMOTED_TAG}}'"
 
-          LATEST_UPSTREAM_NORMALIZED_VERSION=$(
-            git tag --list 'upstream/*' \
-              | sed -e 's|^upstream/||' -e 's/^v//' \
-              | sort -V \
-              | tail -1
-          )
+          PROMOTED_TAG_GLOB="${{env.UPSTREAM_TAG_TEMPLATE}}"
+          PROMOTED_TAG_GLOB="${PROMOTED_TAG_GLOB//%(version)s/*}"
+          LATEST_PROMOTED_TAG=$(git tag --list "$PROMOTED_TAG_GLOB" | sort -V | tail -1)
 
-          if [ -z "$LATEST_UPSTREAM_NORMALIZED_VERSION" ]; then
-            echo "❌ Could not determine the latest upstream tag version from tags under 'upstream/*'."
+          if [ -z "$LATEST_PROMOTED_TAG" ]; then
+            echo "❌ Could not determine the latest promoted upstream tag using pattern '$PROMOTED_TAG_GLOB'."
             exit 1
           fi
 
-          echo "ℹ️ The latest normalized upstream version in the repo is: $LATEST_UPSTREAM_NORMALIZED_VERSION"
+          echo "ℹ️ The latest promoted upstream tag in the repo is: $LATEST_PROMOTED_TAG"
 
-          if [ "$LATEST_UPSTREAM_NORMALIZED_VERSION" != "${{env.NORMALIZED_VERSION}}" ]; then
+          if [ "$LATEST_PROMOTED_TAG" != "${{env.UPSTREAM_PROMOTED_TAG}}" ]; then
             echo "❌ However, the existing tag '${{env.UPSTREAM_PROMOTED_TAG}}' is NOT the latest promoted upstream version"
             echo "❌ This means we are trying to promote an older tag. Aborting."
             exit 1
