@@ -7,7 +7,7 @@ description: |
     2. Verifies the new tarball actually exists on Artifactory before making any changes.
     3. Updates upstream.conf with the new TAG (and optionally PACKAGE_NAME).
     4. Bumps debian/changelog to the new version.
-    5. Pushes a debian/pr/<version> branch and opens a PR.
+    5. Pushes a promotion-pr/<version> branch and opens a PR.
 
 on:
   workflow_call:
@@ -159,13 +159,13 @@ jobs:
 
           # Sanitize version for use as a git branch name (~ is valid in git but confusing; replace with -)
           BRANCH_VERSION=$(echo "$NEW_DEBIAN_VERSION" | tr '~' '-')
-          echo "PR_BRANCH=debian/pr/${BRANCH_VERSION}" >> $GITHUB_ENV
+          echo "PR_BRANCH=promotion-pr/${BRANCH_VERSION}" >> $GITHUB_ENV
 
           echo "ℹ️ Promotion summary:"
           echo "   TAG          : ${{env.CURRENT_TAG}} → ${{inputs.new-tag}}"
           echo "   PACKAGE_NAME : ${{env.CURRENT_PACKAGE_NAME}} → $NEW_PACKAGE_NAME"
           echo "   Debian ver   : $NEW_DEBIAN_VERSION"
-          echo "   PR branch    : debian/pr/${BRANCH_VERSION}"
+          echo "   PR branch    : promotion-pr/${BRANCH_VERSION}"
 
       - name: Verify New Tarball Exists on Artifactory
         run: |

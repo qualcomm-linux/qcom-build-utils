@@ -106,7 +106,7 @@ Invalid examples:
 - `ubuntu`
 - `ubuntu-resolute`
 
-For PR jobs that build transient heads (for example `debian/pr/*`), workflow
+For PR jobs that build transient heads (for example `promotion-pr/*`), workflow
 routing falls back to the PR base branch (`github.base_ref`).
 
 ## Builder Images

@@ -240,7 +240,7 @@ jobs:
                 | sed 's|^origin/||' \
                 | grep -Ev '^HEAD$' \
                 | grep -Ev '^origin$' \
-                | grep -Ev '(^|/)pr/' \
+                | grep -Ev '(^|/)pr/|^promotion-pr/' \
                 | grep -Ev '^sync/' \
                 | grep -v "^${default_branch}$" \
                 | grep -Ev '^(debian/|ubuntu/|qcom/debian/|qcom/ubuntu/)' \
@@ -323,7 +323,7 @@ jobs:
                 | sed 's|^origin/||' \
                 | grep -Ev '^origin$' \
                 | grep -E '^(debian/|ubuntu/|qcom/debian/|qcom/ubuntu/)' \
-                | grep -Ev '(^|/)pr/' \
+                | grep -Ev '(^|/)pr/|^promotion-pr/' \
                 | sort -u)
 
               for packaging_branch in $packaging_branches; do

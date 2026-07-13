@@ -55,10 +55,10 @@ gitGraph
     checkout debian/qcom-next
     merge upstream/latest tag: "Merge upstream"
     commit id: "Update changelog"
-    branch debian/pr/1.1.0-1
+    branch promotion-pr/1.1.0-1
     commit id: "Promote to 1.1.0"
     checkout debian/qcom-next
-    merge debian/pr/1.1.0-1
+    merge promotion-pr/1.1.0-1
     commit id: "debian/1.1.0-1" tag: "debian/1.1.0-1"
 ```
 
@@ -69,7 +69,7 @@ gitGraph
 | `main` | Primary development branch | Yes |
 | `debian/qcom-next` | Latest Debian packaging branch | Yes |
 | `debian/<version>` | Version-specific branches (created from tags) | No |
-| `debian/pr/<version>` | PR branches for version promotions | No |
+| `promotion-pr/<version>` | PR branches for version promotions | No |
 | `upstream/latest` | Latest upstream source (non-native packages) | No |
 | `upstream/<version>` | Tagged upstream versions | No |
 
@@ -433,7 +433,7 @@ gh workflow run pkg-promote.yml \
 This will:
 1. Fetch the upstream tag
 2. Import it to `upstream/latest`
-3. Create `debian/pr/2.0.0-1` branch
+3. Create `promotion-pr/2.0.0-1` branch
 4. Merge upstream into Debian branch
 5. Update changelog
 6. Open a PR for review

@@ -290,7 +290,7 @@ sequenceDiagram
     RW->>Up: Fetch upstream tag
     Up-->>RW: Source code
     RW->>Pkg: Import to upstream/latest branch
-    RW->>Pkg: Create debian/pr/<version> branch
+    RW->>Pkg: Create promotion-pr/<version> branch
     RW->>Pkg: Merge upstream into debian branch
     RW->>Pkg: Update changelog
     RW->>Pkg: Create pull request
