@@ -64,6 +64,11 @@ jobs:
           DEBIAN_LATEST_WORKFLOW_FILE="$(pwd)/qcom-build-utils/.github/pkg-workflows/debian/pkg-pr-hook.yml"
           DEBIAN_TARGET_WORKFLOW_FILE=".github/workflows/pkg-pr-hook.yml"
           DEBIAN_LEGACY_WORKFLOW_FILE=".github/workflows/pr-pre-post-merge.yml"
+          DEFAULT_BRANCH_WORKFLOW_TEMPLATES=("pkg-build.yml" \
+                                             "pkg-pr-check.yml" \
+                                             "pkg-promote-prebuilt.yml" \
+                                             "pkg-promote.yml" \
+                                             "pkg-release.yml")
           LEGACY_UPSTREAM_HELPER_DIR=".github/TO_PASTE_IN_UPSTREAM_REPO"
           echo "📄 Using pkg-pr-hook.yml from pkg-workflows/debian/"
 
@@ -158,9 +163,29 @@ jobs:
               fi
             done
 
+            # Remove standalone debusine-* callers now replaced by pkg-* flows.
+            if [[ -d ".github/workflows" ]]; then
+              debusine_workflows=$(find .github/workflows -maxdepth 1 -type f \
+                \( -name 'debusine-*.yml' -o -name 'debusine-*.yaml' \) \
+                | sort || true)
+              if [[ -n "$debusine_workflows" ]]; then
+                echo "    🗑️ Removing legacy debusine-* workflows"
+                while IFS= read -r workflow_file; do
+                  [[ -z "$workflow_file" ]] && continue
+                  echo "      - $workflow_file"
+                  rm -f "$workflow_file"
+                done <<< "$debusine_workflows"
+                isDirty=true
+              fi
+            fi
+
             # Compare and sync workflow files
-            for workflow in ../qcom-build-utils/.github/pkg-workflows/qli-ci/*.yml; do
-              workflow_name=$(basename "$workflow")
+            for workflow_name in "${DEFAULT_BRANCH_WORKFLOW_TEMPLATES[@]}"; do
+              workflow="../qcom-build-utils/.github/pkg-workflows/qli-ci/$workflow_name"
+              if [[ ! -f "$workflow" ]]; then
+                echo "    ❌ Missing workflow template in qcom-build-utils: $workflow_name"
+                exit 1
+              fi
 
               target_workflow=".github/workflows/$workflow_name"
 
@@ -238,6 +263,19 @@ jobs:
                       echo "      - $workflow_file"
                       rm -f "$workflow_file"
                     done <<< "$pr_target_workflows"
+                    isCleanupDirty=true
+                  fi
+
+                  debusine_workflows=$(find .github/workflows -maxdepth 1 -type f \
+                    \( -name 'debusine-*.yml' -o -name 'debusine-*.yaml' \) \
+                    | sort || true)
+                  if [[ -n "$debusine_workflows" ]]; then
+                    echo "    🗑️ Removing legacy debusine-* workflows on $other_branch"
+                    while IFS= read -r workflow_file; do
+                      [[ -z "$workflow_file" ]] && continue
+                      echo "      - $workflow_file"
+                      rm -f "$workflow_file"
+                    done <<< "$debusine_workflows"
                     isCleanupDirty=true
                   fi
                 fi
@@ -324,6 +362,19 @@ jobs:
                       echo "      - $workflow_file"
                       rm -f "$workflow_file"
                     done <<< "$pr_target_workflows"
+                    isDebianDirty=true
+                  fi
+
+                  debusine_workflows=$(find .github/workflows -maxdepth 1 -type f \
+                    \( -name 'debusine-*.yml' -o -name 'debusine-*.yaml' \) \
+                    | sort || true)
+                  if [[ -n "$debusine_workflows" ]]; then
+                    echo "    🗑️ Removing legacy debusine-* workflows on $packaging_branch"
+                    while IFS= read -r workflow_file; do
+                      [[ -z "$workflow_file" ]] && continue
+                      echo "      - $workflow_file"
+                      rm -f "$workflow_file"
+                    done <<< "$debusine_workflows"
                     isDebianDirty=true
                   fi
                 fi
