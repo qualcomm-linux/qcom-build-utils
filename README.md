@@ -93,7 +93,7 @@ Branch parsing rule:
 
 Examples:
 
-- `qcom/debian/latest` (maps to `sid`)
+- `qcom/debian/latest` (maps to Debusine suite `forky`; Docker fallback uses `sid`)
 - `qcom/debian/bookworm`
 - `qcom/ubuntu/resolute`
 - `test/qcom/ubuntu/resolute`
