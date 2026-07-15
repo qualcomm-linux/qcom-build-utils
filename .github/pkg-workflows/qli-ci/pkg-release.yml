@@ -2,22 +2,15 @@ name: Release
 description: |
   Release a new package version.
   This workflow is manually triggered via workflow_dispatch.
+  Set repository variable IS_TEST_PKG=1 to run in test mode.
 
 on:
   workflow_dispatch:
     inputs:
-
       debian-branch:
         description: The debian branch to release. For example branch "qcom/debian/trixie"
         type: string
         required: true
-
-      test-run:
-        description: |
-          Debian: if true, stop after build/test.
-          Ubuntu: still runs the full release flow.
-        type: boolean
-        default: true
 
 permissions:
   contents: write
@@ -29,7 +22,7 @@ jobs:
     with:
       qcom-build-utils-ref: main
       debian-branch: ${{ github.event.inputs.debian-branch }}
-      test-run: ${{ github.event.inputs.test-run == 'true' && true || false }}
+      test-run: ${{ vars.IS_TEST_PKG == '1' || vars.IS_TEST_PKG == 'true' || vars['is-test-pkg'] == '1' || vars['is-test-pkg'] == 'true' }}
       debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE }}
     secrets:
       PAT: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
