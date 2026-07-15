@@ -257,6 +257,7 @@ jobs:
     with:
       qcom-build-utils-ref: ${{ inputs.qcom-build-utils-ref }}
       debian-ref: ${{ inputs.debian-branch }}
+      run-lintian: true
       release: true
       debusine-parent-workspace: ${{ inputs.debusine-parent-workspace }}
     secrets:
