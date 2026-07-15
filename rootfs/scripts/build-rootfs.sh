@@ -658,6 +658,14 @@ fi
 # The zz-update-grub hook skips update-grub in a chroot because systemd is not
 # running (/run/systemd/system absent), so we call it explicitly here.
 # ==============================================================================
+echo '[CHROOT] Creating /boot/efi directory for EFI System Partition...'
+mkdir -p /boot/efi
+
+echo '[CHROOT] Configuring /etc/fstab with EFI partition entry...'
+cat <<'FSTAB_EOF' >> /etc/fstab
+LABEL=system-boot	/boot/efi	vfat	defaults	0	1
+FSTAB_EOF
+
 echo '[CHROOT] Running update-grub after all package installs...'
 update-grub
 
