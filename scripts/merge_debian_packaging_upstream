@@ -36,7 +36,12 @@ esac
 
 echo "Merging upstream changes from upstream tag $upstream into Debian packaging branch $debian_branch"
 
-git checkout "$upstream"
+if ! upstream_commit="$(git rev-parse --verify "$upstream^{commit}" 2>/dev/null)"; then
+    echo "Could not resolve upstream input '$upstream' to a commit" >&2
+    exit 3
+fi
+
+git checkout "$upstream_commit"
 git reset "$debian_ref" -- :/:debian :/:.github
 tree=$(git write-tree)
 
@@ -61,7 +66,7 @@ EOF
 
 merge_commit_signoff="Signed-off-by: $(git config user.name) <$(git config user.email)>"
 
-commit=$(git commit-tree -p "$debian_ref" -p "$upstream" -m "$merge_commit_header" -m "$merge_commit_body" -m "$merge_commit_signoff" "$tree")
+commit=$(git commit-tree -p "$debian_ref" -p "$upstream_commit" -m "$merge_commit_header" -m "$merge_commit_body" -m "$merge_commit_signoff" "$tree")
 git reset --hard
 git checkout "$debian_branch"
 git reset --hard "$commit"
