@@ -177,7 +177,7 @@ reusable workflow: split on `/`, take the last two fields as
 ### Workflow Steps
 
 1. **Prepare release source**: For Ubuntu branches, finalize changelog and create local release commit/tag, then upload the prepared git repo as an artifact
-2. **Build and test once**: Reuse `pkg-build-reusable-workflow` (`release=true`) with `debian-branch` as the build source ref
+2. **Build and test once**: Reuse `pkg-build-reusable-workflow` (`release=true`, `run-lintian=true`) with `debian-branch` as the build source ref
 3. **Environment gate + provenance file**: Require `pkg-release-approval` after build/test and generate provenance from the exact built source state
 4. **Debian release path**: For Debian and `test-run=false`, publish Debusine CI workspace to prod, push git state, then publish provenance
 5. **Ubuntu release path**: Push git state atomically (branch + tag), publish provenance, and upload previously-built Docker artifacts to S3
