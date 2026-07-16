@@ -267,6 +267,16 @@ jobs:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
 
+  AXIOM_Check:
+    name: AXIOM_Check
+    if: ${{ vars.AXIOM_ENABLE == 'true' }}
+    needs: [build-and-test]
+    runs-on: ubuntu-latest
+    environment: Axiom
+    steps:
+      - name: AXIOM check passed
+        run: echo "AXIOM check passed"
+
   debian-release:
     name: Release (Debian)
     if: ${{ needs.build-and-test.outputs.family == 'debian' && !inputs.test-run }}
@@ -343,10 +353,11 @@ jobs:
 
   ubuntu-release:
     name: Release (Ubuntu)
-    if: ${{ needs.build-and-test.outputs.family == 'ubuntu' }}
+    if: ${{ always() && needs.build-and-test.outputs.family == 'ubuntu' && needs.build-and-test.result == 'success' && needs.AXIOM_Check.result != 'failure' && needs.AXIOM_Check.result != 'cancelled' }}
     needs:
       - prepare-release-source
       - build-and-test
+      - AXIOM_Check
     runs-on: lecore-prd-u2404-arm64-xlrg-od-ephem
     environment: pkg-release-approval
     defaults:
@@ -741,8 +752,13 @@ jobs:
           SUITE: ${{ needs.build-and-test.outputs.suite }}
         run: |
           set -euxo pipefail
-          mkdir -p s3-proposed/debs
-          find build-area -maxdepth 1 -name "*.deb" -exec cp {} s3-proposed/debs/ \;
+          mkdir -p s3-proposed
+          mapfile -t debs < <(find build-area -maxdepth 1 -name "*.deb" -printf '%f\n' | sort)
+          if [ "${#debs[@]}" -eq 0 ]; then
+            echo "No .deb files found in build-area; skipping debs.tar.gz creation"
+          else
+            tar -czf s3-proposed/debs.tar.gz -C build-area "${debs[@]}"
+          fi
 
       - name: Upload proposed debs and provenance to S3
         uses: qualcomm-linux/upload-private-artifact-action@aws-v4
