@@ -327,8 +327,20 @@ jobs:
         run: |
           set -euxo pipefail
           debusine-action/lib/build
-          cat output >> "$GITHUB_OUTPUT"
-          workspace=$(sed -n 's/^workspace=//p' output)
+
+          # debusine-action/lib/build now writes directly to $GITHUB_OUTPUT.
+          # Keep compatibility with older behavior that wrote a local "output" file.
+          workspace="$(sed -n 's/^workspace=//p' "$GITHUB_OUTPUT" | tail -n 1 || true)"
+          if [[ -z "${workspace}" && -f output ]]; then
+            cat output >> "$GITHUB_OUTPUT"
+            workspace="$(sed -n 's/^workspace=//p' output | tail -n 1 || true)"
+          fi
+
+          if [[ -z "${workspace}" ]]; then
+            echo "::error::Unable to determine Debusine workspace from build outputs."
+            exit 1
+          fi
+
           echo "workspace_url=https://${DEBUSINE_HOST}/${DEBUSINE_SCOPE}/${workspace}/" >> "$GITHUB_OUTPUT"
 
       - name: Note Debusine workspace URL
