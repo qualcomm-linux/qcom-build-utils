@@ -55,6 +55,7 @@ OUT_IMG="efi.bin"
 ESP_SIZE_MB=200
 SECTOR_SIZE=512
 ROOT_LABEL="system"
+ESP_LABEL="system-boot"
 NO_INSTALL=0
 
 WORKDIR="$(pwd)"
@@ -77,7 +78,7 @@ print_usage() {
     cat <<EOF
 Usage:
   $0 [--sector-size <bytes>] [--esp-size-mb <mb>] [--root-label <label>]
-     [--out <efi.bin>] [--no-install] [-h|--help]
+     [--esp-label <label>] [--out <efi.bin>] [--no-install] [-h|--help]
 
 Notes:
   - Produces a FAT32 filesystem image (no GPT inside the file).
@@ -98,6 +99,8 @@ while [[ $# -gt 0 ]]; do
             ESP_SIZE_MB="${2-}"; shift 2 ;;
         --root-label)
             ROOT_LABEL="${2-}"; shift 2 ;;
+        --esp-label)
+            ESP_LABEL="${2-}"; shift 2 ;;
         --out)
             OUT_IMG="${2-}"; shift 2 ;;
         --no-install)
@@ -114,7 +117,7 @@ done
 # ==============================================================================
 # Step 3  Validate inputs
 # ==============================================================================
-if [[ -z "${SECTOR_SIZE}" || -z "${ESP_SIZE_MB}" || -z "${ROOT_LABEL}" || -z "${OUT_IMG}" ]]; then
+if [[ -z "${SECTOR_SIZE}" || -z "${ESP_SIZE_MB}" || -z "${ROOT_LABEL}" || -z "${ESP_LABEL}" || -z "${OUT_IMG}" ]]; then
     echo "[ERROR] One or more required values were empty."
     exit 1
 fi
@@ -147,6 +150,7 @@ echo "[INFO] Output image: ${OUT_IMG}"
 echo "[INFO] ESP size: ${ESP_SIZE_MB} MB"
 echo "[INFO] FAT sector size: ${SECTOR_SIZE}"
 echo "[INFO] Rootfs label: ${ROOT_LABEL}"
+echo "[INFO] ESP label: ${ESP_LABEL}"
 
 # ==============================================================================
 # Step 4  Ensure required host tools exist (optionally install)
@@ -242,7 +246,7 @@ LOOP_DEV="$(losetup --show -fP "${OUT_IMG}")"
 echo "[INFO] Loop device attached: ${LOOP_DEV}"
 
 echo "[INFO] Formatting as FAT32 with sector size ${SECTOR_SIZE}..."
-mkfs.vfat -F 32 -S "${SECTOR_SIZE}" "${LOOP_DEV}" >/dev/null
+mkfs.vfat -F 32 -S "${SECTOR_SIZE}" -n "${ESP_LABEL}" "${LOOP_DEV}" >/dev/null
 
 mount "${LOOP_DEV}" "${MNT_DIR}"
 
