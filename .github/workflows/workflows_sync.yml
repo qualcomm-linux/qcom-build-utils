@@ -158,6 +158,14 @@ jobs:
               fi
             done
 
+            # Remove legacy PR workflow file on default branch. The canonical
+            # PR hook workflow is pkg-pr-hook.yml.
+            if [[ -f "$DEBIAN_LEGACY_WORKFLOW_FILE" ]]; then
+              echo "    🗑️ Removing legacy workflow: $(basename "$DEBIAN_LEGACY_WORKFLOW_FILE")"
+              rm "$DEBIAN_LEGACY_WORKFLOW_FILE"
+              isDirty=true
+            fi
+
             # Compare and sync workflow files
             for workflow in ../qcom-build-utils/.github/pkg-workflows/qli-ci/*.yml; do
               workflow_name=$(basename "$workflow")
