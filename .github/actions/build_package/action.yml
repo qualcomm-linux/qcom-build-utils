@@ -197,6 +197,7 @@ runs:
             sbuild --no-clean-source \
                    --host=arm64 \
                    --build=${{env.BUILD_ARCH}} \
+                   --arch-all \
                    --dist=${{inputs.suite}} \
                    $lintian_flag \
                    --build-dir "$BUILD_DIR_ABS" \
@@ -209,6 +210,7 @@ runs:
             sbuild --no-clean-source \
                    --host=arm64 \
                    --build=${{env.BUILD_ARCH}} \
+                   --arch-all \
                    --dist=${{inputs.suite}} \
                    $lintian_flag \
                    --build-dir "$BUILD_DIR_ABS" \
@@ -216,21 +218,61 @@ runs:
           fi
 
         else
-          # ℹ️ Source build mode: use gbp buildpackage.
-          # --git-ignore-branch is necessary because the debian branch actually checked out can be any (ex, debian/1.0.0) because we can build any previous tag
-          # ℹ️ chroot mode unshare is important to bypass privilege issues with the mounting
+          # ℹ️ Source build mode.
+          # For packages with debian/watch (prebuilt binaries fetched from
+          # Artifactory), we mirror the debusine-action two-step approach:
+          #   1. Run uscan explicitly to fetch the upstream orig tarball.
+          #      (dpkg-source --before-build calls uscan but does not reliably
+          #      place the tarball where dpkg-source -b expects it in all envs.)
+          #   2. Run gbp buildpackage -S to produce the .dsc, with
+          #      --git-no-create-orig so gbp does not overwrite the fetched tarball.
+          #   3. Pass the .dsc to sbuild for the binary build.
+          # For packages without debian/watch, gbp creates the orig from git as usual.
           # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
-          gbp buildpackage \
-            --git-no-pristine-tar \
+          SRC_ABS=$(realpath .)
+          WORK_DIR=$(dirname "$SRC_ABS")
+          PKG=$(dpkg-parsechangelog -l ./debian/changelog -S Source)
+          VER=$(dpkg-parsechangelog -l ./debian/changelog -S Version)
+
+          git config --global --add safe.directory "$SRC_ABS"
+
+          # Only use the uscan fetch path for prebuilt binary packages that pull
+          # their upstream tarball from Artifactory. Packages with a watch file
+          # pointing to a git forge have their orig tarball created by gbp from
+          # the upstream git tag — the normal gbp path handles those correctly.
+          if [[ -f "./debian/watch" ]] && grep -q "qartifactory" "./debian/watch"; then
+            echo "ℹ️ debian/watch (Artifactory) found — fetching orig tarball via uscan"
+            uscan --no-symlink --destdir "$WORK_DIR" --download-current-version
+            GBP_ORIG_FLAGS=(--git-no-create-orig)
+          else
+            GBP_ORIG_FLAGS=()
+          fi
+
+          # Note: --source-option=--extend-diff-ignore is passed to gbp/dpkg-buildpackage
+          # during the -S step so the exclusion is baked into the .dsc; the sbuild
+          # invocation below does not need --dpkg-source-opt for the same reason.
+          gbp buildpackage -S -sa -d -nc \
+            --git-builder=dpkg-buildpackage \
             --git-ignore-branch \
-            --git-builder="sbuild --no-clean-source \
-                                  --dpkg-source-opt="--extend-diff-ignore=^\\.github" \
-                                   --host=arm64 \
-                                   --build=${{env.BUILD_ARCH}} \
-                                   --dist=${{inputs.suite}} \
-                                   $lintian_flag \
-                                   --build-dir $BUILD_DIR_ABS \
-                                   --build-dep-resolver=apt"
+            --git-debian-branch=HEAD \
+            --git-ignore-new \
+            "${GBP_ORIG_FLAGS[@]}" \
+            --source-option=--extend-diff-ignore=^\.github \
+            -us -uc
+
+          DSC_FILE="${WORK_DIR}/${PKG}_${VER}.dsc"
+          [ -f "$DSC_FILE" ] || { echo "ERROR: .dsc not found after gbp buildpackage -S"; exit 1; }
+          echo "ℹ️ Source package ready: $DSC_FILE"
+
+          sbuild --no-clean-source \
+                 --host=arm64 \
+                 --build=${{env.BUILD_ARCH}} \
+                 --arch-all \
+                 --dist=${{inputs.suite}} \
+                 $lintian_flag \
+                 --build-dir "$BUILD_DIR_ABS" \
+                 --build-dep-resolver=apt \
+                 "$DSC_FILE"
         fi
 
         RET=$?
