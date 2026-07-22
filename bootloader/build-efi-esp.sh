@@ -18,6 +18,8 @@
 #
 # Resulting ESP contents:
 #   /EFI/BOOT/BOOTAA64.EFI   (standalone GRUB for ARM64 UEFI, removable path)
+#   /VolatileVars.bin        (optional, only with --volatile-vars: pre-seeded
+#                             EBBR UEFI variables, e.g. VendorDtbOverlays)
 #
 # Embedded bootstrap config behavior:
 #   - Search root filesystem by label "system"
@@ -26,6 +28,7 @@
 # Usage:
 #   ./build-efi-esp.sh [--sector-size <size>] [--esp-size-mb <mb>] [--no-install]
 #                     [--root-label <label>] [--out <efi.bin>]
+#                     [--volatile-vars] [--volatile-vars-config <json>]
 #
 # Examples:
 #   ./build-efi-esp.sh
@@ -57,6 +60,10 @@ SECTOR_SIZE=512
 ROOT_LABEL="system"
 ESP_LABEL="system-boot"
 NO_INSTALL=0
+VOLATILE_VARS=0
+VOLATILE_VARS_CONFIG=""
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 WORKDIR="$(pwd)"
 MNT_DIR="$(mktemp -d -p "${WORKDIR}" efiesp.mnt.XXXXXX)"
@@ -78,12 +85,19 @@ print_usage() {
     cat <<EOF
 Usage:
   $0 [--sector-size <bytes>] [--esp-size-mb <mb>] [--root-label <label>]
-     [--esp-label <label>] [--out <efi.bin>] [--no-install] [-h|--help]
+     [--esp-label <label>] [--out <efi.bin>] [--no-install]
+     [--volatile-vars] [--volatile-vars-config <json>] [-h|--help]
 
 Notes:
   - Produces a FAT32 filesystem image (no GPT inside the file).
   - Installs a standalone ARM64 GRUB as /EFI/BOOT/BOOTAA64.EFI using grub-mkstandalone.
   - At boot, GRUB searches for rootfs by LABEL and loads its /boot/grub/grub.cfg.
+  - --volatile-vars pre-seeds /VolatileVars.bin with default UEFI variables
+    (see gen_volatile_vars.py), e.g. VendorDtbOverlays, so overlay/DTBO
+    loading works from first boot without waiting on firmware-side
+    generation. Off by default — pass it only for platforms that need
+    VolatileVars.bin pre-seeded. --volatile-vars-config forwards a JSON
+    config to gen_volatile_vars.py to add/override entries.
 
 EOF
 }
@@ -105,6 +119,10 @@ while [[ $# -gt 0 ]]; do
             OUT_IMG="${2-}"; shift 2 ;;
         --no-install)
             NO_INSTALL=1; shift ;;
+        --volatile-vars)
+            VOLATILE_VARS=1; shift ;;
+        --volatile-vars-config)
+            VOLATILE_VARS_CONFIG="${2-}"; shift 2 ;;
         -h|--help)
             print_usage; exit 0 ;;
         *)
@@ -113,6 +131,11 @@ while [[ $# -gt 0 ]]; do
             exit 1 ;;
     esac
 done
+
+# --volatile-vars-config implies --volatile-vars
+if [[ -n "${VOLATILE_VARS_CONFIG}" ]]; then
+    VOLATILE_VARS=1
+fi
 
 # ==============================================================================
 # Step 3  Validate inputs
@@ -168,6 +191,10 @@ done
 for c in grub-mkstandalone; do
     need_cmd "${c}" || missing+=("${c}")
 done
+
+if [[ "${VOLATILE_VARS}" -eq 1 ]]; then
+    need_cmd python3 || missing+=("python3")
+fi
 
 if [[ "${#missing[@]}" -gt 0 ]]; then
     echo "[INFO] Missing commands: ${missing[*]}"
@@ -257,6 +284,15 @@ mkdir -p "${MNT_DIR}/EFI/BOOT"
 install -m 0644 "${STANDALONE_EFI}" "${MNT_DIR}/EFI/BOOT/BOOTAA64.EFI"
 rm -f "${STANDALONE_EFI}"
 
+if [[ "${VOLATILE_VARS}" -eq 1 ]]; then
+    echo "[INFO] Generating VolatileVars.bin (pre-seeded UEFI variables)..."
+    GEN_VOLATILE_VARS_ARGS=(--out "${MNT_DIR}/VolatileVars.bin")
+    if [[ -n "${VOLATILE_VARS_CONFIG}" ]]; then
+        GEN_VOLATILE_VARS_ARGS+=(--config "${VOLATILE_VARS_CONFIG}")
+    fi
+    python3 "${SCRIPT_DIR}/gen_volatile_vars.py" "${GEN_VOLATILE_VARS_ARGS[@]}"
+fi
+
 sync
 umount -l "${MNT_DIR}"
 losetup -d "${LOOP_DEV}"
@@ -264,4 +300,7 @@ LOOP_DEV=""
 
 echo "[SUCCESS] EFI System Partition image created: ${OUT_IMG}"
 echo "[INFO] Contains: /EFI/BOOT/BOOTAA64.EFI (standalone GRUB + embedded bootstrap)."
+if [[ "${VOLATILE_VARS}" -eq 1 ]]; then
+    echo "[INFO] Contains: /VolatileVars.bin (pre-seeded UEFI variables)."
+fi
 echo "[INFO] Ensure rootfs filesystem label is '${ROOT_LABEL}' and it provides /boot/grub/grub.cfg."
