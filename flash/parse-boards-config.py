@@ -13,6 +13,7 @@
 #       "cdt_url":          "https://...",         (optional, default "")
 #       "cdt_filename":     "cdt_foo.bin",         (optional, default "")
 #       "contents_xml_in":  "platform/foo/..."     (optional, default "")
+#       "volatile_vars":    true                   (optional, default false)
 #     },
 #     ...
 #   ]
@@ -58,6 +59,7 @@ def main() -> int:
         t.setdefault("cdt_url", "")
         t.setdefault("cdt_filename", "")
         t.setdefault("contents_xml_in", "")
+        t.setdefault("volatile_vars", False)
 
     print(json.dumps(targets, indent=2))
     return 0

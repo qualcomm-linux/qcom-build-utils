@@ -10,6 +10,10 @@
 #
 # Per-storage image placement:
 #   nvme/ufs/emmc: efi.bin (4096-byte sectors for ufs/nvme, 512 for emmc)
+#                  VolatileVars.bin patched into that target's own copy of
+#                  efi.bin when "volatile_vars": true in targets.json (see
+#                  bootloader/patch-volatile-vars.sh) — other targets sharing
+#                  the same source efi.bin are unaffected
 #                  dtb.bin (only if the target has no spinor storage)
 #                  rootfs.img referenced as ../../rootfs.img in rawprogram XMLs
 #   spinor:        dtb.bin only (firmware-only; no efi or rootfs)
@@ -33,6 +37,8 @@
 # ==============================================================================
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ------------------------------------------------------------------------------
 # Sector size per storage type (ufs/nvme: 4096, emmc: 512)
@@ -136,6 +142,7 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
     BOARD_NAME=$(echo "$BOARDS_JSON"     | jq -r ".[$i].name")
     PTOOL_PLATFORM=$(echo "$BOARDS_JSON" | jq -r ".[$i].ptool_platform")
     CDT_FILENAME=$(echo "$BOARDS_JSON"   | jq -r ".[$i].cdt_filename // empty")
+    VOLATILE_VARS=$(echo "$BOARDS_JSON"  | jq -r ".[$i].volatile_vars // false")
 
     echo ""
     echo "========================================================"
@@ -304,6 +311,11 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
                 else
                     echo "[ERROR] efi.bin not found for ${storage} (sector size ${SECTOR_SIZE})"
                     exit 1
+                fi
+
+                if [[ "$VOLATILE_VARS" == "true" ]]; then
+                    "${SCRIPT_DIR}/../bootloader/patch-volatile-vars.sh" \
+                        --efi "${STORAGE_DIR}/efi.bin"
                 fi
 
                 if [[ "$HAS_SPINOR" == "false" ]]; then
