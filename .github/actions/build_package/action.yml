@@ -242,7 +242,7 @@ runs:
           # the upstream git tag — the normal gbp path handles those correctly.
           if [[ -f "./debian/watch" ]] && grep -q "qartifactory" "./debian/watch"; then
             echo "ℹ️ debian/watch (Artifactory) found — fetching orig tarball via uscan"
-            uscan --no-symlink --destdir "$WORK_DIR" --download-current-version
+            uscan --destdir "$WORK_DIR" --download-current-version
             GBP_ORIG_FLAGS=(--git-no-create-orig)
           else
             GBP_ORIG_FLAGS=()
