@@ -710,6 +710,20 @@ umount -l "$ROOTFS_DIR/sys"
 umount -l "$ROOTFS_DIR/proc"
 
 # ==============================================================================
+# Step 9.5: Remove temporary apt sources from final image
+# ==============================================================================
+if [[ "$USE_MANIFEST" -eq 1 && -n "$MANIFEST" ]]; then
+    jq -c '.apt_sources[]? | select(.temp == true)' "$MANIFEST" | while read -r row; do
+        NAME=$(echo "$row" | jq -r '.name // "customrepo"')
+        SOURCE_LIST="$ROOTFS_DIR/etc/apt/sources.list.d/${NAME}.list"
+        if [[ -f "$SOURCE_LIST" ]]; then
+            rm -f "$SOURCE_LIST"
+            echo "[INFO] Removed temporary apt source from final image: ${NAME}"
+        fi
+    done
+fi
+
+# ==============================================================================
 # Step 10: Create ext4 rootfs image and write contents
 # ==============================================================================
 echo "[INFO] Creating ext4 rootfs image: $ROOTFS_IMG (8GB)"
