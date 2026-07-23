@@ -10,6 +10,10 @@
 #
 # Per-storage image placement:
 #   nvme/ufs/emmc: efi.bin (4096-byte sectors for ufs/nvme, 512 for emmc)
+#                  VolatileVars.bin patched into that target's own copy of
+#                  efi.bin when "seed_volatile_vars": true in targets.json
+#                  (see bootloader/patch-volatile-vars.sh) — other targets
+#                  sharing the same source efi.bin are unaffected
 #                  dtb.bin (only if the target has no spinor storage)
 #                  rootfs.img referenced as ../../rootfs.img in rawprogram XMLs
 #   spinor:        dtb.bin only (firmware-only; no efi or rootfs)
@@ -33,6 +37,8 @@
 # ==============================================================================
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ------------------------------------------------------------------------------
 # Sector size per storage type (ufs/nvme: 4096, emmc: 512)
@@ -136,6 +142,17 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
     BOARD_NAME=$(echo "$BOARDS_JSON"     | jq -r ".[$i].name")
     PTOOL_PLATFORM=$(echo "$BOARDS_JSON" | jq -r ".[$i].ptool_platform")
     CDT_FILENAME=$(echo "$BOARDS_JSON"   | jq -r ".[$i].cdt_filename // empty")
+    SEED_VOLATILE_VARS=$(echo "$BOARDS_JSON" | jq -r ".[$i].seed_volatile_vars // false")
+    SEED_VOLATILE_VARS_CONFIG=$(echo "$BOARDS_JSON" | jq -r ".[$i].seed_volatile_vars_config // empty")
+    if [[ -n "$SEED_VOLATILE_VARS_CONFIG" ]]; then
+        # Paths in targets.json are relative to the qcom-distro-images repo
+        # root, i.e. two levels above boot_bins/ (see contents_xml_in below).
+        SEED_VOLATILE_VARS_CONFIG="$(dirname "$(dirname "$BOOT_BINS_DIR")")/${SEED_VOLATILE_VARS_CONFIG}"
+        if [[ ! -f "$SEED_VOLATILE_VARS_CONFIG" ]]; then
+            echo "[ERROR] seed_volatile_vars_config not found: ${SEED_VOLATILE_VARS_CONFIG}"
+            exit 1
+        fi
+    fi
 
     echo ""
     echo "========================================================"
@@ -304,6 +321,15 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
                 else
                     echo "[ERROR] efi.bin not found for ${storage} (sector size ${SECTOR_SIZE})"
                     exit 1
+                fi
+
+                if [[ "$SEED_VOLATILE_VARS" == "true" ]]; then
+                    PATCH_VOLATILE_VARS_ARGS=(--efi "${STORAGE_DIR}/efi.bin")
+                    if [[ -n "$SEED_VOLATILE_VARS_CONFIG" ]]; then
+                        PATCH_VOLATILE_VARS_ARGS+=(--config "$SEED_VOLATILE_VARS_CONFIG")
+                    fi
+                    "${SCRIPT_DIR}/../bootloader/patch-volatile-vars.sh" \
+                        "${PATCH_VOLATILE_VARS_ARGS[@]}"
                 fi
 
                 if [[ "$HAS_SPINOR" == "false" ]]; then
