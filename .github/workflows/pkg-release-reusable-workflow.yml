@@ -244,10 +244,13 @@ jobs:
 
       - name: Select source preparation outputs
         id: select
+        env:
+          STEPS_PREPARE_OUTPUTS_SRCPKG_NAME: ${{ steps.prepare.outputs.srcpkg_name }}
+          STEPS_PREPARE_OUTPUTS_RELEASE_VERSION: ${{ steps.prepare.outputs.release_version }}
         run: |
           echo "srcpkg_artifact=prepared-release-source" >> "$GITHUB_OUTPUT"
-          echo "srcpkg_name=${{ steps.prepare.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
-          echo "release_version=${{ steps.prepare.outputs.release_version }}" >> "$GITHUB_OUTPUT"
+          echo "srcpkg_name=${STEPS_PREPARE_OUTPUTS_SRCPKG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "release_version=${STEPS_PREPARE_OUTPUTS_RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
 
   build-and-test:
     name: Build and Test

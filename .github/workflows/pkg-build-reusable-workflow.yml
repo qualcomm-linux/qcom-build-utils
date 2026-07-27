@@ -344,8 +344,10 @@ jobs:
           echo "workspace_url=https://${DEBUSINE_HOST}/${DEBUSINE_SCOPE}/${workspace}/" >> "$GITHUB_OUTPUT"
 
       - name: Note Debusine workspace URL
+        env:
+          STEPS_PREPARE_DEBUSINE_OUTPUTS_WORKSPACE_URL: ${{ steps.prepare-debusine.outputs.workspace_url }}
         run: |
-          echo "Debusine Workspace URL: ${{ steps.prepare-debusine.outputs.workspace_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Debusine Workspace URL: ${STEPS_PREPARE_DEBUSINE_OUTPUTS_WORKSPACE_URL}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload release bundle
         if: ${{ inputs.release }}
@@ -385,7 +387,7 @@ jobs:
       srcpkg_version: ${{ steps.select.outputs.srcpkg_version }}
     runs-on: ubuntu-24.04-arm
     container:
-      image: ${{ format('ghcr.io/qualcomm-linux/pkg-builder:{0}', needs.resolve.outputs.suite) }}
+      image: ${{ format('ghcr.io/qualcomm-linux/pkg-builder:{0}', needs.resolve.outputs.suite) }} # zizmor: ignore[unpinned-images] Dynamic suite-driven image tag is required for hybrid Ubuntu builder routing.
       options: --user 0:0
       credentials:
         username: ${{ github.actor }}
@@ -503,11 +505,13 @@ jobs:
       - name: Validate installability from Docker build artifacts
         # Temporarily disabled while dependency repository injection is unresolved.
         if: ${{ false }}
+        env:
+          SUITE: ${{ needs.resolve.outputs.suite }}
         run: |
           set -euxo pipefail
 
           # Add qsc-deb-releases so Qualcomm package dependencies are resolvable
-          suite="${{ needs.resolve.outputs.suite }}"
+          suite="${SUITE}"
           install -d /etc/apt/keyrings /etc/apt/sources.list.d
           cat > /etc/apt/keyrings/qsc-deb-releases.asc <<'KEYEOF'
           -----BEGIN PGP PUBLIC KEY BLOCK-----
@@ -546,17 +550,26 @@ jobs:
 
       - name: Select test outputs
         id: select
+        env:
+          NEEDS_RESOLVE_OUTPUTS_FAMILY: ${{ needs.resolve.outputs.family }}
+          NEEDS_RESOLVE_OUTPUTS_FORCE_DOCKER_BUILD: ${{ needs.resolve.outputs.force_docker_build }}
+          NEEDS_DEBIAN_BUILD_OUTPUTS_WORKSPACE: ${{ needs.debian-build.outputs.workspace }}
+          NEEDS_DEBIAN_BUILD_OUTPUTS_WORKSPACE_URL: ${{ needs.debian-build.outputs.workspace_url }}
+          NEEDS_DEBIAN_BUILD_OUTPUTS_SRCPKG_NAME: ${{ needs.debian-build.outputs.srcpkg_name }}
+          NEEDS_DEBIAN_BUILD_OUTPUTS_SRCPKG_VERSION: ${{ needs.debian-build.outputs.srcpkg_version }}
+          NEEDS_DOCKER_BUILD_OUTPUTS_SRCPKG_NAME: ${{ needs.docker-build.outputs.srcpkg_name }}
+          NEEDS_DOCKER_BUILD_OUTPUTS_SRCPKG_VERSION: ${{ needs.docker-build.outputs.srcpkg_version }}
         run: |
-          if [[ "${{ needs.resolve.outputs.family }}" == "debian" && "${{ needs.resolve.outputs.force_docker_build }}" != "true" ]]; then
-            echo "workspace=${{ needs.debian-build.outputs.workspace }}" >> "$GITHUB_OUTPUT"
-            echo "workspace_url=${{ needs.debian-build.outputs.workspace_url }}" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_name=${{ needs.debian-build.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_version=${{ needs.debian-build.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
+          if [[ "${NEEDS_RESOLVE_OUTPUTS_FAMILY}" == "debian" && "${NEEDS_RESOLVE_OUTPUTS_FORCE_DOCKER_BUILD}" != "true" ]]; then
+            echo "workspace=${NEEDS_DEBIAN_BUILD_OUTPUTS_WORKSPACE}" >> "$GITHUB_OUTPUT"
+            echo "workspace_url=${NEEDS_DEBIAN_BUILD_OUTPUTS_WORKSPACE_URL}" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_name=${NEEDS_DEBIAN_BUILD_OUTPUTS_SRCPKG_NAME}" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_version=${NEEDS_DEBIAN_BUILD_OUTPUTS_SRCPKG_VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "workspace=" >> "$GITHUB_OUTPUT"
             echo "workspace_url=" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_name=${{ needs.docker-build.outputs.srcpkg_name }}" >> "$GITHUB_OUTPUT"
-            echo "srcpkg_version=${{ needs.docker-build.outputs.srcpkg_version }}" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_name=${NEEDS_DOCKER_BUILD_OUTPUTS_SRCPKG_NAME}" >> "$GITHUB_OUTPUT"
+            echo "srcpkg_version=${NEEDS_DOCKER_BUILD_OUTPUTS_SRCPKG_VERSION}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Note temporary installability policy
