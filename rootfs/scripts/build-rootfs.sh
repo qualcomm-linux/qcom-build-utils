@@ -710,18 +710,30 @@ umount -l "$ROOTFS_DIR/sys"
 umount -l "$ROOTFS_DIR/proc"
 
 # ==============================================================================
-# Step 9.5: Remove temporary apt sources from final image
+# Step 9.5: Remove build-only apt sources and caches from final image
+#   - build-only sources declared in the overlay manifest ("build-only": true)
+#   - local .deb repo created for --local-debs
+#   - apt indices and downloads cached during the build
 # ==============================================================================
 if [[ "$USE_MANIFEST" -eq 1 && -n "$MANIFEST" ]]; then
-    jq -c '.apt_sources[]? | select(.temp == true)' "$MANIFEST" | while read -r row; do
+    jq -c '.apt_sources[]? | select(."build-only" == true)' "$MANIFEST" | while read -r row; do
         NAME=$(echo "$row" | jq -r '.name // "customrepo"')
         SOURCE_LIST="$ROOTFS_DIR/etc/apt/sources.list.d/${NAME}.list"
         if [[ -f "$SOURCE_LIST" ]]; then
             rm -f "$SOURCE_LIST"
-            echo "[INFO] Removed temporary apt source from final image: ${NAME}"
+            echo "[INFO] Removed build-only apt source from final image: ${NAME}"
         fi
     done
 fi
+
+if [[ -f "$ROOTFS_DIR/etc/apt/sources.list.d/local-debs.list" ]]; then
+    rm -f  "$ROOTFS_DIR/etc/apt/sources.list.d/local-debs.list"
+    rm -rf "$ROOTFS_DIR/opt/local-debs"
+    echo "[INFO] Removed local-debs apt repo from final image"
+fi
+
+rm -rf "$ROOTFS_DIR/var/lib/apt/lists/"*
+rm -f  "$ROOTFS_DIR/var/cache/apt/archives/"*.deb
 
 # ==============================================================================
 # Step 10: Create ext4 rootfs image and write contents
