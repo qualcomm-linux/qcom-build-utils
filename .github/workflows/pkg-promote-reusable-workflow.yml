@@ -66,10 +66,12 @@ jobs:
 
       # Normalizing a tag : (e.g ) v1.0.0 -> 1.0.0
       - name: Normalize Tag Version
+        env:
+          INPUTS_UPSTREAM_TAG: ${{inputs.upstream-tag}}
         run: |
-          echo "ℹ️ Input upstream-tag is : ${{inputs.upstream-tag}}"
+          echo "ℹ️ Input upstream-tag is : ${INPUTS_UPSTREAM_TAG}"
 
-          NORMALIZED_VERSION=$(echo "${{inputs.upstream-tag}}" | sed 's/^v//')
+          NORMALIZED_VERSION=$(echo "${INPUTS_UPSTREAM_TAG}" | sed 's/^v//')
           echo "NORMALIZED_VERSION=$NORMALIZED_VERSION" >> $GITHUB_ENV
 
           echo "ℹ️ Normalized version : $NORMALIZED_VERSION"
@@ -99,10 +101,12 @@ jobs:
 
       - name: Show branches/tags and checkout debian/upstream latest
         working-directory: ./package-repo
+        env:
+          INPUTS_DEBIAN_BRANCH: ${{inputs.debian-branch}}
         run: |
           git branch
           git tag
-          git checkout ${{inputs.debian-branch}}
+          git checkout ${INPUTS_DEBIAN_BRANCH}
           echo "Listing all the current tags :"
           git tag --list
           if git ls-remote --exit-code --heads origin upstream/latest; then
@@ -153,22 +157,26 @@ jobs:
 
       - name: Make sure the upstream tag is not already part of the repo
         working-directory: ./package-repo
+        env:
+          INPUTS_UPSTREAM_TAG: ${{inputs.upstream-tag}}
         run: |
-          if (git tag --list | grep "${{inputs.upstream-tag}}"); then
+          if (git tag --list | grep "${INPUTS_UPSTREAM_TAG}"); then
             echo "❌ The supplied upstream tag is wrong as it pertains to this repo already."
             exit 1
           fi
 
       - name: Validate the upstream tag promotion state
         working-directory: ./package-repo
+        env:
+          INPUTS_UPSTREAM_TAG: ${{inputs.upstream-tag}}
         run: |
           # Check if the resolved promoted tag does not already exist
           if ! git rev-parse --verify "refs/tags/${{env.UPSTREAM_PROMOTED_TAG}}" >/dev/null 2>&1; then
-            echo "✅ The upstream tag '${{inputs.upstream-tag}}' has not been promoted yet. Continuing."
+            echo "✅ The upstream tag '${INPUTS_UPSTREAM_TAG}' has not been promoted yet. Continuing."
             exit 0
           fi
 
-          echo "⚠️ It appears like this repo has already integrated the upstream tag '${{inputs.upstream-tag}}' as '${{env.UPSTREAM_PROMOTED_TAG}}'"
+          echo "⚠️ It appears like this repo has already integrated the upstream tag '${INPUTS_UPSTREAM_TAG}' as '${{env.UPSTREAM_PROMOTED_TAG}}'"
 
           PROMOTED_TAG_GLOB="${{env.UPSTREAM_TAG_TEMPLATE}}"
           PROMOTED_TAG_GLOB="${PROMOTED_TAG_GLOB//%(version)s/*}"
@@ -216,13 +224,15 @@ jobs:
 
       - name: Add Upstream Link As A Remote And Fetch Tags
         working-directory: ./package-repo
+        env:
+          INPUTS_UPSTREAM_REPO: ${{inputs.upstream-repo}}
         run: |
           if [ -n "${{secrets.PAT}}" ]; then
             echo "ℹ️ Adding upstream remote with token authentication. This is because the upstream repository may be private and require authentication to fetch tags."
-            REPO_URL=https://x-access-token:${{secrets.PAT}}@github.com/${{inputs.upstream-repo}}.git
+            REPO_URL=https://x-access-token:${{secrets.PAT}}@github.com/${INPUTS_UPSTREAM_REPO}.git
           else
             echo "ℹ️ Adding upstream remote without token authentication, repo is assumed to be public"
-            REPO_URL=https://github.com/${{inputs.upstream-repo}}.git
+            REPO_URL=https://github.com/${INPUTS_UPSTREAM_REPO}.git
           fi
 
           git remote add upstream-source $REPO_URL
@@ -232,7 +242,7 @@ jobs:
           # Override the global extraheader set by actions/checkout (GITHUB_TOKEN) which would otherwise
           # take precedence over the credentials embedded in the URL and prevent access to external repos.
           if ! git fetch upstream-source "+refs/tags/*:refs/tags/*"; then
-            echo "❌ Failed to fetch tags from '${{inputs.upstream-repo}}'."
+            echo "❌ Failed to fetch tags from '${INPUTS_UPSTREAM_REPO}'."
 
             if [ -n "${{secrets.PAT}}" ]; then
               echo "❌ Ensure that the PAT token has the  permission on the repository."
@@ -246,13 +256,17 @@ jobs:
 
       - name: Ensure the tag exists in the upstream repo
         working-directory: ./package-repo
+        env:
+          INPUTS_UPSTREAM_TAG: ${{inputs.upstream-tag}}
         run: |
-          if ! git rev-parse --verify "refs/tags/${{inputs.upstream-tag}}" >/dev/null 2>&1; then
-            echo "❌ The specified upstream tag '${{inputs.upstream-tag}}' does not exist in the upstream repository."
+          if ! git rev-parse --verify "refs/tags/${INPUTS_UPSTREAM_TAG}" >/dev/null 2>&1; then
+            echo "❌ The specified upstream tag '${INPUTS_UPSTREAM_TAG}' does not exist in the upstream repository."
             exit 1
           fi
 
       - name: Pre-populate the upstream/latest branch if first promotion
+        env:
+          INPUTS_UPSTREAM_TAG: ${{inputs.upstream-tag}}
         run: |
           cd ./package-repo
 
@@ -260,30 +274,38 @@ jobs:
           # the history of upstream directly, instead of creating an --allow-empty commit
           # which will be dragged along.
           if ! git ls-remote --exit-code --heads origin upstream/latest; then
-            git branch upstream/latest ${{inputs.upstream-tag}}
+            git branch upstream/latest ${INPUTS_UPSTREAM_TAG}
           else
             # The branch exists, check it out and promote it to the upstream tag
             git checkout upstream/latest
-            git merge --ff-only ${{inputs.upstream-tag}}
+            git merge --ff-only ${INPUTS_UPSTREAM_TAG}
           fi
 
       - name: Merge upstream tag into packaging branch
         working-directory: ./package-repo
+        env:
+          VARS_DEB_PKG_BOT_CI_NAME: ${{vars.DEB_PKG_BOT_CI_NAME}}
+          VARS_DEB_PKG_BOT_CI_EMAIL: ${{vars.DEB_PKG_BOT_CI_EMAIL}}
+          INPUTS_DEBIAN_BRANCH: ${{inputs.debian-branch}}
+          INPUTS_UPSTREAM_TAG: ${{inputs.upstream-tag}}
         run: |
-          git config user.name "${{vars.DEB_PKG_BOT_CI_NAME}}"
-          git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
+          git config user.name "${VARS_DEB_PKG_BOT_CI_NAME}"
+          git config user.email "${VARS_DEB_PKG_BOT_CI_EMAIL}"
 
-          git checkout ${{inputs.debian-branch}}
+          git checkout ${INPUTS_DEBIAN_BRANCH}
 
           git checkout -b debian/pr/${{env.NORMALIZED_VERSION}}-1
 
-          ../qcom-build-utils/scripts/merge_debian_packaging_upstream ${{inputs.upstream-tag}}
+          ../qcom-build-utils/scripts/merge_debian_packaging_upstream ${INPUTS_UPSTREAM_TAG}
 
       - name: Promote Changelog
         working-directory: ./package-repo
+        env:
+          VARS_DEB_PKG_BOT_CI_NAME: ${{vars.DEB_PKG_BOT_CI_NAME}}
+          VARS_DEB_PKG_BOT_CI_EMAIL: ${{vars.DEB_PKG_BOT_CI_EMAIL}}
         run: |
-          export DEBFULLNAME="${{vars.DEB_PKG_BOT_CI_NAME}}"
-          export DEBEMAIL="${{vars.DEB_PKG_BOT_CI_EMAIL}}"
+          export DEBFULLNAME="${VARS_DEB_PKG_BOT_CI_NAME}"
+          export DEBEMAIL="${VARS_DEB_PKG_BOT_CI_EMAIL}"
 
           # use ignore branch because we are not on default debian branch
           dch \
@@ -312,9 +334,12 @@ jobs:
 
       - name: Open Promotion PR
         working-directory: ./package-repo
+        env:
+          INPUTS_DEBIAN_BRANCH: ${{inputs.debian-branch}}
+          INPUTS_UPSTREAM_TAG: ${{inputs.upstream-tag}}
         run: |
           ../qcom-build-utils/scripts/create_promotion_pr.py \
-            --base-branch "${{inputs.debian-branch}}" \
-            --upstream-tag "${{inputs.upstream-tag}}" \
+            --base-branch "${INPUTS_DEBIAN_BRANCH}" \
+            --upstream-tag "${INPUTS_UPSTREAM_TAG}" \
             --normalized-version "${{env.NORMALIZED_VERSION}}" \
             --promoted-upstream-tag "${{env.UPSTREAM_PROMOTED_TAG}}"

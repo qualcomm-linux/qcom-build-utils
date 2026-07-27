@@ -59,29 +59,34 @@ runs:
 
     - name: Detect Package Type
       shell: bash
+      env:
+        INPUTS_PREBUILT: ${{inputs.prebuilt}}
+        INPUTS_PKG_DIR: ${{inputs.pkg-dir}}
       run: |
-        if [[ "${{inputs.prebuilt}}" == "true" ]]; then
+        if [[ "${INPUTS_PREBUILT}" == "true" ]]; then
           echo "PREBUILT_MODE=true" >> $GITHUB_ENV
           echo "ℹ️ Build mode: prebuilt (explicitly set)"
-        elif [[ "${{inputs.prebuilt}}" == "false" ]]; then
+        elif [[ "${INPUTS_PREBUILT}" == "false" ]]; then
           echo "PREBUILT_MODE=false" >> $GITHUB_ENV
           echo "ℹ️ Build mode: source (explicitly set)"
         else
           # Auto-detect based on presence of upstream.conf in the package directory
-          if [[ -f "${{inputs.pkg-dir}}/upstream.conf" ]]; then
+          if [[ -f "${INPUTS_PKG_DIR}/upstream.conf" ]]; then
             echo "PREBUILT_MODE=true" >> $GITHUB_ENV
-            echo "ℹ️ Build mode: prebuilt (auto-detected: upstream.conf found in ${{inputs.pkg-dir}})"
+            echo "ℹ️ Build mode: prebuilt (auto-detected: upstream.conf found in ${INPUTS_PKG_DIR})"
           else
             echo "PREBUILT_MODE=false" >> $GITHUB_ENV
-            echo "ℹ️ Build mode: source (auto-detected: no upstream.conf in ${{inputs.pkg-dir}})"
+            echo "ℹ️ Build mode: source (auto-detected: no upstream.conf in ${INPUTS_PKG_DIR})"
           fi
         fi
 
     - name: Download Prebuilt Binary Archive
       if: ${{ env.PREBUILT_MODE == 'true' }}
       shell: bash
+      env:
+        INPUTS_PKG_DIR: ${{inputs.pkg-dir}}
       run: |
-        UPSTREAM_CONF="${{inputs.pkg-dir}}/upstream.conf"
+        UPSTREAM_CONF="${INPUTS_PKG_DIR}/upstream.conf"
 
         if [[ ! -f "$UPSTREAM_CONF" ]]; then
           echo "❌ upstream.conf not found at $UPSTREAM_CONF"
@@ -109,28 +114,30 @@ runs:
         echo "   File : $PACKAGE_NAME"
 
         curl --fail --show-error --location \
-             --output "${{inputs.pkg-dir}}/$PACKAGE_NAME" \
+             --output "${INPUTS_PKG_DIR}/$PACKAGE_NAME" \
              "$DOWNLOAD_URL"
 
         if [[ -n "$PACKAGE_SHA256" ]]; then
           echo "ℹ️ Verifying SHA256 checksum..."
-          echo "$PACKAGE_SHA256  ${{inputs.pkg-dir}}/$PACKAGE_NAME" | sha256sum --check
+          echo "$PACKAGE_SHA256  ${INPUTS_PKG_DIR}/$PACKAGE_NAME" | sha256sum --check
           echo "✅ Checksum verified"
         else
           echo "⚠️ No PACKAGE_SHA256 defined in upstream.conf — skipping checksum verification"
         fi
 
-        echo "ℹ️ Extracting $PACKAGE_NAME into ${{inputs.pkg-dir}}/"
-        tar -xf "${{inputs.pkg-dir}}/$PACKAGE_NAME" -C "${{inputs.pkg-dir}}"
-        rm -f "${{inputs.pkg-dir}}/$PACKAGE_NAME"
+        echo "ℹ️ Extracting $PACKAGE_NAME into ${INPUTS_PKG_DIR}/"
+        tar -xf "${INPUTS_PKG_DIR}/$PACKAGE_NAME" -C "${INPUTS_PKG_DIR}"
+        rm -f "${INPUTS_PKG_DIR}/$PACKAGE_NAME"
         echo "✅ Prebuilt archive extracted successfully"
 
     - name: Prepare Workspace Structure For The Build
       shell: bash
+      env:
+        INPUTS_BUILD_DIR: ${{inputs.build-dir}}
       run: |
         echo "Listing the content of the workspace :"; tree
 
-        mkdir -p ${{inputs.build-dir}}
+        mkdir -p ${INPUTS_BUILD_DIR}
 
         if grep -q 'quilt' ./package-repo/debian/source/format; then
           echo "Source format is quilt"
@@ -143,14 +150,19 @@ runs:
 
     - name : Build Package
       shell: bash
+      env:
+        INPUTS_PKG_DIR: ${{inputs.pkg-dir}}
+        INPUTS_RUN_LINTIAN: ${{inputs.run-lintian}}
+        INPUTS_BUILD_DIR: ${{inputs.build-dir}}
+        INPUTS_SUITE: ${{inputs.suite}}
       run: |
-        cd ${{inputs.pkg-dir}}
+        cd ${INPUTS_PKG_DIR}
 
         # GitHub Actions container jobs use HOME=/github/home by default, but the
         # builder images bake the sbuild config and unshare tarballs under /root.
         export HOME=/root
 
-        if [[ "${{inputs.run-lintian}}" == "true" ]]; then
+        if [[ "${INPUTS_RUN_LINTIAN}" == "true" ]]; then
           lintian_flag="--run-lintian"
         else
           lintian_flag="--no-run-lintian"
@@ -158,7 +170,7 @@ runs:
 
         # Resolve the build output directory to an absolute path now, before any
         # subsequent cd operations might change the working directory.
-        BUILD_DIR_ABS=$(realpath "../${{inputs.build-dir}}")
+        BUILD_DIR_ABS=$(realpath "../${INPUTS_BUILD_DIR}")
 
         set +e
 
@@ -196,9 +208,9 @@ runs:
             # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
             sbuild --no-clean-source \
                    --host=arm64 \
-                   --build=${{env.BUILD_ARCH}} \
+                   --build=${BUILD_ARCH} \
                    --arch-all \
-                   --dist=${{inputs.suite}} \
+                   --dist=${INPUTS_SUITE} \
                    $lintian_flag \
                    --build-dir "$BUILD_DIR_ABS" \
                    --build-dep-resolver=apt \
@@ -209,9 +221,9 @@ runs:
             # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
             sbuild --no-clean-source \
                    --host=arm64 \
-                   --build=${{env.BUILD_ARCH}} \
+                   --build=${BUILD_ARCH} \
                    --arch-all \
-                   --dist=${{inputs.suite}} \
+                   --dist=${INPUTS_SUITE} \
                    $lintian_flag \
                    --build-dir "$BUILD_DIR_ABS" \
                    --build-dep-resolver=apt
@@ -266,9 +278,9 @@ runs:
 
           sbuild --no-clean-source \
                  --host=arm64 \
-                 --build=${{env.BUILD_ARCH}} \
+                 --build=${BUILD_ARCH} \
                  --arch-all \
-                 --dist=${{inputs.suite}} \
+                 --dist=${INPUTS_SUITE} \
                  $lintian_flag \
                  --build-dir "$BUILD_DIR_ABS" \
                  --build-dep-resolver=apt \
