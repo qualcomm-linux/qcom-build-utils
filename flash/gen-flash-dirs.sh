@@ -92,6 +92,22 @@ mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR=$(realpath "$OUTPUT_DIR")
 [[ -n "$CONTENTS_XML_IN" ]] && CONTENTS_XML_IN=$(realpath "$CONTENTS_XML_IN")
 
+# qcom-ptool moved its Python scripts (gen_partition.py, ptool.py,
+# gen_contents.py) from the repo root into a qcom_ptool/ package directory,
+# and ptool.py now imports its sibling utils module as "qcom_ptool.utils".
+# Support both layouts: platforms/ stays at the repo root either way, but
+# the scripts directory and PYTHONPATH differ.
+if [[ -f "${PTOOL_DIR}/qcom_ptool/ptool.py" ]]; then
+    PTOOL_SCRIPTS_DIR="${PTOOL_DIR}/qcom_ptool"
+    PTOOL_PYTHONPATH="${PTOOL_DIR}"
+elif [[ -f "${PTOOL_DIR}/ptool.py" ]]; then
+    PTOOL_SCRIPTS_DIR="${PTOOL_DIR}"
+    PTOOL_PYTHONPATH=""
+else
+    echo "[ERROR] ptool.py not found under ${PTOOL_DIR} or ${PTOOL_DIR}/qcom_ptool"
+    exit 1
+fi
+
 command -v python3   &>/dev/null || { echo "[ERROR] python3 is required"; exit 1; }
 command -v jq        &>/dev/null || { echo "[ERROR] jq is required";     exit 1; }
 command -v xmlstarlet &>/dev/null || { echo "[ERROR] xmlstarlet is required"; exit 1; }
@@ -223,10 +239,10 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
                 PART_MAP="${PART_MAP},cdt=cdt.bin"
             fi
 
-            python3 "${PTOOL_DIR}/gen_partition.py" \
+            python3 "${PTOOL_SCRIPTS_DIR}/gen_partition.py" \
                 -i "$CONF" -o "partition_${storage}.xml" \
                 ${PART_MAP:+-m "$PART_MAP"}
-            python3 "${PTOOL_DIR}/ptool.py" \
+            PYTHONPATH="${PTOOL_PYTHONPATH}" python3 "${PTOOL_SCRIPTS_DIR}/ptool.py" \
                 -x "partition_${storage}.xml" \
                 -t "./partition_${storage}"
             cleanup_flash_dir "./partition_${storage}"
@@ -372,7 +388,7 @@ for k in $(seq 0 $((BOARD_COUNT - 1))); do
         CX_PARTITION_XML="${CX_PTOOL_WORK}/partition_spinor.xml"
         if [[ -n "$CX_TEMPLATE" && -f "$CX_PARTITION_XML" ]]; then
             CX_OUT="${CX_TARGET_DIR}/spinor/contents.xml"
-            python3 "${PTOOL_DIR}/gen_contents.py" \
+            python3 "${PTOOL_SCRIPTS_DIR}/gen_contents.py" \
                 -t "$CX_TEMPLATE" \
                 -p "$CX_PARTITION_XML" \
                 -o "$CX_OUT"
@@ -406,7 +422,7 @@ for k in $(seq 0 $((BOARD_COUNT - 1))); do
             CX_PARTITION_XML="${CX_PTOOL_WORK}/partition_${s}.xml"
             if [[ -n "$CX_TEMPLATE" && -f "$CX_PARTITION_XML" ]]; then
                 CX_OUT="${CX_TARGET_DIR}/${s}/contents.xml"
-                python3 "${PTOOL_DIR}/gen_contents.py" \
+                python3 "${PTOOL_SCRIPTS_DIR}/gen_contents.py" \
                     -t "$CX_TEMPLATE" \
                     -p "$CX_PARTITION_XML" \
                     -o "$CX_OUT"
