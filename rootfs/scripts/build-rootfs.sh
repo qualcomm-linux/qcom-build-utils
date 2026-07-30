@@ -633,9 +633,6 @@ usermod -aG sudo qcom
 usermod -aG audio qcom
 usermod -aG video qcom
 
-echo '[CHROOT] Installing manifest packages (if any)...'
-/install_manifest_pkgs.sh || true
-
 echo '[CHROOT] Installing local .deb packages via local APT repository (if any)...'
 if ls /opt/local-debs/*.deb >/dev/null 2>&1; then
     echo '[CHROOT] Setting up local .deb APT repository...'
@@ -652,6 +649,9 @@ if ls /opt/local-debs/*.deb >/dev/null 2>&1; then
 else
     echo '[CHROOT] No local .deb packages found; skipping.'
 fi
+
+echo '[CHROOT] Installing manifest packages (if any)...'
+/install_manifest_pkgs.sh || true
 
 # ==============================================================================
 # Run update-grub after ALL installs (firmware, kernel via dpkg or apt, manifest,
