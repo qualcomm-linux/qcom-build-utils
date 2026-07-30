@@ -630,6 +630,8 @@ $CMD_KERNEL_INSTALL
 adduser --disabled-password --gecos '' qcom
 echo 'qcom:qcom' | chpasswd
 usermod -aG sudo qcom
+usermod -aG audio qcom
+usermod -aG video qcom
 
 echo '[CHROOT] Installing manifest packages (if any)...'
 /install_manifest_pkgs.sh || true
