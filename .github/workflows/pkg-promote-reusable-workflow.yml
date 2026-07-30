@@ -44,6 +44,7 @@ env:
   UPSTREAM_PROMOTED_TAG: ""
   UPSTREAM_TAG_TEMPLATE: ""
   UPSTREAM_TAG_ALREADY_EXISTS: false
+  PROMOTION_PR_BRANCH: ""
 
 jobs:
   promote-upstream-version:
@@ -155,6 +156,20 @@ jobs:
           echo "ℹ️ Using upstream tag template: $UPSTREAM_TAG_TEMPLATE"
           echo "ℹ️ Resolved promoted upstream tag: $UPSTREAM_PROMOTED_TAG"
 
+      - name: Resolve promotion PR branch name
+        env:
+          INPUTS_DEBIAN_BRANCH: ${{inputs.debian-branch}}
+        run: |
+          PROMOTION_PR_BRANCH="debian/pr/${INPUTS_DEBIAN_BRANCH}/${NORMALIZED_VERSION}-1"
+
+          if ! git check-ref-format "refs/heads/${PROMOTION_PR_BRANCH}"; then
+            echo "❌ Computed promotion PR branch '${PROMOTION_PR_BRANCH}' is not a valid git ref."
+            exit 1
+          fi
+
+          echo "PROMOTION_PR_BRANCH=$PROMOTION_PR_BRANCH" >> "$GITHUB_ENV"
+          echo "ℹ️ Promotion PR branch: $PROMOTION_PR_BRANCH"
+
       - name: Validate promotion state for target branch
         working-directory: ./package-repo
         env:
@@ -186,6 +201,22 @@ jobs:
           echo "⚠️ '${{env.UPSTREAM_PROMOTED_TAG}}' exists globally but is not yet merged into '${INPUTS_DEBIAN_BRANCH}'."
           echo "⚠️ Continuing so this upstream version can be promoted to another packaging branch."
           echo "UPSTREAM_TAG_ALREADY_EXISTS=true" >> "$GITHUB_ENV"
+
+      - name: Validate promotion PR branch availability
+        working-directory: ./package-repo
+        run: |
+          PRS=$(gh pr list --head "${{env.PROMOTION_PR_BRANCH}}" --state open --json number --jq '.[].number')
+          if [ -n "$PRS" ]; then
+            echo "❌ An open PR already exists for '${{env.PROMOTION_PR_BRANCH}}': $PRS"
+            echo "❌ Merge or close the PR before attempting this promotion again."
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --heads origin "${{env.PROMOTION_PR_BRANCH}}"; then
+            echo "❌ Remote branch '${{env.PROMOTION_PR_BRANCH}}' already exists."
+            echo "❌ This usually means a previous promotion branch was not cleaned up."
+            exit 1
+          fi
 
       - name: Add Upstream Link As A Remote And Fetch Tags
         working-directory: ./package-repo
@@ -259,7 +290,7 @@ jobs:
 
           git checkout ${INPUTS_DEBIAN_BRANCH}
 
-          git checkout -b debian/pr/${{env.NORMALIZED_VERSION}}-1
+          git checkout -b "${{env.PROMOTION_PR_BRANCH}}"
 
           ../qcom-build-utils/scripts/merge_debian_packaging_upstream ${INPUTS_UPSTREAM_TAG}
 
@@ -296,7 +327,7 @@ jobs:
               echo "ℹ️ Skipping tag push for existing promoted tag '${{env.UPSTREAM_PROMOTED_TAG}}'."
           fi
 
-          git push origin debian/pr/${{env.NORMALIZED_VERSION}}-1
+          git push origin "${{env.PROMOTION_PR_BRANCH}}"
 
       - name: Open Promotion PR
         working-directory: ./package-repo
@@ -308,4 +339,5 @@ jobs:
             --base-branch "${INPUTS_DEBIAN_BRANCH}" \
             --upstream-tag "${INPUTS_UPSTREAM_TAG}" \
             --normalized-version "${{env.NORMALIZED_VERSION}}" \
-            --promoted-upstream-tag "${{env.UPSTREAM_PROMOTED_TAG}}"
+            --promoted-upstream-tag "${{env.UPSTREAM_PROMOTED_TAG}}" \
+            --pr-branch "${{env.PROMOTION_PR_BRANCH}}"
