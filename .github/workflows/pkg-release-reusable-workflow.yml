@@ -205,11 +205,21 @@ jobs:
           }
 
           if [[ "${FAMILY}" == "ubuntu" ]]; then
-            # Guard: refuse to release a WIP placeholder
+            # A promoted or dev-bump changelog entry carries a trailing '~' so
+            # its version sorts below the eventual official release. Drop it
+            # here so the release itself is the un-suffixed version, mirroring
+            # the Debian path in debusine-action/lib/prepare-release.
             if [[ "${version}" == *~ ]]; then
-              echo "Error: version '${version}' ends with '~' — update debian/changelog and remove the '~' suffix before releasing" >&2
-              exit 1
+              release_version="${version%\~}"
+              echo "Stripping '~' suffix for release: ${version} -> ${release_version}"
+              dch --newversion="${release_version}" ""
+              version="${release_version}"
             fi
+
+            # Guard: refuse to release a WIP placeholder. The next-release dev
+            # bump seeds the changelog with 'WIP' text (in addition to the '~'
+            # stripped above), so this still forces the changelog to be curated
+            # before an Ubuntu release.
             if grep -q 'WIP' debian/changelog; then
               echo "Error: debian/changelog contains 'WIP' — update changelog entry before releasing" >&2
               exit 1
@@ -265,16 +275,14 @@ jobs:
       - name: Select source preparation outputs
         id: select
         env:
-          SRCPKG_NAME: ${{ steps.prepare.outputs.srcpkg_name }}
-          RELEASE_VERSION: ${{ steps.prepare.outputs.release_version }}
-          RELEASE_TAG_NAME: ${{ steps.prepare.outputs.release_tag_name }}
+          STEPS_PREPARE_OUTPUTS_SRCPKG_NAME: ${{ steps.prepare.outputs.srcpkg_name }}
+          STEPS_PREPARE_OUTPUTS_RELEASE_VERSION: ${{ steps.prepare.outputs.release_version }}
+          STEPS_PREPARE_OUTPUTS_RELEASE_TAG_NAME: ${{ steps.prepare.outputs.release_tag_name }}
         run: |
-          {
-            echo "srcpkg_artifact=prepared-release-source"
-            printf 'srcpkg_name=%s\n' "$SRCPKG_NAME"
-            printf 'release_version=%s\n' "$RELEASE_VERSION"
-            printf 'release_tag_name=%s\n' "$RELEASE_TAG_NAME"
-          } >> "$GITHUB_OUTPUT"
+          echo "srcpkg_artifact=prepared-release-source" >> "$GITHUB_OUTPUT"
+          echo "srcpkg_name=${STEPS_PREPARE_OUTPUTS_SRCPKG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "release_version=${STEPS_PREPARE_OUTPUTS_RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "release_tag_name=${STEPS_PREPARE_OUTPUTS_RELEASE_TAG_NAME}" >> "$GITHUB_OUTPUT"
 
   build-and-test:
     name: Build and Test
@@ -290,6 +298,16 @@ jobs:
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+
+  AXIOM_Check:
+    name: AXIOM_Check
+    if: ${{ vars.AXIOM_ENABLE == 'true' }}
+    needs: [build-and-test]
+    runs-on: ubuntu-latest
+    environment: Axiom
+    steps:
+      - name: AXIOM check passed
+        run: echo "AXIOM check passed"
 
   debian-release:
     name: Release (Debian)
@@ -367,10 +385,11 @@ jobs:
 
   ubuntu-release:
     name: Release (Ubuntu)
-    if: ${{ needs.build-and-test.outputs.family == 'ubuntu' }}
+    if: ${{ always() && needs.build-and-test.outputs.family == 'ubuntu' && needs.build-and-test.result == 'success' && needs.AXIOM_Check.result != 'failure' && needs.AXIOM_Check.result != 'cancelled' }}
     needs:
       - prepare-release-source
       - build-and-test
+      - AXIOM_Check
     runs-on: lecore-prd-u2404-arm64-xlrg-od-ephem
     environment: pkg-release-approval
     defaults:
@@ -774,8 +793,13 @@ jobs:
           SUITE: ${{ needs.build-and-test.outputs.suite }}
         run: |
           set -euxo pipefail
-          mkdir -p s3-proposed/debs
-          find build-area -maxdepth 1 -name "*.deb" -exec cp {} s3-proposed/debs/ \;
+          mkdir -p s3-proposed
+          mapfile -t debs < <(find build-area -maxdepth 1 -name "*.deb" -printf '%f\n' | sort)
+          if [ "${#debs[@]}" -eq 0 ]; then
+            echo "No .deb files found in build-area; skipping debs.tar.gz creation"
+          else
+            tar -czf s3-proposed/debs.tar.gz -C build-area "${debs[@]}"
+          fi
 
       - name: Upload proposed debs and provenance to S3
         uses: qualcomm-linux/upload-private-artifact-action@aws-v4
