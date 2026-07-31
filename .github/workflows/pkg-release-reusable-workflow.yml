@@ -528,13 +528,22 @@ jobs:
           upstream="${version%-*}"
           rev="${version##*-}"
 
-          if ! [[ "$rev" =~ ^[0-9]+$ ]]; then
-            echo "Error: debian revision '$rev' is not numeric" >&2
+          rev_prefix=""
+          rev_num=""
+
+          if [[ "$rev" =~ ^([0-9]+)$ ]]; then
+            rev_num="${BASH_REMATCH[1]}"
+          elif [[ "$rev" =~ ^(.*[^0-9])([0-9]+)$ ]]; then
+            rev_prefix="${BASH_REMATCH[1]}"
+            rev_num="${BASH_REMATCH[2]}"
+          else
+            echo "Error: debian revision '$rev' does not end with digits" >&2
             exit 1
           fi
 
-          rev=$((rev + 1))
-          newversion="${upstream}-${rev}~"
+          next_num=$((10#$rev_num + 1))
+          next_rev="${rev_prefix}${next_num}"
+          newversion="${upstream}-${next_rev}~"
           echo "Bumped version -> ${newversion}"
           dch --newversion="${newversion}" --distribution=UNRELEASED --controlmaint "WIP — update changelog before next release"
 
