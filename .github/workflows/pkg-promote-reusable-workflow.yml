@@ -42,6 +42,8 @@ permissions:
 env:
   NORMALIZED_VERSION: ""
   PROMOTION_VERSION: ""
+  PROMOTION_BRANCH_VERSION: ""
+  PROMOTION_PR_BRANCH: ""
   PACKAGE_VERSION_IDENTIFIER: ""
   UPSTREAM_PROMOTED_TAG: ""
   UPSTREAM_TAG_TEMPLATE: ""
@@ -99,6 +101,22 @@ jobs:
         env:
           INPUTS_DEBIAN_BRANCH: ${{inputs.debian-branch}}
         run: |
+          set -euo pipefail
+
+          sanitize_version_for_ref() {
+            local version="$1"
+            local transformed sanitized
+
+            transformed="$(echo "$version" | perl -pe 'y/:~/%_/; s/\.(?=\.|$|lock$)/.#/g')"
+            sanitized="$(echo "$transformed" | sed 's/[^A-Za-z0-9.+%_#()-]//g')"
+            if [[ "$sanitized" != "$transformed" ]]; then
+              echo "❌ Transformed promotion version '$transformed' contains unsupported characters for a git ref." >&2
+              exit 1
+            fi
+
+            echo "$sanitized"
+          }
+
           case "${INPUTS_DEBIAN_BRANCH}" in
             debian/*)
               PACKAGE_VERSION_IDENTIFIER=""
@@ -118,19 +136,28 @@ jobs:
               ;;
             *)
               echo "❌ Unsupported debian-branch prefix '${INPUTS_DEBIAN_BRANCH}'."
-              echo "❌ Expected one of: debian/*, qli/*, qli-staging/*, qcom/*."
+              echo "❌ Expected one of: debian/*, qli/*, qli-staging/*, qcom/*, ubuntu/*."
               exit 1
               ;;
           esac
           # helps distinguishing local builds
           PROMOTION_VERSION="${PROMOTION_VERSION}~"
+          PROMOTION_BRANCH_VERSION="$(sanitize_version_for_ref "${PROMOTION_VERSION}")"
+          PROMOTION_PR_BRANCH="debian/pr/${PROMOTION_BRANCH_VERSION}"
+          if ! git check-ref-format "refs/heads/${PROMOTION_PR_BRANCH}"; then
+            echo "❌ Computed promotion PR branch '${PROMOTION_PR_BRANCH}' is not a valid git ref."
+            exit 1
+          fi
 
           echo "PACKAGE_VERSION_IDENTIFIER=$PACKAGE_VERSION_IDENTIFIER" >> "$GITHUB_ENV"
           echo "PROMOTION_VERSION=$PROMOTION_VERSION" >> "$GITHUB_ENV"
+          echo "PROMOTION_BRANCH_VERSION=$PROMOTION_BRANCH_VERSION" >> "$GITHUB_ENV"
+          echo "PROMOTION_PR_BRANCH=$PROMOTION_PR_BRANCH" >> "$GITHUB_ENV"
 
           echo "ℹ️ Packaging branch: ${INPUTS_DEBIAN_BRANCH}"
           echo "ℹ️ Vendor identifier: ${PACKAGE_VERSION_IDENTIFIER:-<none, Debian-bound>}"
           echo "ℹ️ Promotion changelog version: $PROMOTION_VERSION"
+          echo "ℹ️ Promotion PR branch: ${PROMOTION_PR_BRANCH}"
 
       - name: Checkout qcom-build-utils
         uses: actions/checkout@v5
@@ -255,7 +282,7 @@ jobs:
           echo "ℹ️ This is likely a second attempt to promote the same upstream tag, where the first attempt already added the upstream tag in the upstram branch"
 
           # Check if there is a PR open for this already
-          PRS=$(gh pr list --head "debian/pr/${{env.PROMOTION_VERSION}}" --state open --json number --jq '.[].number')
+          PRS=$(gh pr list --head "${PROMOTION_PR_BRANCH}" --state open --json number --jq '.[].number')
           if [ -n "$PRS" ]; then
             echo "❌ An open PR already exists for this promotion attempt: $PRS"
             echo "❌ Please merge or close the existing PR before attempting to promote the same upstream tag again."
@@ -271,8 +298,8 @@ jobs:
           echo "UPSTREAM_TAG_ALREADY_EXISTS=true" >> $GITHUB_ENV
 
           # Perform a last check to see if the debian/pr/<version> branch already exists locally (which would mean its also present remotely)
-          if git ls-remote --exit-code --heads origin "debian/pr/${{env.PROMOTION_VERSION}}"; then
-            echo "❌ The debian/pr/${{env.PROMOTION_VERSION}} branch already exists remotely."
+          if git ls-remote --exit-code --heads origin "${PROMOTION_PR_BRANCH}"; then
+            echo "❌ The ${PROMOTION_PR_BRANCH} branch already exists remotely."
             echo "❌ This likely means the previous promotion PR branch was not deleted after closing the PR."
             echo "❌ Please delete the remote branch before attempting to promote the same upstream tag again."
             exit 1
@@ -350,7 +377,7 @@ jobs:
 
           git checkout ${INPUTS_DEBIAN_BRANCH}
 
-          git checkout -b debian/pr/${{env.PROMOTION_VERSION}}
+          git checkout -b "${PROMOTION_PR_BRANCH}"
 
           ../qcom-build-utils/scripts/merge_debian_packaging_upstream ${INPUTS_UPSTREAM_TAG}
 
@@ -386,7 +413,7 @@ jobs:
               git push origin ${{env.UPSTREAM_PROMOTED_TAG}}
           fi
 
-          git push origin debian/pr/${{env.PROMOTION_VERSION}}
+          git push origin "${PROMOTION_PR_BRANCH}"
 
       - name: Open Promotion PR
         working-directory: ./package-repo
@@ -399,4 +426,5 @@ jobs:
             --upstream-tag "${INPUTS_UPSTREAM_TAG}" \
             --normalized-version "${{env.NORMALIZED_VERSION}}" \
             --promotion-version "${{env.PROMOTION_VERSION}}" \
+            --promotion-pr-branch "${{env.PROMOTION_PR_BRANCH}}" \
             --promoted-upstream-tag "${{env.UPSTREAM_PROMOTED_TAG}}"
