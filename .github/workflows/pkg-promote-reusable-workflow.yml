@@ -92,6 +92,9 @@ jobs:
       #   qli/*, qcom/*  -> <version>-0qli1
       #   qli-staging/*  -> <version>-0qli+staging1
       #   ubuntu/*       -> <version>-0ubuntu1       (bound for Ubuntu)
+      #
+      # The revision is suffixed with "~" so that local builds from the branch
+      # can easily be distinguished from official builds that will strip the ~
       - name: Resolve promotion changelog revision
         env:
           INPUTS_DEBIAN_BRANCH: ${{inputs.debian-branch}}
@@ -119,6 +122,8 @@ jobs:
               exit 1
               ;;
           esac
+          # helps distinguishing local builds
+          PROMOTION_VERSION="${PROMOTION_VERSION}~"
 
           echo "PACKAGE_VERSION_IDENTIFIER=$PACKAGE_VERSION_IDENTIFIER" >> "$GITHUB_ENV"
           echo "PROMOTION_VERSION=$PROMOTION_VERSION" >> "$GITHUB_ENV"

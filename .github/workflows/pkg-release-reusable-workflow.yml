@@ -191,11 +191,21 @@ jobs:
           srcpkg_name=$(dpkg-parsechangelog --show-field Source)
 
           if [[ "${FAMILY}" == "ubuntu" ]]; then
-            # Guard: refuse to release a WIP placeholder
+            # A promoted or dev-bump changelog entry carries a trailing '~' so
+            # its version sorts below the eventual official release. Drop it
+            # here so the release itself is the un-suffixed version, mirroring
+            # the Debian path in debusine-action/lib/prepare-release.
             if [[ "${version}" == *~ ]]; then
-              echo "Error: version '${version}' ends with '~' — update debian/changelog and remove the '~' suffix before releasing" >&2
-              exit 1
+              release_version="${version%\~}"
+              echo "Stripping '~' suffix for release: ${version} -> ${release_version}"
+              dch --newversion="${release_version}" ""
+              version="${release_version}"
             fi
+
+            # Guard: refuse to release a WIP placeholder. The next-release dev
+            # bump seeds the changelog with 'WIP' text (in addition to the '~'
+            # stripped above), so this still forces the changelog to be curated
+            # before an Ubuntu release.
             if grep -q 'WIP' debian/changelog; then
               echo "Error: debian/changelog contains 'WIP' — update changelog entry before releasing" >&2
               exit 1
