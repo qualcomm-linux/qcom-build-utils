@@ -41,6 +41,8 @@ permissions:
 
 env:
   NORMALIZED_VERSION: ""
+  PROMOTION_VERSION: ""
+  PACKAGE_VERSION_IDENTIFIER: ""
   UPSTREAM_PROMOTED_TAG: ""
   UPSTREAM_TAG_TEMPLATE: ""
   UPSTREAM_TAG_ALREADY_EXISTS: false
@@ -75,6 +77,55 @@ jobs:
           echo "NORMALIZED_VERSION=$NORMALIZED_VERSION" >> $GITHUB_ENV
 
           echo "ℹ️ Normalized version : $NORMALIZED_VERSION"
+
+      # Resolve the Debian revision style from the packaging branch prefix.
+      #
+      # The plain "-1" revision is reserved for packages that are headed to
+      # Debian itself (branches under "debian/"). Every other packaging branch
+      # is a Qualcomm derivative and must carry a vendor suffix, mirroring the
+      # branch -> identifier mapping implemented in debusine-action
+      # (.github/workflows/debusine.yml). A brand new upstream release then
+      # gets a "-0<identifier>1" revision, analogous to Debian's "-0ubuntu1"
+      # scheme for Ubuntu packages that are not (yet) in Debian:
+      #
+      #   debian/*       -> <version>-1              (bound for Debian)
+      #   qli/*, qcom/*  -> <version>-0qli1
+      #   qli-staging/*  -> <version>-0qli+staging1
+      #   ubuntu/*       -> <version>-0ubuntu1       (bound for Ubuntu)
+      - name: Resolve promotion changelog revision
+        env:
+          INPUTS_DEBIAN_BRANCH: ${{inputs.debian-branch}}
+        run: |
+          case "${INPUTS_DEBIAN_BRANCH}" in
+            debian/*)
+              PACKAGE_VERSION_IDENTIFIER=""
+              PROMOTION_VERSION="${NORMALIZED_VERSION}-1"
+              ;;
+            qli-staging/*)
+              PACKAGE_VERSION_IDENTIFIER="qli+staging"
+              PROMOTION_VERSION="${NORMALIZED_VERSION}-0qli+staging1"
+              ;;
+            qli/*|qcom/*)
+              PACKAGE_VERSION_IDENTIFIER="qli"
+              PROMOTION_VERSION="${NORMALIZED_VERSION}-0qli1"
+              ;;
+            ubuntu/*)
+              PACKAGE_VERSION_IDENTIFIER=""
+              PROMOTION_VERSION="${NORMALIZED_VERSION}-0ubuntu1"
+              ;;
+            *)
+              echo "❌ Unsupported debian-branch prefix '${INPUTS_DEBIAN_BRANCH}'."
+              echo "❌ Expected one of: debian/*, qli/*, qli-staging/*, qcom/*."
+              exit 1
+              ;;
+          esac
+
+          echo "PACKAGE_VERSION_IDENTIFIER=$PACKAGE_VERSION_IDENTIFIER" >> "$GITHUB_ENV"
+          echo "PROMOTION_VERSION=$PROMOTION_VERSION" >> "$GITHUB_ENV"
+
+          echo "ℹ️ Packaging branch: ${INPUTS_DEBIAN_BRANCH}"
+          echo "ℹ️ Vendor identifier: ${PACKAGE_VERSION_IDENTIFIER:-<none, Debian-bound>}"
+          echo "ℹ️ Promotion changelog version: $PROMOTION_VERSION"
 
       - name: Checkout qcom-build-utils
         uses: actions/checkout@v5
@@ -199,7 +250,7 @@ jobs:
           echo "ℹ️ This is likely a second attempt to promote the same upstream tag, where the first attempt already added the upstream tag in the upstram branch"
 
           # Check if there is a PR open for this already
-          PRS=$(gh pr list --head "debian/pr/${{env.NORMALIZED_VERSION}}-1" --state open --json number --jq '.[].number')
+          PRS=$(gh pr list --head "debian/pr/${{env.PROMOTION_VERSION}}" --state open --json number --jq '.[].number')
           if [ -n "$PRS" ]; then
             echo "❌ An open PR already exists for this promotion attempt: $PRS"
             echo "❌ Please merge or close the existing PR before attempting to promote the same upstream tag again."
@@ -214,9 +265,9 @@ jobs:
           # Keep track that the upstream tag already exists
           echo "UPSTREAM_TAG_ALREADY_EXISTS=true" >> $GITHUB_ENV
 
-          # Perform a last check to see if the debian/pr/<version>-1 branch already exists locally (which would mean its also present remotely)
-          if git ls-remote --exit-code --heads origin "debian/pr/${{env.NORMALIZED_VERSION}}-1"; then
-            echo "❌ The debian/pr/${{env.NORMALIZED_VERSION}}-1 branch already exists remotely."
+          # Perform a last check to see if the debian/pr/<version> branch already exists locally (which would mean its also present remotely)
+          if git ls-remote --exit-code --heads origin "debian/pr/${{env.PROMOTION_VERSION}}"; then
+            echo "❌ The debian/pr/${{env.PROMOTION_VERSION}} branch already exists remotely."
             echo "❌ This likely means the previous promotion PR branch was not deleted after closing the PR."
             echo "❌ Please delete the remote branch before attempting to promote the same upstream tag again."
             exit 1
@@ -294,7 +345,7 @@ jobs:
 
           git checkout ${INPUTS_DEBIAN_BRANCH}
 
-          git checkout -b debian/pr/${{env.NORMALIZED_VERSION}}-1
+          git checkout -b debian/pr/${{env.PROMOTION_VERSION}}
 
           ../qcom-build-utils/scripts/merge_debian_packaging_upstream ${INPUTS_UPSTREAM_TAG}
 
@@ -310,10 +361,10 @@ jobs:
           # use ignore branch because we are not on default debian branch
           dch \
             --distribution=UNRELEASED \
-            --newversion=${{env.NORMALIZED_VERSION}}-1 \
+            --newversion=${{env.PROMOTION_VERSION}} \
             'New upstream release'
 
-          git commit -a -s -m "Update changelog version to ${{env.NORMALIZED_VERSION}}-1 and UNRELEASED suite"
+          git commit -a -s -m "Update changelog version to ${{env.PROMOTION_VERSION}} and UNRELEASED suite"
 
       - name: Push Upstream/latest and debian PR Branch
         working-directory: ./package-repo
@@ -330,7 +381,7 @@ jobs:
               git push origin ${{env.UPSTREAM_PROMOTED_TAG}}
           fi
 
-          git push origin debian/pr/${{env.NORMALIZED_VERSION}}-1
+          git push origin debian/pr/${{env.PROMOTION_VERSION}}
 
       - name: Open Promotion PR
         working-directory: ./package-repo
@@ -342,4 +393,5 @@ jobs:
             --base-branch "${INPUTS_DEBIAN_BRANCH}" \
             --upstream-tag "${INPUTS_UPSTREAM_TAG}" \
             --normalized-version "${{env.NORMALIZED_VERSION}}" \
+            --promotion-version "${{env.PROMOTION_VERSION}}" \
             --promoted-upstream-tag "${{env.UPSTREAM_PROMOTED_TAG}}"
