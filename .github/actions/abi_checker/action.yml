@@ -16,24 +16,29 @@ runs:
     - name : List All The Versions Of The Built Packages Contained In The Staging PPA
       if: false # Disable for now
       shell: bash
+      env:
+        INPUTS_APT_REPOSITORY: ${{ inputs.apt-repository }}
+        BUILT_PACKAGE_NAME: ${{ env.BUILT_PACKAGE_NAME }}
       run: |
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation list-versions \
-          --apt-config "${{inputs.apt-repository}}" \
-          --package-name ${{env.BUILT_PACKAGE_NAME}}
+          --apt-config "${INPUTS_APT_REPOSITORY}" \
+          --package-name "${BUILT_PACKAGE_NAME}"
 
         RET=$?
         set -e
 
     - name: ABI Check
       shell: bash
+      env:
+        INPUTS_APT_REPOSITORY: ${{inputs.apt-repository}}
       run: |
         set +e
 
         ./qcom-build-utils/scripts/deb_abi_checker.py \
           --new-package-dir ./build-area \
-          --apt-server-config "${{inputs.apt-repository}}" \
+          --apt-server-config "${INPUTS_APT_REPOSITORY}" \
           --result-file ./results.txt
 
         RET=$?

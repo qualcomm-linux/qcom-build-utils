@@ -70,11 +70,15 @@ jobs:
     steps:
 
       - name: Print caller info
+        env:
+          INPUTS_UPSTREAM_REPO: ${{inputs.upstream-repo}}
+          INPUTS_UPSTREAM_REPO_REF: ${{inputs.upstream-repo-ref}}
+          INPUTS_PKG_REPO: ${{inputs.pkg-repo}}
         run: |
-          echo "upstream-repo : ${{inputs.upstream-repo}}"
-          echo "upstream-repo-ref : ${{inputs.upstream-repo-ref}}"
-          echo "pkg-repo : ${{inputs.pkg-repo}}"
-          if [[ -z "${{inputs.pkg-repo}}" ]]; then
+          echo "upstream-repo : ${INPUTS_UPSTREAM_REPO}"
+          echo "upstream-repo-ref : ${INPUTS_UPSTREAM_REPO_REF}"
+          echo "pkg-repo : ${INPUTS_PKG_REPO}"
+          if [[ -z "${INPUTS_PKG_REPO}" ]]; then
             echo "ERROR: inputs.pkg-repo is empty. Make sure that the caller workflow's repo has the repo variable PKG_REPO_GITHUB_NAME populated with the correct value. This variable should be in the format of owner/repo-name, for example: qualcomm-linux/pkg-repo"
             exit 1
           fi
@@ -123,11 +127,14 @@ jobs:
           git fetch upstream-source "+refs/tags/*:refs/tags/*"
 
       - name: Merge Upstream PR Changes to Packaging Repo on top of debian/qcom-next
+        env:
+          VARS_DEB_PKG_BOT_CI_NAME: ${{vars.DEB_PKG_BOT_CI_NAME}}
+          VARS_DEB_PKG_BOT_CI_EMAIL: ${{vars.DEB_PKG_BOT_CI_EMAIL}}
         run: |
           cd ./package-repo
 
-          git config user.name "${{vars.DEB_PKG_BOT_CI_NAME}}"
-          git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
+          git config user.name "${VARS_DEB_PKG_BOT_CI_NAME}"
+          git config user.email "${VARS_DEB_PKG_BOT_CI_EMAIL}"
 
           git checkout upstream/latest
           git checkout debian/qcom-next
@@ -173,17 +180,21 @@ jobs:
             upstream/latest
 
       - name: Promote Changelog
+        env:
+          VARS_DEB_PKG_BOT_CI_NAME: ${{vars.DEB_PKG_BOT_CI_NAME}}
+          VARS_DEB_PKG_BOT_CI_EMAIL: ${{vars.DEB_PKG_BOT_CI_EMAIL}}
+          INPUTS_SUITE: ${{inputs.suite}}
         run: |
           cd ./package-repo
 
-          export DEBFULLNAME="${{vars.DEB_PKG_BOT_CI_NAME}}"
-          export DEBEMAIL="${{vars.DEB_PKG_BOT_CI_EMAIL}}"
+          export DEBFULLNAME="${VARS_DEB_PKG_BOT_CI_NAME}"
+          export DEBEMAIL="${VARS_DEB_PKG_BOT_CI_EMAIL}"
 
           # use ignore branch because we are not on default debian branch
           # use -b to ignore new version is less than current version. This happens because of the ~pr#
           gbp dch \
             --ignore-branch \
-            --distribution=${{inputs.suite}} \
+            --distribution=${INPUTS_SUITE} \
             --new-version=${{env.upstream_version}}~pr${{inputs.pr-number}}-${{env.distro_revision}} \
             --dch-opt="-b"
 

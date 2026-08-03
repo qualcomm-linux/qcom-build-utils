@@ -18,14 +18,17 @@
 #
 # Resulting ESP contents:
 #   /EFI/BOOT/BOOTAA64.EFI   (standalone GRUB for ARM64 UEFI, removable path)
+#   /VolatileVars.bin        (optional, only with --seed-volatile-vars: pre-seeded
+#                             EBBR UEFI variables, e.g. VendorDtbOverlays)
 #
 # Embedded bootstrap config behavior:
-#   - Search root filesystem by label "system"
+#   - Search root filesystem by label (--root-label, default "system")
 #   - Chainload rootfs GRUB config: ($root)/boot/grub/grub.cfg
 #
 # Usage:
 #   ./build-efi-esp.sh [--sector-size <size>] [--esp-size-mb <mb>] [--no-install]
-#                     [--root-label <label>] [--out <efi.bin>]
+#                     [--root-label <label>] [--esp-label <label>] [--out <efi.bin>]
+#                     [--seed-volatile-vars] [--seed-volatile-vars-config <json>]
 #
 # Examples:
 #   ./build-efi-esp.sh
@@ -55,7 +58,12 @@ OUT_IMG="efi.bin"
 ESP_SIZE_MB=200
 SECTOR_SIZE=512
 ROOT_LABEL="system"
+ESP_LABEL="system-boot"
 NO_INSTALL=0
+SEED_VOLATILE_VARS=0
+SEED_VOLATILE_VARS_CONFIG=""
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 WORKDIR="$(pwd)"
 MNT_DIR="$(mktemp -d -p "${WORKDIR}" efiesp.mnt.XXXXXX)"
@@ -77,12 +85,19 @@ print_usage() {
     cat <<EOF
 Usage:
   $0 [--sector-size <bytes>] [--esp-size-mb <mb>] [--root-label <label>]
-     [--out <efi.bin>] [--no-install] [-h|--help]
+     [--esp-label <label>] [--out <efi.bin>] [--no-install]
+     [--seed-volatile-vars] [--seed-volatile-vars-config <json>] [-h|--help]
 
 Notes:
   - Produces a FAT32 filesystem image (no GPT inside the file).
   - Installs a standalone ARM64 GRUB as /EFI/BOOT/BOOTAA64.EFI using grub-mkstandalone.
   - At boot, GRUB searches for rootfs by LABEL and loads its /boot/grub/grub.cfg.
+  - --seed-volatile-vars pre-seeds /VolatileVars.bin with default UEFI variables
+    (see gen-volatile-vars.py), e.g. VendorDtbOverlays, so overlay/DTBO
+    loading works from first boot without waiting on firmware-side
+    generation. Off by default — pass it only for platforms that need
+    VolatileVars.bin pre-seeded. --seed-volatile-vars-config forwards a JSON
+    config to gen-volatile-vars.py to add/override entries.
 
 EOF
 }
@@ -98,10 +113,21 @@ while [[ $# -gt 0 ]]; do
             ESP_SIZE_MB="${2-}"; shift 2 ;;
         --root-label)
             ROOT_LABEL="${2-}"; shift 2 ;;
+        --esp-label)
+            ESP_LABEL="${2-}"; shift 2 ;;
         --out)
             OUT_IMG="${2-}"; shift 2 ;;
         --no-install)
             NO_INSTALL=1; shift ;;
+        --seed-volatile-vars)
+            SEED_VOLATILE_VARS=1; shift ;;
+        --seed-volatile-vars-config)
+            SEED_VOLATILE_VARS_CONFIG="${2-}"
+            if [[ -z "${SEED_VOLATILE_VARS_CONFIG}" ]]; then
+                echo "[ERROR] --seed-volatile-vars-config requires a non-empty path"
+                exit 1
+            fi
+            shift 2 ;;
         -h|--help)
             print_usage; exit 0 ;;
         *)
@@ -111,11 +137,21 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# --seed-volatile-vars-config implies --seed-volatile-vars
+if [[ -n "${SEED_VOLATILE_VARS_CONFIG}" ]]; then
+    SEED_VOLATILE_VARS=1
+fi
+
 # ==============================================================================
 # Step 3  Validate inputs
 # ==============================================================================
-if [[ -z "${SECTOR_SIZE}" || -z "${ESP_SIZE_MB}" || -z "${ROOT_LABEL}" || -z "${OUT_IMG}" ]]; then
+if [[ -z "${SECTOR_SIZE}" || -z "${ESP_SIZE_MB}" || -z "${ROOT_LABEL}" || -z "${ESP_LABEL}" || -z "${OUT_IMG}" ]]; then
     echo "[ERROR] One or more required values were empty."
+    exit 1
+fi
+
+if [[ -n "${SEED_VOLATILE_VARS_CONFIG}" && ! -f "${SEED_VOLATILE_VARS_CONFIG}" ]]; then
+    echo "[ERROR] --seed-volatile-vars-config not found: ${SEED_VOLATILE_VARS_CONFIG}"
     exit 1
 fi
 
@@ -147,6 +183,7 @@ echo "[INFO] Output image: ${OUT_IMG}"
 echo "[INFO] ESP size: ${ESP_SIZE_MB} MB"
 echo "[INFO] FAT sector size: ${SECTOR_SIZE}"
 echo "[INFO] Rootfs label: ${ROOT_LABEL}"
+echo "[INFO] ESP label: ${ESP_LABEL}"
 
 # ==============================================================================
 # Step 4  Ensure required host tools exist (optionally install)
@@ -165,6 +202,10 @@ for c in grub-mkstandalone; do
     need_cmd "${c}" || missing+=("${c}")
 done
 
+if [[ "${SEED_VOLATILE_VARS}" -eq 1 ]]; then
+    need_cmd python3 || missing+=("python3")
+fi
+
 if [[ "${#missing[@]}" -gt 0 ]]; then
     echo "[INFO] Missing commands: ${missing[*]}"
     if [[ "${NO_INSTALL}" -eq 1 ]]; then
@@ -175,7 +216,7 @@ if [[ "${#missing[@]}" -gt 0 ]]; then
     echo "[INFO] Installing required packages (Debian/Ubuntu)..."
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -y
-    apt-get install -y grub-efi-arm64-bin grub2-common dosfstools util-linux
+    apt-get install -y grub-efi-arm64-bin grub2-common dosfstools util-linux python3
 fi
 
 # Verify that arm64-efi GRUB platform dir exists (common failure in containers)
@@ -233,7 +274,24 @@ grub-mkstandalone \
 rm -f "${BOOTSTRAP_CFG}"
 
 # ==============================================================================
-# Step 6  Create and format ESP image
+# Step 6  Generate VolatileVars.bin (optional, --seed-volatile-vars)
+# ------------------------------------------------------------------------------
+# Done here (before image creation) so gen-volatile-vars.py failures abort
+# before we've spent time on dd/mkfs.vfat in Step 7.
+# ==============================================================================
+VOLATILE_VARS_BIN=""
+if [[ "${SEED_VOLATILE_VARS}" -eq 1 ]]; then
+    echo "[INFO] Generating VolatileVars.bin (pre-seeded UEFI variables)..."
+    VOLATILE_VARS_BIN="$(mktemp -p "${WORKDIR}" efiesp.VolatileVars.XXXXXX.bin)"
+    GEN_VOLATILE_VARS_ARGS=(--out "${VOLATILE_VARS_BIN}")
+    if [[ -n "${SEED_VOLATILE_VARS_CONFIG}" ]]; then
+        GEN_VOLATILE_VARS_ARGS+=(--config "${SEED_VOLATILE_VARS_CONFIG}")
+    fi
+    python3 "${SCRIPT_DIR}/gen-volatile-vars.py" "${GEN_VOLATILE_VARS_ARGS[@]}"
+fi
+
+# ==============================================================================
+# Step 7  Create and format ESP image
 # ==============================================================================
 echo "[INFO] Creating ${ESP_SIZE_MB} MB ESP image..."
 dd if=/dev/zero of="${OUT_IMG}" bs=1M count="${ESP_SIZE_MB}" status=progress
@@ -242,16 +300,21 @@ LOOP_DEV="$(losetup --show -fP "${OUT_IMG}")"
 echo "[INFO] Loop device attached: ${LOOP_DEV}"
 
 echo "[INFO] Formatting as FAT32 with sector size ${SECTOR_SIZE}..."
-mkfs.vfat -F 32 -S "${SECTOR_SIZE}" "${LOOP_DEV}" >/dev/null
+mkfs.vfat -F 32 -S "${SECTOR_SIZE}" -n "${ESP_LABEL}" "${LOOP_DEV}" >/dev/null
 
 mount "${LOOP_DEV}" "${MNT_DIR}"
 
 # ==============================================================================
-# Step 7  Populate ESP (UEFI removable path)
+# Step 8  Populate ESP (UEFI removable path)
 # ==============================================================================
 mkdir -p "${MNT_DIR}/EFI/BOOT"
 install -m 0644 "${STANDALONE_EFI}" "${MNT_DIR}/EFI/BOOT/BOOTAA64.EFI"
 rm -f "${STANDALONE_EFI}"
+
+if [[ -n "${VOLATILE_VARS_BIN}" ]]; then
+    install -m 0644 "${VOLATILE_VARS_BIN}" "${MNT_DIR}/VolatileVars.bin"
+    rm -f "${VOLATILE_VARS_BIN}"
+fi
 
 sync
 umount -l "${MNT_DIR}"
@@ -260,4 +323,7 @@ LOOP_DEV=""
 
 echo "[SUCCESS] EFI System Partition image created: ${OUT_IMG}"
 echo "[INFO] Contains: /EFI/BOOT/BOOTAA64.EFI (standalone GRUB + embedded bootstrap)."
+if [[ "${SEED_VOLATILE_VARS}" -eq 1 ]]; then
+    echo "[INFO] Contains: /VolatileVars.bin (pre-seeded UEFI variables)."
+fi
 echo "[INFO] Ensure rootfs filesystem label is '${ROOT_LABEL}' and it provides /boot/grub/grub.cfg."

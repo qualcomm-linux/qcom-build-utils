@@ -13,6 +13,8 @@
 #       "cdt_url":          "https://...",         (optional, default "")
 #       "cdt_filename":     "cdt_foo.bin",         (optional, default "")
 #       "contents_xml_in":  "platform/foo/..."     (optional, default "")
+#       "seed_volatile_vars":        true          (optional, default false)
+#       "seed_volatile_vars_config": "extra.json"  (optional, default "")
 #     },
 #     ...
 #   ]
@@ -58,6 +60,11 @@ def main() -> int:
         t.setdefault("cdt_url", "")
         t.setdefault("cdt_filename", "")
         t.setdefault("contents_xml_in", "")
+        sv = t.setdefault("seed_volatile_vars", False)
+        if not isinstance(sv, bool):
+            print(f"[ERROR] targets[{i}].seed_volatile_vars must be a boolean, got {sv!r}", file=sys.stderr)
+            return 1
+        t.setdefault("seed_volatile_vars_config", "")
 
     print(json.dumps(targets, indent=2))
     return 0

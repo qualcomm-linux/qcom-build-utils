@@ -16,10 +16,6 @@ inputs:
     description: If the version of the package already exists, override it.
     default: false
 
-env:
-  BUILT_PACKAGE_NAME: null
-  BUILT_PACKAGE_VERSION: null
-
 runs:
   using: "composite"
   
@@ -27,6 +23,7 @@ runs:
 
     # TODO deal with the case where multiple packages are built
     - name: Extract built package name
+      id: extract-built-package
       shell: bash
       run: |
         changes_file=$(find ./build-area -maxdepth 1 -name '*.changes' | head -n 1)
@@ -55,20 +52,23 @@ runs:
 
         version=$(grep '^Version:' "$changes_file" | sed 's/^Version: //')
         
-        echo "BUILT_PACKAGE_NAME=$main_binary" >> $GITHUB_ENV
-        echo "BUILT_PACKAGE_VERSION=$version" >> $GITHUB_ENV
+        echo "built_package_name=$main_binary" >> "$GITHUB_OUTPUT"
+        echo "built_package_version=$version" >> "$GITHUB_OUTPUT"
         
         echo "Built package name : $main_binary"
         echo "Built package version : $version"
 
     - name : List All The Versions Of The Built Packages Contained In The Staging PPA
       shell: bash
+      env:
+        INPUTS_DISTRO_CODENAME: ${{inputs.distro-codename}}
+        BUILT_PACKAGE_NAME: ${{steps.extract-built-package.outputs.built_package_name}}
       run: |
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation list-versions \
-          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{inputs.distro-codename}}/stable main" \
-          --package-name ${{env.BUILT_PACKAGE_NAME}}
+          --apt-config "deb [arch=arm64 trusted=yes] ${REPO_URL} ${INPUTS_DISTRO_CODENAME}/stable main" \
+          --package-name ${BUILT_PACKAGE_NAME}
 
         RET=$?
         set -e
@@ -76,25 +76,30 @@ runs:
     - name: Check If Need To Upload To Repo
       id: check-version
       shell: bash
+      env:
+        INPUTS_DISTRO_CODENAME: ${{inputs.distro-codename}}
+        INPUTS_FORCE_OVERRIDE: ${{inputs.force-override}}
+        BUILT_PACKAGE_NAME: ${{steps.extract-built-package.outputs.built_package_name}}
+        BUILT_PACKAGE_VERSION: ${{steps.extract-built-package.outputs.built_package_version}}
       run: |
         echo "Checking if the repo already contains the built version"
 
         set +e
         ./qcom-build-utils/scripts/ppa_interface.py \
           --operation contains-version \
-          --apt-config "deb [arch=arm64 trusted=yes] ${{env.REPO_URL}} ${{inputs.distro-codename}}/stable main" \
-          --package-name ${{env.BUILT_PACKAGE_NAME}} \
-          --version ${{env.BUILT_PACKAGE_VERSION}}
+          --apt-config "deb [arch=arm64 trusted=yes] ${REPO_URL} ${INPUTS_DISTRO_CODENAME}/stable main" \
+          --package-name ${BUILT_PACKAGE_NAME} \
+          --version ${BUILT_PACKAGE_VERSION}
 
         RET=$?
         set -e
 
         echo "do_upload=true" >> $GITHUB_OUTPUT
 
-        if [[ "$RET" == "0" && "${{inputs.force-override}}" == "false" ]]; then
+        if [[ "$RET" == "0" && "${INPUTS_FORCE_OVERRIDE}" == "false" ]]; then
           echo "Package version already exists in the repo and force-override is set to false. We are therefore done here."
           echo "do_upload=false" >> $GITHUB_OUTPUT
-        elif [[ "$RET" == "0" && "${{inputs.force-override}}" == "true" ]]; then
+        elif [[ "$RET" == "0" && "${INPUTS_FORCE_OVERRIDE}" == "true" ]]; then
           echo "Package version already exists in the repo, but force-override is set to true. Proceeding to override the package"
         else
           echo "The package version does not exist in the repo. Proceeding to uploat it."
@@ -113,15 +118,20 @@ runs:
     - name: Upload Debian Packages To Staging Repo
       if: steps.check-version.outputs.do_upload == 'true'
       shell: bash
+      env:
+        INPUTS_DISTRO_CODENAME: ${{inputs.distro-codename}}
+        INPUTS_TOKEN: ${{inputs.token}}
+        BUILT_PACKAGE_NAME: ${{steps.extract-built-package.outputs.built_package_name}}
+        BUILT_PACKAGE_VERSION: ${{steps.extract-built-package.outputs.built_package_version}}
       run: |
-        ./qcom-build-utils/scripts/ppa_organizer.py --build-dir ./build-area --output-dir ./pkg-oss-staging-repo/pool/${{inputs.distro-codename}}/stable/main
+        ./qcom-build-utils/scripts/ppa_organizer.py --build-dir ./build-area --output-dir ./pkg-oss-staging-repo/pool/${INPUTS_DISTRO_CODENAME}/stable/main
 
         cd ./pkg-oss-staging-repo
 
-        PPA_PACKAGES_FILE_REPO_PATH=dists/${{inputs.distro-codename}}/stable/main/binary-arm64
+        PPA_PACKAGES_FILE_REPO_PATH=dists/${INPUTS_DISTRO_CODENAME}/stable/main/binary-arm64
 
-        dpkg-scanpackages --multiversion pool/${{inputs.distro-codename}} > $PPA_PACKAGES_FILE_REPO_PATH/Packages
-        dpkg-scanpackages --type ddeb --multiversion pool/${{inputs.distro-codename}} >> $PPA_PACKAGES_FILE_REPO_PATH/Packages
+        dpkg-scanpackages --multiversion pool/${INPUTS_DISTRO_CODENAME} > $PPA_PACKAGES_FILE_REPO_PATH/Packages
+        dpkg-scanpackages --type ddeb --multiversion pool/${INPUTS_DISTRO_CODENAME} >> $PPA_PACKAGES_FILE_REPO_PATH/Packages
 
         gzip -k -f $PPA_PACKAGES_FILE_REPO_PATH/Packages
 
@@ -132,8 +142,8 @@ runs:
         git config user.name "GitHub Service Bot"
         git config user.email "githubservice@qti.qualcomm.com"
 
-        git commit -s -m "Uploaded Package ${{env.BUILT_PACKAGE_NAME}} at version ${{env.BUILT_PACKAGE_VERSION}} for distro ${{inputs.distro-codename}}"
+        git commit -s -m "Uploaded Package ${BUILT_PACKAGE_NAME} at version ${BUILT_PACKAGE_VERSION} for distro ${INPUTS_DISTRO_CODENAME}"
 
-        git remote set-url origin https://x-access-token:${{inputs.token}}@github.com/${{env.REPO_NAME}}.git
+        git remote set-url origin https://x-access-token:${INPUTS_TOKEN}@github.com/${REPO_NAME}.git
 
         git push origin

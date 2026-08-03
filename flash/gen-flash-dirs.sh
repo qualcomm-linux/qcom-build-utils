@@ -10,6 +10,10 @@
 #
 # Per-storage image placement:
 #   nvme/ufs/emmc: efi.bin (4096-byte sectors for ufs/nvme, 512 for emmc)
+#                  VolatileVars.bin patched into that target's own copy of
+#                  efi.bin when "seed_volatile_vars": true in targets.json
+#                  (see bootloader/patch-volatile-vars.sh) — other targets
+#                  sharing the same source efi.bin are unaffected
 #                  dtb.bin (only if the target has no spinor storage)
 #                  rootfs.img referenced as ../../rootfs.img in rawprogram XMLs
 #   spinor:        dtb.bin only (firmware-only; no efi or rootfs)
@@ -33,6 +37,8 @@
 # ==============================================================================
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ------------------------------------------------------------------------------
 # Sector size per storage type (ufs/nvme: 4096, emmc: 512)
@@ -92,6 +98,22 @@ mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR=$(realpath "$OUTPUT_DIR")
 [[ -n "$CONTENTS_XML_IN" ]] && CONTENTS_XML_IN=$(realpath "$CONTENTS_XML_IN")
 
+# qcom-ptool moved its Python scripts (gen_partition.py, ptool.py,
+# gen_contents.py) from the repo root into a qcom_ptool/ package directory,
+# and ptool.py now imports its sibling utils module as "qcom_ptool.utils".
+# Support both layouts: platforms/ stays at the repo root either way, but
+# the scripts directory and PYTHONPATH differ.
+if [[ -f "${PTOOL_DIR}/qcom_ptool/ptool.py" ]]; then
+    PTOOL_SCRIPTS_DIR="${PTOOL_DIR}/qcom_ptool"
+    PTOOL_PYTHONPATH="${PTOOL_DIR}"
+elif [[ -f "${PTOOL_DIR}/ptool.py" ]]; then
+    PTOOL_SCRIPTS_DIR="${PTOOL_DIR}"
+    PTOOL_PYTHONPATH=""
+else
+    echo "[ERROR] ptool.py not found under ${PTOOL_DIR} or ${PTOOL_DIR}/qcom_ptool"
+    exit 1
+fi
+
 command -v python3   &>/dev/null || { echo "[ERROR] python3 is required"; exit 1; }
 command -v jq        &>/dev/null || { echo "[ERROR] jq is required";     exit 1; }
 command -v xmlstarlet &>/dev/null || { echo "[ERROR] xmlstarlet is required"; exit 1; }
@@ -136,6 +158,17 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
     BOARD_NAME=$(echo "$BOARDS_JSON"     | jq -r ".[$i].name")
     PTOOL_PLATFORM=$(echo "$BOARDS_JSON" | jq -r ".[$i].ptool_platform")
     CDT_FILENAME=$(echo "$BOARDS_JSON"   | jq -r ".[$i].cdt_filename // empty")
+    SEED_VOLATILE_VARS=$(echo "$BOARDS_JSON" | jq -r ".[$i].seed_volatile_vars // false")
+    SEED_VOLATILE_VARS_CONFIG=$(echo "$BOARDS_JSON" | jq -r ".[$i].seed_volatile_vars_config // empty")
+    if [[ -n "$SEED_VOLATILE_VARS_CONFIG" ]]; then
+        # Paths in targets.json are relative to the qcom-distro-images repo
+        # root, i.e. two levels above boot_bins/ (see contents_xml_in below).
+        SEED_VOLATILE_VARS_CONFIG="$(dirname "$(dirname "$BOOT_BINS_DIR")")/${SEED_VOLATILE_VARS_CONFIG}"
+        if [[ ! -f "$SEED_VOLATILE_VARS_CONFIG" ]]; then
+            echo "[ERROR] seed_volatile_vars_config not found: ${SEED_VOLATILE_VARS_CONFIG}"
+            exit 1
+        fi
+    fi
 
     echo ""
     echo "========================================================"
@@ -223,10 +256,10 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
                 PART_MAP="${PART_MAP},cdt=cdt.bin"
             fi
 
-            python3 "${PTOOL_DIR}/gen_partition.py" \
+            python3 "${PTOOL_SCRIPTS_DIR}/gen_partition.py" \
                 -i "$CONF" -o "partition_${storage}.xml" \
                 ${PART_MAP:+-m "$PART_MAP"}
-            python3 "${PTOOL_DIR}/ptool.py" \
+            PYTHONPATH="${PTOOL_PYTHONPATH}" python3 "${PTOOL_SCRIPTS_DIR}/ptool.py" \
                 -x "partition_${storage}.xml" \
                 -t "./partition_${storage}"
             cleanup_flash_dir "./partition_${storage}"
@@ -306,6 +339,15 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
                     exit 1
                 fi
 
+                if [[ "$SEED_VOLATILE_VARS" == "true" ]]; then
+                    PATCH_VOLATILE_VARS_ARGS=(--efi "${STORAGE_DIR}/efi.bin")
+                    if [[ -n "$SEED_VOLATILE_VARS_CONFIG" ]]; then
+                        PATCH_VOLATILE_VARS_ARGS+=(--config "$SEED_VOLATILE_VARS_CONFIG")
+                    fi
+                    "${SCRIPT_DIR}/../bootloader/patch-volatile-vars.sh" \
+                        "${PATCH_VOLATILE_VARS_ARGS[@]}"
+                fi
+
                 if [[ "$HAS_SPINOR" == "false" ]]; then
                     if [[ -f "${SYSTEM_IMAGES_DIR}/dtb.bin" ]]; then
                         cp --preserve=mode,timestamps -v \
@@ -372,7 +414,7 @@ for k in $(seq 0 $((BOARD_COUNT - 1))); do
         CX_PARTITION_XML="${CX_PTOOL_WORK}/partition_spinor.xml"
         if [[ -n "$CX_TEMPLATE" && -f "$CX_PARTITION_XML" ]]; then
             CX_OUT="${CX_TARGET_DIR}/spinor/contents.xml"
-            python3 "${PTOOL_DIR}/gen_contents.py" \
+            python3 "${PTOOL_SCRIPTS_DIR}/gen_contents.py" \
                 -t "$CX_TEMPLATE" \
                 -p "$CX_PARTITION_XML" \
                 -o "$CX_OUT"
@@ -406,7 +448,7 @@ for k in $(seq 0 $((BOARD_COUNT - 1))); do
             CX_PARTITION_XML="${CX_PTOOL_WORK}/partition_${s}.xml"
             if [[ -n "$CX_TEMPLATE" && -f "$CX_PARTITION_XML" ]]; then
                 CX_OUT="${CX_TARGET_DIR}/${s}/contents.xml"
-                python3 "${PTOOL_DIR}/gen_contents.py" \
+                python3 "${PTOOL_SCRIPTS_DIR}/gen_contents.py" \
                     -t "$CX_TEMPLATE" \
                     -p "$CX_PARTITION_XML" \
                     -o "$CX_OUT"

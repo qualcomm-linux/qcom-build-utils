@@ -59,29 +59,34 @@ runs:
 
     - name: Detect Package Type
       shell: bash
+      env:
+        INPUTS_PREBUILT: ${{inputs.prebuilt}}
+        INPUTS_PKG_DIR: ${{inputs.pkg-dir}}
       run: |
-        if [[ "${{inputs.prebuilt}}" == "true" ]]; then
+        if [[ "${INPUTS_PREBUILT}" == "true" ]]; then
           echo "PREBUILT_MODE=true" >> $GITHUB_ENV
           echo "ℹ️ Build mode: prebuilt (explicitly set)"
-        elif [[ "${{inputs.prebuilt}}" == "false" ]]; then
+        elif [[ "${INPUTS_PREBUILT}" == "false" ]]; then
           echo "PREBUILT_MODE=false" >> $GITHUB_ENV
           echo "ℹ️ Build mode: source (explicitly set)"
         else
           # Auto-detect based on presence of upstream.conf in the package directory
-          if [[ -f "${{inputs.pkg-dir}}/upstream.conf" ]]; then
+          if [[ -f "${INPUTS_PKG_DIR}/upstream.conf" ]]; then
             echo "PREBUILT_MODE=true" >> $GITHUB_ENV
-            echo "ℹ️ Build mode: prebuilt (auto-detected: upstream.conf found in ${{inputs.pkg-dir}})"
+            echo "ℹ️ Build mode: prebuilt (auto-detected: upstream.conf found in ${INPUTS_PKG_DIR})"
           else
             echo "PREBUILT_MODE=false" >> $GITHUB_ENV
-            echo "ℹ️ Build mode: source (auto-detected: no upstream.conf in ${{inputs.pkg-dir}})"
+            echo "ℹ️ Build mode: source (auto-detected: no upstream.conf in ${INPUTS_PKG_DIR})"
           fi
         fi
 
     - name: Download Prebuilt Binary Archive
       if: ${{ env.PREBUILT_MODE == 'true' }}
       shell: bash
+      env:
+        INPUTS_PKG_DIR: ${{inputs.pkg-dir}}
       run: |
-        UPSTREAM_CONF="${{inputs.pkg-dir}}/upstream.conf"
+        UPSTREAM_CONF="${INPUTS_PKG_DIR}/upstream.conf"
 
         if [[ ! -f "$UPSTREAM_CONF" ]]; then
           echo "❌ upstream.conf not found at $UPSTREAM_CONF"
@@ -109,28 +114,30 @@ runs:
         echo "   File : $PACKAGE_NAME"
 
         curl --fail --show-error --location \
-             --output "${{inputs.pkg-dir}}/$PACKAGE_NAME" \
+             --output "${INPUTS_PKG_DIR}/$PACKAGE_NAME" \
              "$DOWNLOAD_URL"
 
         if [[ -n "$PACKAGE_SHA256" ]]; then
           echo "ℹ️ Verifying SHA256 checksum..."
-          echo "$PACKAGE_SHA256  ${{inputs.pkg-dir}}/$PACKAGE_NAME" | sha256sum --check
+          echo "$PACKAGE_SHA256  ${INPUTS_PKG_DIR}/$PACKAGE_NAME" | sha256sum --check
           echo "✅ Checksum verified"
         else
           echo "⚠️ No PACKAGE_SHA256 defined in upstream.conf — skipping checksum verification"
         fi
 
-        echo "ℹ️ Extracting $PACKAGE_NAME into ${{inputs.pkg-dir}}/"
-        tar -xf "${{inputs.pkg-dir}}/$PACKAGE_NAME" -C "${{inputs.pkg-dir}}"
-        rm -f "${{inputs.pkg-dir}}/$PACKAGE_NAME"
+        echo "ℹ️ Extracting $PACKAGE_NAME into ${INPUTS_PKG_DIR}/"
+        tar -xf "${INPUTS_PKG_DIR}/$PACKAGE_NAME" -C "${INPUTS_PKG_DIR}"
+        rm -f "${INPUTS_PKG_DIR}/$PACKAGE_NAME"
         echo "✅ Prebuilt archive extracted successfully"
 
     - name: Prepare Workspace Structure For The Build
       shell: bash
+      env:
+        INPUTS_BUILD_DIR: ${{inputs.build-dir}}
       run: |
         echo "Listing the content of the workspace :"; tree
 
-        mkdir -p ${{inputs.build-dir}}
+        mkdir -p ${INPUTS_BUILD_DIR}
 
         if grep -q 'quilt' ./package-repo/debian/source/format; then
           echo "Source format is quilt"
@@ -143,14 +150,19 @@ runs:
 
     - name : Build Package
       shell: bash
+      env:
+        INPUTS_PKG_DIR: ${{inputs.pkg-dir}}
+        INPUTS_RUN_LINTIAN: ${{inputs.run-lintian}}
+        INPUTS_BUILD_DIR: ${{inputs.build-dir}}
+        INPUTS_SUITE: ${{inputs.suite}}
       run: |
-        cd ${{inputs.pkg-dir}}
+        cd ${INPUTS_PKG_DIR}
 
         # GitHub Actions container jobs use HOME=/github/home by default, but the
         # builder images bake the sbuild config and unshare tarballs under /root.
         export HOME=/root
 
-        if [[ "${{inputs.run-lintian}}" == "true" ]]; then
+        if [[ "${INPUTS_RUN_LINTIAN}" == "true" ]]; then
           lintian_flag="--run-lintian"
         else
           lintian_flag="--no-run-lintian"
@@ -158,7 +170,7 @@ runs:
 
         # Resolve the build output directory to an absolute path now, before any
         # subsequent cd operations might change the working directory.
-        BUILD_DIR_ABS=$(realpath "../${{inputs.build-dir}}")
+        BUILD_DIR_ABS=$(realpath "../${INPUTS_BUILD_DIR}")
 
         set +e
 
@@ -196,8 +208,9 @@ runs:
             # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
             sbuild --no-clean-source \
                    --host=arm64 \
-                   --build=${{env.BUILD_ARCH}} \
-                   --dist=${{inputs.suite}} \
+                   --build=${BUILD_ARCH} \
+                   --arch-all \
+                   --dist=${INPUTS_SUITE} \
                    $lintian_flag \
                    --build-dir "$BUILD_DIR_ABS" \
                    --build-dep-resolver=apt \
@@ -208,29 +221,70 @@ runs:
             # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
             sbuild --no-clean-source \
                    --host=arm64 \
-                   --build=${{env.BUILD_ARCH}} \
-                   --dist=${{inputs.suite}} \
+                   --build=${BUILD_ARCH} \
+                   --arch-all \
+                   --dist=${INPUTS_SUITE} \
                    $lintian_flag \
                    --build-dir "$BUILD_DIR_ABS" \
                    --build-dep-resolver=apt
           fi
 
         else
-          # ℹ️ Source build mode: use gbp buildpackage.
-          # --git-ignore-branch is necessary because the debian branch actually checked out can be any (ex, debian/1.0.0) because we can build any previous tag
-          # ℹ️ chroot mode unshare is important to bypass privilege issues with the mounting
+          # ℹ️ Source build mode.
+          # For packages with debian/watch (prebuilt binaries fetched from
+          # Artifactory), we mirror the debusine-action two-step approach:
+          #   1. Run uscan explicitly to fetch the upstream orig tarball.
+          #      (dpkg-source --before-build calls uscan but does not reliably
+          #      place the tarball where dpkg-source -b expects it in all envs.)
+          #   2. Run gbp buildpackage -S to produce the .dsc, with
+          #      --git-no-create-orig so gbp does not overwrite the fetched tarball.
+          #   3. Pass the .dsc to sbuild for the binary build.
+          # For packages without debian/watch, gbp creates the orig from git as usual.
           # Host Architecture: The architecture for which the binaries are being built (invariably arm64).
-          gbp buildpackage \
-            --git-no-pristine-tar \
+          SRC_ABS=$(realpath .)
+          WORK_DIR=$(dirname "$SRC_ABS")
+          PKG=$(dpkg-parsechangelog -l ./debian/changelog -S Source)
+          VER=$(dpkg-parsechangelog -l ./debian/changelog -S Version)
+
+          git config --global --add safe.directory "$SRC_ABS"
+
+          # Only use the uscan fetch path for prebuilt binary packages that pull
+          # their upstream tarball from Artifactory. Packages with a watch file
+          # pointing to a git forge have their orig tarball created by gbp from
+          # the upstream git tag — the normal gbp path handles those correctly.
+          if [[ -f "./debian/watch" ]] && grep -q "qartifactory" "./debian/watch"; then
+            echo "ℹ️ debian/watch (Artifactory) found — fetching orig tarball via uscan"
+            uscan --destdir "$WORK_DIR" --download-current-version
+            GBP_ORIG_FLAGS=(--git-no-create-orig)
+          else
+            GBP_ORIG_FLAGS=()
+          fi
+
+          # Note: --source-option=--extend-diff-ignore is passed to gbp/dpkg-buildpackage
+          # during the -S step so the exclusion is baked into the .dsc; the sbuild
+          # invocation below does not need --dpkg-source-opt for the same reason.
+          gbp buildpackage -S -sa -d -nc \
+            --git-builder=dpkg-buildpackage \
             --git-ignore-branch \
-            --git-builder="sbuild --no-clean-source \
-                                  --dpkg-source-opt="--extend-diff-ignore=^\\.github" \
-                                   --host=arm64 \
-                                   --build=${{env.BUILD_ARCH}} \
-                                   --dist=${{inputs.suite}} \
-                                   $lintian_flag \
-                                   --build-dir $BUILD_DIR_ABS \
-                                   --build-dep-resolver=apt"
+            --git-debian-branch=HEAD \
+            --git-ignore-new \
+            "${GBP_ORIG_FLAGS[@]}" \
+            --source-option=--extend-diff-ignore=^\.github \
+            -us -uc
+
+          DSC_FILE="${WORK_DIR}/${PKG}_${VER}.dsc"
+          [ -f "$DSC_FILE" ] || { echo "ERROR: .dsc not found after gbp buildpackage -S"; exit 1; }
+          echo "ℹ️ Source package ready: $DSC_FILE"
+
+          sbuild --no-clean-source \
+                 --host=arm64 \
+                 --build=${BUILD_ARCH} \
+                 --arch-all \
+                 --dist=${INPUTS_SUITE} \
+                 $lintian_flag \
+                 --build-dir "$BUILD_DIR_ABS" \
+                 --build-dep-resolver=apt \
+                 "$DSC_FILE"
         fi
 
         RET=$?
