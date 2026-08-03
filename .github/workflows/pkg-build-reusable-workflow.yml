@@ -576,12 +576,12 @@ jobs:
         # Temporarily disabled while dependency repository injection is unresolved.
         if: ${{ false }}
         env:
-          SUITE: ${{ needs.resolve.outputs.suite }}
+          DOCKER_SUITE: ${{ needs.resolve.outputs.docker_suite }}
         run: |
           set -euxo pipefail
 
           # Add qsc-deb-releases so Qualcomm package dependencies are resolvable
-          suite="${{ needs.resolve.outputs.docker_suite }}"
+          suite="${DOCKER_SUITE}"
           install -d /etc/apt/keyrings /etc/apt/sources.list.d
           cat > /etc/apt/keyrings/qsc-deb-releases.asc <<'KEYEOF'
           -----BEGIN PGP PUBLIC KEY BLOCK-----
