@@ -89,10 +89,13 @@ jobs:
           fetch-tags: true
 
       - name: Validate and Read Current upstream.conf
+        env:
+          INPUTS_DEBIAN_BRANCH: ${{inputs.debian-branch}}
+          INPUTS_NEW_TAG: ${{inputs.new-tag}}
         run: |
           cd ./package-repo
 
-          git checkout ${{inputs.debian-branch}}
+          git checkout ${INPUTS_DEBIAN_BRANCH}
 
           if [[ ! -f "upstream.conf" ]]; then
             echo "❌ upstream.conf not found in the repository root."
@@ -115,8 +118,8 @@ jobs:
           echo "   DISTRO       : $DISTRO"
           echo "   PACKAGE_NAME : $PACKAGE_NAME"
 
-          if [[ "$TAG" == "${{inputs.new-tag}}" ]]; then
-            echo "❌ The new-tag '${{inputs.new-tag}}' is identical to the current TAG '$TAG' in upstream.conf."
+          if [[ "$TAG" == "${INPUTS_NEW_TAG}" ]]; then
+            echo "❌ The new-tag '${INPUTS_NEW_TAG}' is identical to the current TAG '$TAG' in upstream.conf."
             echo "   Nothing to promote."
             exit 1
           fi
@@ -127,20 +130,24 @@ jobs:
           echo "DISTRO=$DISTRO"               >> $GITHUB_ENV
 
       - name: Resolve New Package Name and Debian Version
+        env:
+          INPUTS_NEW_PACKAGE_NAME: ${{inputs.new-package-name}}
+          INPUTS_NEW_DEBIAN_VERSION: ${{inputs.new-debian-version}}
+          INPUTS_NEW_TAG: ${{inputs.new-tag}}
         run: |
           # Determine the effective new PACKAGE_NAME
-          if [[ -n "${{inputs.new-package-name}}" ]]; then
-            NEW_PACKAGE_NAME="${{inputs.new-package-name}}"
+          if [[ -n "${INPUTS_NEW_PACKAGE_NAME}" ]]; then
+            NEW_PACKAGE_NAME="${INPUTS_NEW_PACKAGE_NAME}"
             echo "ℹ️ Using provided new-package-name: $NEW_PACKAGE_NAME"
           else
-            NEW_PACKAGE_NAME="${{env.CURRENT_PACKAGE_NAME}}"
+            NEW_PACKAGE_NAME="${CURRENT_PACKAGE_NAME}"
             echo "ℹ️ No new-package-name provided, keeping current: $NEW_PACKAGE_NAME"
           fi
           echo "NEW_PACKAGE_NAME=$NEW_PACKAGE_NAME" >> $GITHUB_ENV
 
           # Determine the debian changelog version
-          if [[ -n "${{inputs.new-debian-version}}" ]]; then
-            NEW_DEBIAN_VERSION="${{inputs.new-debian-version}}"
+          if [[ -n "${INPUTS_NEW_DEBIAN_VERSION}" ]]; then
+            NEW_DEBIAN_VERSION="${INPUTS_NEW_DEBIAN_VERSION}"
             echo "ℹ️ Using provided new-debian-version: $NEW_DEBIAN_VERSION"
           else
             # Derive version from PACKAGE_NAME: extract the part between the first and second underscore.
@@ -162,14 +169,16 @@ jobs:
           echo "PR_BRANCH=promotion-pr/${BRANCH_VERSION}" >> $GITHUB_ENV
 
           echo "ℹ️ Promotion summary:"
-          echo "   TAG          : ${{env.CURRENT_TAG}} → ${{inputs.new-tag}}"
-          echo "   PACKAGE_NAME : ${{env.CURRENT_PACKAGE_NAME}} → $NEW_PACKAGE_NAME"
+          echo "   TAG          : ${CURRENT_TAG} → ${INPUTS_NEW_TAG}"
+          echo "   PACKAGE_NAME : ${CURRENT_PACKAGE_NAME} → $NEW_PACKAGE_NAME"
           echo "   Debian ver   : $NEW_DEBIAN_VERSION"
           echo "   PR branch    : promotion-pr/${BRANCH_VERSION}"
 
       - name: Verify New Tarball Exists on Artifactory
+        env:
+          INPUTS_NEW_TAG: ${{inputs.new-tag}}
         run: |
-          DOWNLOAD_URL="${{env.ARTIFACTORY}}/${{inputs.new-tag}}/${{env.DISTRO}}/${{env.NEW_PACKAGE_NAME}}"
+          DOWNLOAD_URL="${ARTIFACTORY}/${INPUTS_NEW_TAG}/${DISTRO}/${NEW_PACKAGE_NAME}"
           echo "ℹ️ Verifying tarball exists at: $DOWNLOAD_URL"
 
           if curl --head --fail --silent --show-error "$DOWNLOAD_URL"; then
@@ -181,58 +190,71 @@ jobs:
           fi
 
       - name: Create Promotion Branch and Update upstream.conf
+        env:
+          VARS_DEB_PKG_BOT_CI_NAME: ${{vars.DEB_PKG_BOT_CI_NAME}}
+          VARS_DEB_PKG_BOT_CI_EMAIL: ${{vars.DEB_PKG_BOT_CI_EMAIL}}
+          INPUTS_NEW_TAG: ${{inputs.new-tag}}
         run: |
           cd ./package-repo
 
-          git config user.name "${{vars.DEB_PKG_BOT_CI_NAME}}"
-          git config user.email "${{vars.DEB_PKG_BOT_CI_EMAIL}}"
+          git config user.name "${VARS_DEB_PKG_BOT_CI_NAME}"
+          git config user.email "${VARS_DEB_PKG_BOT_CI_EMAIL}"
 
-          git checkout -b ${{env.PR_BRANCH}}
+          git checkout -b ${PR_BRANCH}
 
           # Update TAG in upstream.conf
-          sed -i "s|^export TAG=.*|export TAG=\"${{inputs.new-tag}}\"|" upstream.conf
+          sed -i "s|^export TAG=.*|export TAG=\"${INPUTS_NEW_TAG}\"|" upstream.conf
 
           # Update PACKAGE_NAME in upstream.conf only if it changed
-          if [[ "${{env.NEW_PACKAGE_NAME}}" != "${{env.CURRENT_PACKAGE_NAME}}" ]]; then
-            sed -i "s|^export PACKAGE_NAME=.*|export PACKAGE_NAME=\"${{env.NEW_PACKAGE_NAME}}\"|" upstream.conf
+          if [[ "${NEW_PACKAGE_NAME}" != "${CURRENT_PACKAGE_NAME}" ]]; then
+            sed -i "s|^export PACKAGE_NAME=.*|export PACKAGE_NAME=\"${NEW_PACKAGE_NAME}\"|" upstream.conf
           fi
 
           echo "ℹ️ Updated upstream.conf:"
           cat upstream.conf | sed 's/^/   /'
 
       - name: Bump Debian Changelog
+        env:
+          VARS_DEB_PKG_BOT_CI_NAME: ${{vars.DEB_PKG_BOT_CI_NAME}}
+          VARS_DEB_PKG_BOT_CI_EMAIL: ${{vars.DEB_PKG_BOT_CI_EMAIL}}
+          INPUTS_NEW_TAG: ${{inputs.new-tag}}
         run: |
           cd ./package-repo
 
-          export DEBFULLNAME="${{vars.DEB_PKG_BOT_CI_NAME}}"
-          export DEBEMAIL="${{vars.DEB_PKG_BOT_CI_EMAIL}}"
+          export DEBFULLNAME="${VARS_DEB_PKG_BOT_CI_NAME}"
+          export DEBEMAIL="${VARS_DEB_PKG_BOT_CI_EMAIL}"
 
           dch \
-            --newversion="${{env.NEW_DEBIAN_VERSION}}" \
+            --newversion="${NEW_DEBIAN_VERSION}" \
             --distribution=UNRELEASED \
-            "New upstream release (Artifactory tag: ${{inputs.new-tag}})"
+            "New upstream release (Artifactory tag: ${INPUTS_NEW_TAG})"
 
           echo "ℹ️ Updated debian/changelog (first 5 lines):"
           head -5 debian/changelog | sed 's/^/   /'
 
       - name: Commit and Push Promotion Branch
+        env:
+          INPUTS_NEW_TAG: ${{inputs.new-tag}}
         run: |
           cd ./package-repo
 
           git add upstream.conf debian/changelog
-          git commit -s -m "Promote to Artifactory tag ${{inputs.new-tag}} (version ${{env.NEW_DEBIAN_VERSION}})"
+          git commit -s -m "Promote to Artifactory tag ${INPUTS_NEW_TAG} (version ${NEW_DEBIAN_VERSION})"
 
-          git push origin ${{env.PR_BRANCH}}
+          git push origin ${PR_BRANCH}
 
           git log --graph --oneline -n 5 --color=always
 
       - name: Open Promotion PR
+        env:
+          INPUTS_NEW_TAG: ${{inputs.new-tag}}
+          INPUTS_DEBIAN_BRANCH: ${{inputs.debian-branch}}
         run: |
           cd ./package-repo
 
           gh auth login --with-token <<< "${{secrets.DEB_PKG_BOT_CI_TOKEN}}"
 
-          PR_TITLE="Promotion to ${{env.NEW_DEBIAN_VERSION}} (Artifactory tag: ${{inputs.new-tag}})"
+          PR_TITLE="Promotion to ${NEW_DEBIAN_VERSION} (Artifactory tag: ${INPUTS_NEW_TAG})"
 
           PR_BODY=$(cat <<EOF
           ## Automated Prebuilt Binary Promotion PR
@@ -243,12 +265,12 @@ jobs:
 
           | Field | Old | New |
           |---|---|---|
-          | Artifactory TAG | \`${{env.CURRENT_TAG}}\` | \`${{inputs.new-tag}}\` |
-          | PACKAGE_NAME | \`${{env.CURRENT_PACKAGE_NAME}}\` | \`${{env.NEW_PACKAGE_NAME}}\` |
-          | Debian version | (previous) | \`${{env.NEW_DEBIAN_VERSION}}\` |
+          | Artifactory TAG | \`${CURRENT_TAG}\` | \`${INPUTS_NEW_TAG}\` |
+          | PACKAGE_NAME | \`${CURRENT_PACKAGE_NAME}\` | \`${NEW_PACKAGE_NAME}\` |
+          | Debian version | (previous) | \`${NEW_DEBIAN_VERSION}\` |
 
           ### Tarball verified at
-          \`${{env.ARTIFACTORY}}/${{inputs.new-tag}}/${{env.DISTRO}}/${{env.NEW_PACKAGE_NAME}}\`
+          \`${ARTIFACTORY}/${INPUTS_NEW_TAG}/${DISTRO}/${NEW_PACKAGE_NAME}\`
 
           ### What happens next
           1. The **PR Pre and Post Merge Build** workflow is triggered automatically on this PR
@@ -262,5 +284,5 @@ jobs:
           gh pr create \
             --title "$PR_TITLE" \
             --body "$PR_BODY" \
-            --base ${{inputs.debian-branch}} \
-            --head ${{env.PR_BRANCH}}
+            --base ${INPUTS_DEBIAN_BRANCH} \
+            --head ${PR_BRANCH}

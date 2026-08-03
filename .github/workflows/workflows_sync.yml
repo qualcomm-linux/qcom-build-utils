@@ -52,8 +52,63 @@ jobs:
                          "pkg-linux-qcom" \
                          "pkg-linux-qcom-canonical" )
 
-          # Array to store created PR URLs
+          # Arrays to store created PR URLs and non-fatal sync warnings.
           PR_URLS=()
+          WARNINGS=()
+
+          run_cmd() {
+            "$@" 2>&1 | sed 's/^/    /'
+            return ${PIPESTATUS[0]}
+          }
+
+          record_warning() {
+            local warning="$1"
+            WARNINGS+=("$warning")
+            echo "    ⚠️ $warning"
+          }
+
+          create_or_reuse_pr() {
+            local repo_name="$1"
+            local title="$2"
+            local body="$3"
+            local head_branch="$4"
+            local base_branch="$5"
+            local pr_url=""
+            local pr_error=""
+            local pr_error_file
+
+            pr_error_file="$(mktemp)"
+            if pr_url=$(gh pr create --repo "$ORG/$repo_name" \
+              --title "$title" \
+              --body "$body" \
+              --head "$head_branch" \
+              --base "$base_branch" 2>"$pr_error_file"); then
+              PR_URLS+=("$pr_url")
+              echo "    ✅ PR created for $base_branch: $pr_url"
+              rm -f "$pr_error_file"
+              return 0
+            fi
+
+            pr_error="$(cat "$pr_error_file")"
+            rm -f "$pr_error_file"
+
+            if [[ "$pr_error" == *"A pull request already exists"* ]]; then
+              pr_url=$(gh pr list --repo "$ORG/$repo_name" \
+                --state open \
+                --head "$head_branch" \
+                --base "$base_branch" \
+                --json url \
+                --jq '.[0].url' 2>/dev/null || true)
+              if [[ -n "$pr_url" ]]; then
+                PR_URLS+=("$pr_url")
+                echo "    ℹ️ Reusing existing PR for $base_branch: $pr_url"
+                return 0
+              fi
+            fi
+
+            record_warning "$repo_name:$base_branch PR creation failed: $pr_error"
+            return 1
+          }
 
           # Get the list of Qualcomm package repositories
           repos=$(gh repo list --limit 9999 $ORG --json name --jq '.[] | select(.name | startswith("pkg-")) | .name')
@@ -100,11 +155,23 @@ jobs:
             echo "  ✅ $BOT_USERNAME has $permission_level permissions on $repo"
 
             # Clone the target repository
-            gh repo clone "$ORG/$repo" "$repo" 2>&1 | sed 's/^/  /'
-            cd "$repo"
+            if ! run_cmd gh repo clone "$ORG/$repo" "$repo"; then
+              record_warning "$repo: clone failed, skipping repository"
+              continue
+            fi
+
+            if ! cd "$repo"; then
+              record_warning "$repo: failed to enter cloned repository directory"
+              continue
+            fi
 
             # Detect the default branch (usually 'main' but some repos use 'master')
-            default_branch=$(gh api repos/$ORG/$repo --jq '.default_branch')
+            default_branch=$(gh api repos/$ORG/$repo --jq '.default_branch' 2>/dev/null || true)
+            if [[ -z "$default_branch" ]]; then
+              record_warning "$repo: could not determine default branch, skipping repository"
+              cd ..
+              continue
+            fi
             echo "  🌿 Default branch for $repo: $default_branch"
 
             # Configure git to use gh CLI for authentication
@@ -115,7 +182,7 @@ jobs:
             # Delete the sync branch if it exists from a previous run
             if git ls-remote --exit-code --heads origin sync/qcom-build-utils-workflows > /dev/null 2>&1; then
               echo "    🧹 Deleting existing sync/qcom-build-utils-workflows branch from remote"
-              git push origin --delete sync/qcom-build-utils-workflows 2>&1 | sed 's/^/    /'
+              run_cmd git push origin --delete sync/qcom-build-utils-workflows || record_warning "$repo:$default_branch failed to delete stale sync/qcom-build-utils-workflows"
             fi
 
             # Track if changes are needed
@@ -179,6 +246,14 @@ jobs:
               fi
             fi
 
+            # Remove legacy PR workflow file on default branch. The canonical
+            # PR hook workflow is pkg-pr-hook.yml.
+            if [[ -f "$DEBIAN_LEGACY_WORKFLOW_FILE" ]]; then
+              echo "    🗑️ Removing legacy workflow: $(basename "$DEBIAN_LEGACY_WORKFLOW_FILE")"
+              rm "$DEBIAN_LEGACY_WORKFLOW_FILE"
+              isDirty=true
+            fi
+
             # Compare and sync workflow files
             for workflow_name in "${DEFAULT_BRANCH_WORKFLOW_TEMPLATES[@]}"; do
               workflow="../qcom-build-utils/.github/pkg-workflows/qli-ci/$workflow_name"
@@ -208,35 +283,50 @@ jobs:
               # Create branch, commit, and push default branch changes if needed
               if [[ "$isDirty" == "true" ]]; then
                 echo "    📝 Creating branch and committing default branch changes"
-                git checkout -b sync/qcom-build-utils-workflows 2>&1 | sed 's/^/    /'
+                if ! run_cmd git checkout -b sync/qcom-build-utils-workflows; then
+                  record_warning "$repo:$default_branch failed to create sync branch"
+                  cd ..
+                  continue
+                fi
                 git add -A .github/
-                git commit -s -m "chore: sync workflows from qcom-build-utils" 2>&1 | sed 's/^/    /'
+                if ! run_cmd git commit -s -m "chore: sync workflows from qcom-build-utils"; then
+                  record_warning "$repo:$default_branch failed to commit default-branch sync"
+                  cd ..
+                  continue
+                fi
 
                 if [[ "$CONFIRMATION_INPUT" == "true" ]]; then
                   echo "    🚀 Pushing changes and creating PR for $default_branch"
-                  git push origin sync/qcom-build-utils-workflows 2>&1 | sed 's/^/    /'
-
-                  pr_url=$(gh pr create --repo "$ORG/$repo" \
-                    --title "chore: sync workflows from qcom-build-utils" \
-                    --body "This PR syncs the latest workflows from qcom-build-utils." \
-                    --head sync/qcom-build-utils-workflows \
-                    --base "$default_branch")
-
-                  PR_URLS+=("$pr_url")
-                  echo "    ✅ PR created: $pr_url"
+                  if run_cmd git push origin sync/qcom-build-utils-workflows; then
+                    create_or_reuse_pr \
+                      "$repo" \
+                      "chore: sync workflows from qcom-build-utils" \
+                      "This PR syncs the latest workflows from qcom-build-utils." \
+                      "sync/qcom-build-utils-workflows" \
+                      "$default_branch" || true
+                  else
+                    record_warning "$repo:$default_branch failed to push sync/qcom-build-utils-workflows"
+                  fi
                 else
                   echo "    👀 Dry-run mode - No PR will be created for $default_branch"
                 fi
 
                 # Return to default branch before packaging-branch sync
-                git checkout "$default_branch" 2>&1 | sed 's/^/    /'
+                if ! run_cmd git checkout "$default_branch"; then
+                  record_warning "$repo:$default_branch failed to return to default branch"
+                  cd ..
+                  continue
+                fi
               else
                 echo "    ✨ No default branch changes needed for $repo"
               fi
 
               # Cleanup-only pass for non-packaging branches:
               # delete stale workflows that still contain pull_request_target.
-              other_branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin/* \
+              # Ignore LFS/archive-style branches (for example pristine*,
+              # upstream/*) so sync can complete even when those branches are
+              # not check-outable in CI.
+              other_branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin \
                 | sed 's|^origin/||' \
                 | grep -Ev '^HEAD$' \
                 | grep -Ev '^origin$' \
@@ -244,6 +334,7 @@ jobs:
                 | grep -Ev '^sync/' \
                 | grep -v "^${default_branch}$" \
                 | grep -Ev '^(debian/|ubuntu/|qcom/debian/|qcom/ubuntu/)' \
+                | grep -Ev '^(pristine($|[-/])|upstream/)' \
                 | sort -u)
 
               for other_branch in $other_branches; do
@@ -251,7 +342,10 @@ jobs:
                 safe_branch_name="${other_branch//\//-}"
                 cleanup_sync_branch="sync/qcom-build-utils-pr-target-cleanup-${safe_branch_name}"
 
-                git checkout "$other_branch" 2>&1 | sed 's/^/    /'
+                if ! run_cmd git checkout "$other_branch"; then
+                  record_warning "$repo:$other_branch checkout failed during cleanup pass"
+                  continue
+                fi
                 isCleanupDirty=false
 
                 if [[ -d ".github/workflows" ]]; then
@@ -283,25 +377,31 @@ jobs:
                 if [[ "$isCleanupDirty" == "true" ]]; then
                   if git ls-remote --exit-code --heads origin "$cleanup_sync_branch" > /dev/null 2>&1; then
                     echo "    🧹 Deleting existing $cleanup_sync_branch"
-                    git push origin --delete "$cleanup_sync_branch" 2>&1 | sed 's/^/    /'
+                    run_cmd git push origin --delete "$cleanup_sync_branch" || record_warning "$repo:$other_branch failed deleting stale $cleanup_sync_branch"
                   fi
 
-                  git checkout -b "$cleanup_sync_branch" 2>&1 | sed 's/^/    /'
+                  if ! run_cmd git checkout -b "$cleanup_sync_branch"; then
+                    record_warning "$repo:$other_branch failed creating $cleanup_sync_branch"
+                    continue
+                  fi
                   git add -A .github/
-                  git commit -s -m "chore: remove pull_request_target workflows" 2>&1 | sed 's/^/    /'
+                  if ! run_cmd git commit -s -m "chore: remove pull_request_target workflows"; then
+                    record_warning "$repo:$other_branch failed committing cleanup changes"
+                    continue
+                  fi
 
                   if [[ "$CONFIRMATION_INPUT" == "true" ]]; then
                     echo "    🚀 Pushing changes and creating PR for $other_branch"
-                    git push origin "$cleanup_sync_branch" 2>&1 | sed 's/^/    /'
-
-                    pr_url=$(gh pr create --repo "$ORG/$repo" \
-                      --title "chore: remove pull_request_target workflows" \
-                      --body "This PR removes stale workflow files that still contain \`pull_request_target\`." \
-                      --head "$cleanup_sync_branch" \
-                      --base "$other_branch")
-
-                    PR_URLS+=("$pr_url")
-                    echo "    ✅ PR created for $other_branch: $pr_url"
+                    if run_cmd git push origin "$cleanup_sync_branch"; then
+                      create_or_reuse_pr \
+                        "$repo" \
+                        "chore: remove pull_request_target workflows" \
+                        "This PR removes stale workflow files that still contain \`pull_request_target\`." \
+                        "$cleanup_sync_branch" \
+                        "$other_branch" || true
+                    else
+                      record_warning "$repo:$other_branch failed pushing $cleanup_sync_branch"
+                    fi
                   else
                     echo "    👀 Dry-run mode - No PR will be created for $other_branch"
                   fi
@@ -309,7 +409,10 @@ jobs:
                   echo "    ✨ No pull_request_target workflow cleanup needed on $other_branch"
                 fi
 
-                git checkout "$default_branch" 2>&1 | sed 's/^/    /'
+                if ! run_cmd git checkout "$default_branch"; then
+                  record_warning "$repo:$default_branch failed returning from cleanup pass"
+                  break
+                fi
               done
 
               # Sync pkg-pr-hook.yml to every managed packaging branch family.
@@ -319,8 +422,9 @@ jobs:
               #   - qcom/debian/*
               #   - qcom/ubuntu/*
               # Exclude transient promotion branches (*/pr/*).
-              packaging_branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin/* \
+              packaging_branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin \
                 | sed 's|^origin/||' \
+                | grep -Ev '^HEAD$' \
                 | grep -Ev '^origin$' \
                 | grep -E '^(debian/|ubuntu/|qcom/debian/|qcom/ubuntu/)' \
                 | grep -Ev '(^|/)pr/|^promotion-pr/' \
@@ -334,10 +438,13 @@ jobs:
                 # Delete existing sync branch if from a previous run
                 if git ls-remote --exit-code --heads origin "$debian_sync_branch" > /dev/null 2>&1; then
                   echo "    🧹 Deleting existing $debian_sync_branch"
-                  git push origin --delete "$debian_sync_branch" 2>&1 | sed 's/^/    /'
+                  run_cmd git push origin --delete "$debian_sync_branch" || record_warning "$repo:$packaging_branch failed deleting stale $debian_sync_branch"
                 fi
 
-                git checkout "$packaging_branch" 2>&1 | sed 's/^/    /'
+                if ! run_cmd git checkout "$packaging_branch"; then
+                  record_warning "$repo:$packaging_branch checkout failed"
+                  continue
+                fi
 
                 isDebianDirty=false
 
@@ -395,22 +502,28 @@ jobs:
                 fi
 
                 if [[ "$isDebianDirty" == "true" ]]; then
-                  git checkout -b "$debian_sync_branch" 2>&1 | sed 's/^/    /'
+                  if ! run_cmd git checkout -b "$debian_sync_branch"; then
+                    record_warning "$repo:$packaging_branch failed creating $debian_sync_branch"
+                    continue
+                  fi
                   git add -A .github/
-                  git commit -s -m "chore: sync pkg-pr-hook from qcom-build-utils" 2>&1 | sed 's/^/    /'
+                  if ! run_cmd git commit -s -m "chore: sync pkg-pr-hook from qcom-build-utils"; then
+                    record_warning "$repo:$packaging_branch failed committing pkg-pr-hook sync"
+                    continue
+                  fi
 
                   if [[ "$CONFIRMATION_INPUT" == "true" ]]; then
                     echo "    🚀 Pushing changes and creating PR for $packaging_branch"
-                    git push origin "$debian_sync_branch" 2>&1 | sed 's/^/    /'
-
-                    pr_url=$(gh pr create --repo "$ORG/$repo" \
-                      --title "chore: sync pkg-pr-hook from qcom-build-utils" \
-                      --body "This PR syncs \`pkg-pr-hook.yml\` from qcom-build-utils \`.github/pkg-workflows/debian/\`." \
-                      --head "$debian_sync_branch" \
-                      --base "$packaging_branch")
-
-                    PR_URLS+=("$pr_url")
-                    echo "    ✅ PR created for $packaging_branch: $pr_url"
+                    if run_cmd git push origin "$debian_sync_branch"; then
+                      create_or_reuse_pr \
+                        "$repo" \
+                        "chore: sync pkg-pr-hook from qcom-build-utils" \
+                        "This PR syncs \`pkg-pr-hook.yml\` from qcom-build-utils \`.github/pkg-workflows/debian/\`." \
+                        "$debian_sync_branch" \
+                        "$packaging_branch" || true
+                    else
+                      record_warning "$repo:$packaging_branch failed pushing $debian_sync_branch"
+                    fi
                   else
                     echo "    👀 Dry-run mode - No PR will be created for $packaging_branch"
                   fi
@@ -426,4 +539,15 @@ jobs:
             for pr_url in "${PR_URLS[@]}"; do
               echo "  - $pr_url"
             done
+          else
+            echo "ℹ️ No PRs were created."
+          fi
+
+          if [[ "${#WARNINGS[@]}" -gt 0 ]]; then
+            echo "⚠️ Sync completed with warnings:"
+            for warning in "${WARNINGS[@]}"; do
+              echo "  - $warning"
+            done
+          else
+            echo "✅ Sync completed with no warnings."
           fi
