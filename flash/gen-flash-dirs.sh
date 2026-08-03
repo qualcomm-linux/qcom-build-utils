@@ -290,7 +290,10 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
         #    archive, boot bins are there; otherwise they are flat at archive root.
         #    Copy everything (including any pre-existing partition files from the
         #    archive) — ptool will overwrite them in step 2.
-        BOOT_BIN_SRC="${BOARD_BOOT_DIR}/partition_${storage}"
+        if [[ -d "${BOARD_BOOT_DIR}/partition_${storage}" ]]; then
+            BOOT_BIN_SRC="${BOARD_BOOT_DIR}/partition_${storage}"
+        else
+            BOOT_BIN_SRC="${BOARD_BOOT_DIR}/${storage}"
         if [[ ! -d "$BOOT_BIN_SRC" ]]; then
             BOOT_BIN_SRC="${BOARD_BOOT_DIR}"
         fi
