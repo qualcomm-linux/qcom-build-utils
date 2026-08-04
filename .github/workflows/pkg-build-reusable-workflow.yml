@@ -582,3 +582,53 @@ jobs:
             echo "- Skipped: Validate installability from Debusine CI workspace"
             echo "- Skipped: Validate installability from Docker build artifacts"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  Upload_to_S3:
+    name: Upload to S3
+    if: >-
+      ${{
+        always() &&
+        github.event_name == 'pull_request' &&
+        needs.resolve.outputs.family == 'ubuntu' &&
+        needs.docker-build.result == 'success' &&
+        needs.test.result == 'success'
+      }}
+    needs:
+      - resolve
+      - docker-build
+      - test
+    runs-on: lecore-prd-u2404-arm64-xlrg-od-ephem
+    defaults:
+      run:
+        shell: bash
+    steps:
+
+      - name: Download Docker build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: docker-build-area
+          path: .
+
+      - name: Extract Docker build artifacts
+        run: |
+          set -euxo pipefail
+          mkdir -p build-area
+          tar -C build-area -xzf docker-build-area.tgz
+
+      - name: Stage debs for S3 proposed upload
+        run: |
+          set -euxo pipefail
+          mkdir -p s3-proposed
+          mapfile -t debs < <(find build-area -maxdepth 1 -name "*.deb" -printf '%f\n' | sort)
+          if [ "${#debs[@]}" -eq 0 ]; then
+            echo "No .deb files found in build-area; skipping debs.tar.gz creation"
+          else
+            tar -czf s3-proposed/debs.tar.gz -C build-area "${debs[@]}"
+          fi
+
+      - name: Upload proposed debs to S3
+        uses: qualcomm-linux/upload-private-artifact-action@aws-v4
+        with:
+          s3_bucket: qli-prd-lecore-gh-artifacts
+          path: s3-proposed
+          destination: qualcomm-linux/pkg/proposed/${{ github.run_id }}-${{ github.run_attempt }}/
