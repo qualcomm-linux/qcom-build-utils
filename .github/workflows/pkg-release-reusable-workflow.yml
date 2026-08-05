@@ -668,6 +668,35 @@ jobs:
             }
           }
           EOF2
+          elif [[ -f "debian/watch" ]] && grep -q "qartifactory" "debian/watch"; then
+            echo "ℹ️ debian/watch (Artifactory) found — generating provenance for uscan-fetched prebuilt binary package"
+
+            # Same derivation build_package/action.yml uses to name/report the orig
+            # tarball: strip the debian revision suffix from the source package version.
+            UPSTREAM_VER="$(echo "$PKG_VERSION" | sed 's/-[^-]*$//')"
+
+            # Traceability only: capture the Artifactory URL pattern from debian/watch
+            # itself, since there's no upstream.conf/ARTIFACTORY var for this mechanism.
+            WATCH_URL="$(grep -E '^\s*https://' debian/watch | head -1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]\\]*$//')"
+
+            cat > ../build/provenance.json << EOF2
+          {
+            "$SOURCE" : {
+              "source_pkg_version": "${PKG_VERSION}",
+
+              "upstream_type": "prebuilt_binary_watch",
+              "upstream_repo": "$WATCH_URL",
+              "upstream_repo_tag": "$UPSTREAM_VER",
+
+              "pkg_repo": "${PKG_REPO}",
+              "pkg_repo_tag": "$PACKAGE_REPO_TAG",
+              "pkg_repo_commit": "$PACKAGE_REPO_COMMIT",
+              "pkg_repo_branch": "${PKG_REPO_BRANCH}",
+
+              "binary_pkgs": $ALL_PKGS_JSON
+            }
+          }
+          EOF2
           else
             echo "ℹ️ No upstream.conf — generating provenance for source package"
 
