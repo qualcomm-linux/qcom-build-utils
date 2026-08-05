@@ -294,6 +294,7 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
             BOOT_BIN_SRC="${BOARD_BOOT_DIR}/partition_${storage}"
         else
             BOOT_BIN_SRC="${BOARD_BOOT_DIR}/${storage}"
+        fi
         if [[ ! -d "$BOOT_BIN_SRC" ]]; then
             BOOT_BIN_SRC="${BOARD_BOOT_DIR}"
         fi
