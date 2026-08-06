@@ -653,6 +653,12 @@ fi
 echo '[CHROOT] Installing manifest packages (if any)...'
 /install_manifest_pkgs.sh || true
 
+echo '[CHROOT] Installing udev rule to autostart remoteproc DSPs on attach...'
+cat <<'REMOTEPROC_RULES' > /etc/udev/rules.d/99-remoteproc-autostart.rules
+# Match on the stable sysfs 'name'; the remoteprocN index varies by probe order.
+ACTION==\"add\", SUBSYSTEM==\"remoteproc\", ATTR{name}==\"adsp|cdsp|cdsp1|gpdsp0|gpdsp1\", ATTR{state}==\"offline\", ATTR{state}=\"start\"
+REMOTEPROC_RULES
+
 # ==============================================================================
 # Run update-grub after ALL installs (firmware, kernel via dpkg or apt, manifest,
 # local-debs). This ensures GRUB sees whichever kernel was installed last,
