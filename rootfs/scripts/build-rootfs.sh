@@ -233,6 +233,11 @@ _seed_to_debootstrap_include() {
 
     # These are REQUIRED for your existing later stages to run unchanged
     # (Step 8 uses lsb_release; apt/dpkg/user tools/systemctl expected present).
+    #
+    # e2fsprogs provides resize2fs and dumpe2fs, needed at runtime by
+    # rootfs-resize.service. It is Priority: required on Ubuntu but only
+    # Priority: important on Debian, so it is not part of the minbase variant
+    # there and would otherwise depend on the product seed happening to list it.
     local required_pkgs=(
         lsb-release
         ca-certificates
@@ -243,6 +248,7 @@ _seed_to_debootstrap_include() {
         apt
         grub-common
         grub2-common
+        e2fsprogs
     )
 
     for p in "${required_pkgs[@]}"; do
@@ -745,6 +751,60 @@ fi
 
 rm -rf "$ROOTFS_DIR/var/lib/apt/lists/"*
 rm -f  "$ROOTFS_DIR/var/cache/apt/archives/"*.deb
+
+# ==============================================================================
+# Step 9.6: Stage runtime files into the rootfs
+#   Everything under rootfs/runtime/ is copied verbatim into the image, paths
+#   mirroring their absolute location on target. Systemd units are enabled by
+#   their .wants symlink in that tree, so no systemctl runs in the chroot and
+#   adding a runtime file never requires editing this script. See
+#   rootfs/runtime/README.md.
+#
+#   Staged here, after the chroot, so the files land on top of everything apt
+#   installed and cannot be clobbered by package installation.
+#
+#   tar, not cp -a: cp -a applies the source tree's owner, group and mode to
+#   destination directories that ALREADY exist, which would stamp the build
+#   checkout's uid onto /etc and /usr in the shipped image. --no-same-owner
+#   extracts everything as root, --no-overwrite-dir leaves existing directory
+#   metadata untouched.
+# ==============================================================================
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME_DIR="${SCRIPT_DIR}/../runtime"
+
+if [[ ! -d "$RUNTIME_DIR" ]]; then
+    echo "[ERROR] Runtime tree not found: $RUNTIME_DIR" >&2
+    exit 1
+fi
+
+echo "[INFO] Staging runtime files from ${RUNTIME_DIR}..."
+
+# Overwriting a package-provided file is intended for an overlay, but must not
+# be silent: dpkg would still believe its own version is on disk.
+( cd "$RUNTIME_DIR" && find . -mindepth 1 -type f ! -name README.md -printf '%P\n' ) \
+    | while read -r _f; do
+          if [[ -e "$ROOTFS_DIR/$_f" ]]; then
+              echo "[WARN] runtime overwrites existing /$_f"
+          fi
+      done
+
+tar -C "$RUNTIME_DIR" --exclude=./README.md -cf - . \
+    | tar -C "$ROOTFS_DIR" -xf - --no-same-owner --no-overwrite-dir
+
+# Post-conditions. Both of these would otherwise surface only on hardware.
+if find "$ROOTFS_DIR/etc/systemd/system" -path '*.wants/*' ! -type l -print -quit \
+     2>/dev/null | grep -q .; then
+    echo "[ERROR] A .wants entry is not a symlink; the unit would not be enabled." >&2
+    echo "        This happens on a checkout without symlink support." >&2
+    exit 1
+fi
+
+if [[ ! -x "$ROOTFS_DIR/usr/sbin/resize2fs" && ! -x "$ROOTFS_DIR/sbin/resize2fs" ]]; then
+    echo "[ERROR] resize2fs missing from image; rootfs-resize.service would fail." >&2
+    exit 1
+fi
+
+echo "[INFO] Runtime files staged."
 
 # ==============================================================================
 # Step 10: Create ext4 rootfs image and write contents

@@ -1,0 +1,16 @@
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+# SPDX-License-Identifier: BSD-3-Clause
+
+[Unit]
+Description=Grow the root filesystem to fill its partition
+Documentation=file:///usr/sbin/rootfs-resize.sh
+After=local-fs.target
+ConditionPathIsReadWrite=/
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/rootfs-resize.sh
+
+[Install]
+WantedBy=multi-user.target
