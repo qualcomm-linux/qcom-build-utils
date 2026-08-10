@@ -431,6 +431,37 @@ if [[ -n "$FIRMWARE_DEB" ]]; then
     cp "$FIRMWARE_DEB" "$ROOTFS_DIR/"
 fi
 
+# ------------------------------------------------------------------
+# Inject initramfs-tools hook to omit qcom_q6v5_pas from the initramfs.
+# Must be in place BEFORE the kernel .deb is installed in chroot, since
+# that dpkg step triggers update-initramfs. Also persists into the final
+# image so future kernel updates keep omitting the driver.
+# ------------------------------------------------------------------
+echo "[INFO] Installing initramfs-tools hook to omit qcom_q6v5_pas..."
+mkdir -p "$ROOTFS_DIR/etc/initramfs-tools/hooks"
+cat <<'HOOK_EOF' > "$ROOTFS_DIR/etc/initramfs-tools/hooks/omit"
+#!/bin/sh
+PREREQ=""
+prereqs()
+{
+    echo "$PREREQ"
+}
+
+case "$1" in
+    prereqs)
+        prereqs
+        exit 0
+        ;;
+esac
+
+OMIT_DRIVERS="qcom_q6v5_pas.ko*"
+
+for i in ${OMIT_DRIVERS}; do
+    find "${DESTDIR}" -name "${i}" -delete
+done
+HOOK_EOF
+chmod +x "$ROOTFS_DIR/etc/initramfs-tools/hooks/omit"
+
 echo "[INFO] Replacing /etc/resolv.conf with host copy for apt inside chroot..."
 rm -f "$ROOTFS_DIR/etc/resolv.conf"
 cp -L /etc/resolv.conf "$ROOTFS_DIR/etc/resolv.conf"
