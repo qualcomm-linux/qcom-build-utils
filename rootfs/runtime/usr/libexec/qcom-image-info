@@ -1,0 +1,55 @@
+#!/bin/sh
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+# SPDX-License-Identifier: BSD-3-Clause
+
+set -eu
+
+INFO_DIR=/usr/lib/qcom-image-info
+COMMAND=${0##*/}
+
+usage() {
+    echo "Usage: image_info --list | image_info <name>" >&2
+}
+
+show_info() {
+    name=$1
+    case "$name" in
+        ''|*[!a-z0-9_]*|[!a-z]*)
+            echo "image_info: invalid metadata name: $name" >&2
+            exit 2
+            ;;
+    esac
+
+    info_file="$INFO_DIR/$name"
+    if [ ! -f "$info_file" ]; then
+        echo "image_info: metadata not available: $name" >&2
+        exit 1
+    fi
+
+    cat -- "$info_file"
+}
+
+case "$COMMAND" in
+    build_info)
+        [ "$#" -eq 0 ] || { usage; exit 2; }
+        show_info build
+        ;;
+    kernel_info)
+        [ "$#" -eq 0 ] || { usage; exit 2; }
+        show_info kernel
+        ;;
+    image_info|qcom-image-info)
+        if [ "$#" -eq 1 ] && [ "$1" = --list ]; then
+            if [ -d "$INFO_DIR" ]; then
+                find "$INFO_DIR" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort
+            fi
+            exit 0
+        fi
+        [ "$#" -eq 1 ] || { usage; exit 2; }
+        show_info "$1"
+        ;;
+    *)
+        echo "image_info: unsupported command name: $COMMAND" >&2
+        exit 2
+        ;;
+esac

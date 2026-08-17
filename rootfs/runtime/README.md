@@ -43,6 +43,17 @@ line for each such collision so it is visible in the log rather than silent.
 Everything is extracted as `root:root`. Existing directories in the rootfs keep
 their own ownership and permissions.
 
+## Image metadata
+
+Callers can provide build-generated metadata without modifying this tracked
+tree by passing repeatable `--image-info <name=file>` arguments to
+`build-rootfs.sh`. Each file is installed as root-owned mode `0644` under
+`/usr/lib/qcom-image-info/`.
+
+The static `image_info` dispatcher reads metadata as opaque text. It never
+executes or sources file contents. `build_info` and `kernel_info` are aliases
+for the corresponding metadata names.
+
 ## Checking your work
 
 ```sh

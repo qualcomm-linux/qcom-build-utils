@@ -36,7 +36,9 @@
 #     [--overlay package-manifest.json] \
 #     [--variant desktop] \
 #     [--local-debs pkg-a.deb] \
-#     [--local-debs debs/]
+#     [--local-debs debs/] \
+#     [--image-info build=build_info] \
+#     [--image-info kernel=kernel_info]
 #
 # ARGUMENTS:
 #   --product-conf <qcom-product.conf>     Required. Product configuration file.
@@ -53,6 +55,9 @@
 #                                          Examples:
 #                                            --local-debs mypkg.deb
 #                                            --local-debs debs/
+#   --image-info <name=file>               Optional. Install an opaque image metadata file under
+#                                          /usr/lib/qcom-image-info/<name> (repeatable). Names must
+#                                          contain only lowercase letters, digits, and underscores.
 #
 # OUTPUT:
 #   rootfs.img                             Flashable ext4 rootfs image.
@@ -84,13 +89,16 @@ KERNEL_DEB=""
 FIRMWARE_DEB=""
 VARIANT_INPUT=""     # New variable to hold the variant argument
 LOCAL_DEBS=()        # Array of local .deb file paths (--local-debs, repeatable)
+IMAGE_INFO_NAMES=()  # Metadata names supplied through --image-info (repeatable)
+IMAGE_INFO_FILES=()  # Metadata source paths matching IMAGE_INFO_NAMES
+declare -A IMAGE_INFO_SEEN=()
 USE_CONF=0
 USE_MANIFEST=0
 TARGET=""
 
 print_usage() {
     echo "Usage:"
-    echo "  $0 --product-conf <qcom-product.conf> --seed <seed_file> [--kernel-package <kernel.deb>] [--firmware <firmware.deb>] [--overlay <package-manifest.json>] [--variant <variant>] [--local-debs <pkg.deb>] ..."
+    echo "  $0 --product-conf <qcom-product.conf> --seed <seed_file> [--kernel-package <kernel.deb>] [--firmware <firmware.deb>] [--overlay <package-manifest.json>] [--variant <variant>] [--local-debs <pkg.deb>] [--image-info <name=file>] ..."
     echo
     echo "Arguments:"
     echo "  --product-conf   Required. qcom-product.conf"
@@ -103,6 +111,11 @@ print_usage() {
     echo "                   local APT repo (repeatable). Specify once per path. Dependencies"
     echo "                   between packages are resolved automatically. Installed after manifest."
     echo "                   Examples: --local-debs mypkg.deb   --local-debs debs/"
+    echo "  --image-info     Optional. Install an opaque metadata file as"
+    echo "                   /usr/lib/qcom-image-info/<name> (repeatable)."
+    echo "                   Names accept lowercase letters, digits, and underscores only."
+    echo "                   Examples: --image-info build=build_info"
+    echo "                             --image-info kernel=kernel_info"
 }
 
 # Parse named options
@@ -123,6 +136,27 @@ while [[ $# -gt 0 ]]; do
             VARIANT_INPUT="${2-}"; shift 2 ;;
         --local-debs)
             if [[ -n "${2-}" ]]; then LOCAL_DEBS+=("${2-}"); fi; shift 2 ;;
+        --image-info)
+            IMAGE_INFO_SPEC="${2-}"
+            if [[ "$IMAGE_INFO_SPEC" != *=* ]]; then
+                echo "[ERROR] --image-info requires <name=file>: ${IMAGE_INFO_SPEC:-<empty>}"
+                exit 1
+            fi
+            IMAGE_INFO_NAME="${IMAGE_INFO_SPEC%%=*}"
+            IMAGE_INFO_FILE="${IMAGE_INFO_SPEC#*=}"
+            if [[ ! "$IMAGE_INFO_NAME" =~ ^[a-z][a-z0-9_]*$ ]]; then
+                echo "[ERROR] Invalid --image-info name '${IMAGE_INFO_NAME}'. Use lowercase letters, digits, and underscores; the first character must be a letter."
+                exit 1
+            fi
+            if [[ -n "${IMAGE_INFO_SEEN[$IMAGE_INFO_NAME]+x}" ]]; then
+                echo "[ERROR] Duplicate --image-info name: ${IMAGE_INFO_NAME}"
+                exit 1
+            fi
+            IMAGE_INFO_SEEN["$IMAGE_INFO_NAME"]=1
+            IMAGE_INFO_NAMES+=("$IMAGE_INFO_NAME")
+            IMAGE_INFO_FILES+=("$IMAGE_INFO_FILE")
+            shift 2
+            ;;
         -h|--help)
             print_usage
             exit 0
@@ -166,6 +200,18 @@ for _deb in "${LOCAL_DEBS[@]}"; do
         : # valid .deb file path
     else
         echo "[ERROR] --local-debs path not found (not a file or directory): $_deb"
+        exit 1
+    fi
+done
+for _index in "${!IMAGE_INFO_NAMES[@]}"; do
+    _name="${IMAGE_INFO_NAMES[$_index]}"
+    _file="${IMAGE_INFO_FILES[$_index]}"
+    if [[ -z "$_file" || ! -f "$_file" || -L "$_file" ]]; then
+        echo "[ERROR] --image-info '${_name}' must reference a regular file: ${_file:-<empty>}"
+        exit 1
+    fi
+    if [[ ! -s "$_file" ]]; then
+        echo "[ERROR] --image-info '${_name}' file is empty: $_file"
         exit 1
     fi
 done
@@ -796,6 +842,21 @@ if [[ ! -x "$ROOTFS_DIR/usr/sbin/resize2fs" && ! -x "$ROOTFS_DIR/sbin/resize2fs"
 fi
 
 echo "[INFO] Runtime files staged."
+
+if (( ${#IMAGE_INFO_NAMES[@]} > 0 )); then
+    IMAGE_INFO_DIR="$ROOTFS_DIR/usr/lib/qcom-image-info"
+    install -d -o root -g root -m 0755 "$IMAGE_INFO_DIR"
+    for _index in "${!IMAGE_INFO_NAMES[@]}"; do
+        _name="${IMAGE_INFO_NAMES[$_index]}"
+        _file="${IMAGE_INFO_FILES[$_index]}"
+        if [[ -e "$IMAGE_INFO_DIR/$_name" || -L "$IMAGE_INFO_DIR/$_name" ]]; then
+            echo "[ERROR] Image metadata destination already exists: /usr/lib/qcom-image-info/${_name}" >&2
+            exit 1
+        fi
+        install -o root -g root -m 0644 "$_file" "$IMAGE_INFO_DIR/$_name"
+        echo "[INFO] Installed image metadata '${_name}' from ${_file}"
+    done
+fi
 
 # ==============================================================================
 # Step 10: Create ext4 rootfs image and write contents
