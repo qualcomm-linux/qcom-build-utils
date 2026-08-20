@@ -630,7 +630,7 @@ jobs:
           SRCPKG_NAME: ${{ needs.build-and-test.outputs.srcpkg_name }}
           PKG_REPO_BRANCH: ${{ needs.prepare-release-source.outputs.branch_ref }}
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           "${GITHUB_WORKSPACE}/qcom-build-utils/scripts/generate_provenance.sh" \
             "${GITHUB_WORKSPACE}/package-repo" "${GITHUB_WORKSPACE}/build/provenance.json"
 
