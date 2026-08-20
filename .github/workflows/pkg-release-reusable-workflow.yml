@@ -590,6 +590,13 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Checkout qcom-build-utils scripts
+        uses: actions/checkout@v5
+        with:
+          repository: qualcomm-linux/qcom-build-utils
+          ref: ${{ inputs.qcom-build-utils-ref }}
+          path: qcom-build-utils
+
       - name: Checkout Packaging Repo
         if: ${{ needs.build-and-test.outputs.family != 'ubuntu' }}
         uses: actions/checkout@v5
@@ -624,116 +631,8 @@ jobs:
           PKG_REPO_BRANCH: ${{ needs.prepare-release-source.outputs.branch_ref }}
         run: |
           set -euxo pipefail
-
-          mkdir build
-          cd package-repo
-
-          SOURCE="${SRCPKG_NAME}"
-          ALL_PKGS=$(awk '/^Package:/{print $2}' debian/control | sort -u)
-          ALL_PKGS_JSON=$(printf '%s\n' "$ALL_PKGS" | jq -c -R -s 'split("\n") | map(select(length>0))')
-
-          if PACKAGE_REPO_TAG=$(git describe --tags --match "${DISTRO_CODENAME}/*" --abbrev=0 2>/dev/null); then
-            echo "Using package repo tag from git history: ${PACKAGE_REPO_TAG}"
-          else
-            transformed_pkg_version="$(echo "$PKG_VERSION" | perl -pe 'y/:~/%_/; s/\.(?=\.|$|lock$)/.#/g')"
-            sanitized_pkg_version="$(echo "$transformed_pkg_version" | sed 's/[^A-Za-z0-9.+/%_#()-]//g')"
-            PACKAGE_REPO_TAG="${DISTRO_CODENAME}/${sanitized_pkg_version}"
-            echo "No matching local tag found; using derived sanitized tag: ${PACKAGE_REPO_TAG}"
-          fi
-
-          PACKAGE_REPO_COMMIT="$(git rev-parse HEAD)"
-
-          if [[ -f "upstream.conf" ]]; then
-            echo "ℹ️ upstream.conf found — generating provenance for prebuilt binary package"
-            # shellcheck source=/dev/null
-            source upstream.conf
-
-            cat > ../build/provenance.json << EOF2
-          {
-            "$SOURCE" : {
-              "source_pkg_version": "${PKG_VERSION}",
-
-              "upstream_type": "prebuilt_binary",
-              "upstream_repo": "$ARTIFACTORY",
-              "upstream_repo_tag": "$TAG",
-              "src_distro": "$DISTRO",
-              "src_package_name": "$PACKAGE_NAME",
-
-              "pkg_repo": "${PKG_REPO}",
-              "pkg_repo_tag": "$PACKAGE_REPO_TAG",
-              "pkg_repo_commit": "$PACKAGE_REPO_COMMIT",
-              "pkg_repo_branch": "${PKG_REPO_BRANCH}",
-
-              "binary_pkgs": $ALL_PKGS_JSON
-            }
-          }
-          EOF2
-          elif [[ -f "debian/watch" ]] && grep -q "qartifactory" "debian/watch"; then
-            echo "ℹ️ debian/watch (Artifactory) found — generating provenance for uscan-fetched prebuilt binary package"
-
-            # Same derivation build_package/action.yml uses to name/report the orig
-            # tarball: strip the debian revision suffix from the source package version.
-            UPSTREAM_VER="$(echo "$PKG_VERSION" | sed 's/-[^-]*$//')"
-
-            # Traceability only: capture the Artifactory URL pattern from debian/watch
-            # itself, since there's no upstream.conf/ARTIFACTORY var for this mechanism.
-            WATCH_URL="$(grep -E '^\s*https://' debian/watch | head -1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]\\]*$//')"
-
-            cat > ../build/provenance.json << EOF2
-          {
-            "$SOURCE" : {
-              "source_pkg_version": "${PKG_VERSION}",
-
-              "upstream_type": "prebuilt_binary_watch",
-              "upstream_repo": "$WATCH_URL",
-              "upstream_repo_tag": "$UPSTREAM_VER",
-
-              "pkg_repo": "${PKG_REPO}",
-              "pkg_repo_tag": "$PACKAGE_REPO_TAG",
-              "pkg_repo_commit": "$PACKAGE_REPO_COMMIT",
-              "pkg_repo_branch": "${PKG_REPO_BRANCH}",
-
-              "binary_pkgs": $ALL_PKGS_JSON
-            }
-          }
-          EOF2
-          else
-            echo "ℹ️ No upstream.conf — generating provenance for source package"
-
-            NEAREST_UPSTREAM_BRANCH_TAG=$(git describe --tags --match 'upstream/*' --abbrev=0)
-            NEAREST_UPSTREAM_COMMIT=$(git rev-list -n 1 "$NEAREST_UPSTREAM_BRANCH_TAG")
-            NEAREST_UPSTREAM_TAG="${NEAREST_UPSTREAM_BRANCH_TAG#upstream/}"
-
-            if [[ "$NEAREST_UPSTREAM_TAG" == "$NEAREST_UPSTREAM_BRANCH_TAG" ]]; then
-              echo "::warning::Unexpected upstream tag format '${NEAREST_UPSTREAM_BRANCH_TAG}'; using it as-is"
-            else
-              echo "::notice::Using upstream tag '${NEAREST_UPSTREAM_TAG}' derived from '${NEAREST_UPSTREAM_BRANCH_TAG}'"
-            fi
-
-            cat > ../build/provenance.json << EOF2
-          {
-            "$SOURCE" : {
-              "source_pkg_version": "${PKG_VERSION}",
-
-              "upstream_type": "source",
-              "upstream_repo": "${UPSTREAM_REPO}",
-              "upstream_repo_tag": "$NEAREST_UPSTREAM_TAG",
-              "upstream_repo_commit": "$NEAREST_UPSTREAM_COMMIT",
-
-              "pkg_repo": "${PKG_REPO}",
-              "pkg_repo_tag": "$PACKAGE_REPO_TAG",
-              "pkg_repo_commit": "$PACKAGE_REPO_COMMIT",
-              "pkg_repo_branch": "${PKG_REPO_BRANCH}",
-              "pkg_repo_upstream_tag": "$NEAREST_UPSTREAM_BRANCH_TAG",
-
-              "binary_pkgs": $ALL_PKGS_JSON
-            }
-          }
-          EOF2
-          fi
-
-          echo "Content of the provenance file:"
-          cat ../build/provenance.json | sed 's/^/\x1b[34m/' | sed 's/$/\x1b[0m/'
+          "${GITHUB_WORKSPACE}/qcom-build-utils/scripts/generate_provenance.sh" \
+            "${GITHUB_WORKSPACE}/package-repo" "${GITHUB_WORKSPACE}/build/provenance.json"
 
       - name: Upload provenance artifact
         uses: actions/upload-artifact@v6
