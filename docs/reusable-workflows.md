@@ -230,12 +230,12 @@ flowchart TD
     J -->|Yes| L[Fast-forward merge to tag]
     K --> M[Checkout debian/qcom-next]
     L --> M
-    M --> N[Create debian/pr/version-1 branch]
+    M --> N[Create promotion-pr/version-1 branch]
     N --> O[Merge upstream tag into debian branch]
     O --> P[Promote Changelog with gbp dch]
     P --> Q[Push upstream/latest branch]
     Q --> R[Push upstream/version tag]
-    R --> S[Push debian/pr/version-1 branch]
+    R --> S[Push promotion-pr/version-1 branch]
     S --> T[Create Pull Request]
     T --> U[End]
 ```
@@ -288,7 +288,7 @@ jobs:
 
 ### Notes
 
-- Creates a PR branch: `debian/pr/{version}-1`
+- Creates a PR branch: `promotion-pr/{version}-1`
 - Creates an upstream tag from `debian/gbp.conf` `upstream-tag` when present, defaulting to `upstream/{version}`
 - Automatically updates the changelog
 - PR must be reviewed and merged manually

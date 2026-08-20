@@ -100,8 +100,11 @@ jobs:
             esac
           done <<< "$resolved_kv"
 
-          if [[ "$family" == "debian" ]] && [[ "$suite" == "latest" || "$suite" == "unstable" ]]; then
-            suite=sid
+          if [[ "$family" == "debian" ]]; then
+            case "$suite" in
+              latest) suite=forky ;;
+              unstable) suite=sid ;;
+            esac
           fi
 
           echo "::notice title=Resolved release target::debian-branch='${DEBIAN_REF_INPUT}', family='${family}', suite='${suite}'"
@@ -364,9 +367,19 @@ jobs:
       - name: Require Debusine release token
         env:
           DEBUSINE_RELEASE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}
+          DEBUSINE_TARGET_WORKSPACE: ${{ needs.build-and-test.outputs.debusine_target_workspace }}
+          PACKAGE_VERSION_IDENTIFIER: ${{ needs.build-and-test.outputs.package_version_identifier }}
         run: |
           if [ -z "$DEBUSINE_RELEASE_TOKEN" ]; then
             echo "DEBUSINE_RELEASE_TOKEN is required when publishing Debian releases" >&2
+            exit 1
+          fi
+          if [ -z "$DEBUSINE_TARGET_WORKSPACE" ]; then
+            echo "debusine_target_workspace output is required for Debian releases" >&2
+            exit 1
+          fi
+          if [ -z "$PACKAGE_VERSION_IDENTIFIER" ]; then
+            echo "package_version_identifier output is required for Debian releases" >&2
             exit 1
           fi
 
@@ -376,7 +389,7 @@ jobs:
           DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}
           DEBUSINE_CI_WORKSPACE: ${{ needs.build-and-test.outputs.workspace }}
-          DEBUSINE_TARGET_WORKSPACE: prod
+          DEBUSINE_TARGET_WORKSPACE: ${{ needs.build-and-test.outputs.debusine_target_workspace }}
           SRCPKG_NAME: ${{ needs.build-and-test.outputs.srcpkg_name }}
           SRCPKG_VERSION: ${{ needs.build-and-test.outputs.srcpkg_version }}
           SUITE: ${{ needs.build-and-test.outputs.suite }}
@@ -386,6 +399,8 @@ jobs:
           debusine-action/lib/release
 
       - name: Push release git state
+        env:
+          PACKAGE_VERSION_IDENTIFIER: ${{ needs.build-and-test.outputs.package_version_identifier }}
         run: |
           set -euxo pipefail
 

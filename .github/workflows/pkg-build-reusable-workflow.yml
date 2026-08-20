@@ -18,6 +18,11 @@ on:
         type: string
         required: true
 
+      source-ref:
+        description: Optional ref to check out for build content; defaults to debian-ref
+        type: string
+        default: ""
+
       run-lintian:
         description: Run lintian or not during the Docker pkg-builder build path
         type: boolean
@@ -73,8 +78,14 @@ on:
         description: The resolved distro family (`debian` or `ubuntu`)
         value: ${{ jobs.resolve.outputs.family }}
       suite:
-        description: The resolved suite/codename actually used by the workflow
+        description: The resolved suite/codename for Debusine path and exported metadata
         value: ${{ jobs.resolve.outputs.suite }}
+      debusine_target_workspace:
+        description: Debusine target workspace derived from branch prefix
+        value: ${{ jobs.resolve.outputs.debusine_target_workspace }}
+      package_version_identifier:
+        description: Package version identifier for Debusine release bump logic
+        value: ${{ jobs.resolve.outputs.package_version_identifier }}
       workspace:
         description: Debusine workspace ID for Debusine builds; empty for Docker builds
         value: ${{ jobs.test.outputs.workspace }}
@@ -103,8 +114,13 @@ jobs:
     name: Resolve branch target
     runs-on: ubuntu-latest
     outputs:
+      debusine_target_workspace: ${{ steps.resolve.outputs.debusine_target_workspace }}
+      checkout_ref: ${{ steps.resolve.outputs.checkout_ref }}
+      docker_suite: ${{ steps.resolve.outputs.docker_suite }}
+      extra_build_dep_workspaces: ${{ steps.resolve.outputs.extra_build_dep_workspaces }}
       family: ${{ steps.resolve.outputs.family }}
       force_docker_build: ${{ steps.resolve.outputs.force_docker_build }}
+      package_version_identifier: ${{ steps.resolve.outputs.package_version_identifier }}
       suite: ${{ steps.resolve.outputs.suite }}
     steps:
       - name: Checkout qcom-build-utils scripts
@@ -122,6 +138,7 @@ jobs:
           BASE_REF_INPUT: ${{ github.base_ref }}
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
           FORCE_DOCKER_BUILD: ${{ inputs.force-docker-build }}
+          SOURCE_REF_INPUT: ${{ inputs.source-ref }}
         run: |
           set -euo pipefail
 
@@ -143,7 +160,34 @@ jobs:
             done <<< "$resolved_kv"
           }
 
+          resolve_debusine_contract() {
+            local branch_ref="$1"
+
+            case "$branch_ref" in
+              qli-staging/*)
+                debusine_target_workspace="qli-staging"
+                package_version_identifier="qli+staging"
+                extra_build_dep_workspaces="qli qli-staging"
+                ;;
+              qli/*|qcom/*)
+                debusine_target_workspace="qli"
+                package_version_identifier="qli"
+                extra_build_dep_workspaces="qli"
+                ;;
+              *)
+                echo "::warning::Unrecognized Debian branch prefix in '${branch_ref}'; defaulting Debusine contract to workspace='qli', identifier='qli'."
+                debusine_target_workspace="qli"
+                package_version_identifier="qli"
+                extra_build_dep_workspaces="qli"
+                ;;
+            esac
+          }
+
           source_ref=""
+          checkout_ref="$DEBIAN_REF_INPUT"
+          if [[ -n "$SOURCE_REF_INPUT" ]]; then
+            checkout_ref="$SOURCE_REF_INPUT"
+          fi
           if resolved_kv="$("$RESOLVER_SCRIPT" "$DEBIAN_REF_INPUT")"; then
             parse_resolved_values "$resolved_kv"
             source_ref="$normalized_ref"
@@ -163,25 +207,48 @@ jobs:
             fi
           fi
 
-          # Preserve Debian aliases used in branch names.
-          if [[ "$family" == "debian" ]] && [[ "$suite" == "latest" || "$suite" == "unstable" ]]; then
-            suite=sid
+          docker_suite="$suite"
+          debusine_target_workspace=""
+          package_version_identifier=""
+          extra_build_dep_workspaces=""
+
+          if [[ "$family" == "debian" ]]; then
+            # Align Debian mapping with debusine-action.
+            case "$suite" in
+              latest)
+                suite=forky
+                docker_suite=sid
+                ;;
+              unstable)
+                suite=sid
+                docker_suite=sid
+                ;;
+              *)
+                docker_suite="$suite"
+                ;;
+            esac
+            resolve_debusine_contract "$source_ref"
           fi
 
           force_docker_build=false
           if [[ "$family" == "debian" ]] && [[ -z "$DEBUSINE_TOKEN" || "$FORCE_DOCKER_BUILD" == "true" ]]; then
             force_docker_build=true
             if [[ -z "$DEBUSINE_TOKEN" ]]; then
-              echo "::warning::DEBUSINE_TOKEN is not set or not accessible (fork PR secrets are unavailable to workflows triggered by external contributors) — falling back to local pkg-builder for suite '$suite'"
+              echo "::warning::DEBUSINE_TOKEN is not set or not accessible (fork PR secrets are unavailable to workflows triggered by external contributors) — falling back to local pkg-builder for suite '$docker_suite'"
             else
-              echo "::notice::force-docker-build is set — using local pkg-builder for suite '$suite'"
+              echo "::notice::force-docker-build is set — using local pkg-builder for suite '$docker_suite'"
             fi
           fi
 
-          echo "::notice title=Resolved build target::debian-ref='${DEBIAN_REF_INPUT}', source-ref='${source_ref}', family='${family}', suite='${suite}', force-docker-build='${force_docker_build}'"
+          echo "::notice title=Resolved build target::debian-ref='${DEBIAN_REF_INPUT}', checkout-ref='${checkout_ref}', source-ref='${source_ref}', family='${family}', suite='${suite}', docker-suite='${docker_suite}', debusine-target-workspace='${debusine_target_workspace}', package-version-identifier='${package_version_identifier}', force-docker-build='${force_docker_build}'"
 
+          echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
+          echo "debusine_target_workspace=$debusine_target_workspace" >> "$GITHUB_OUTPUT"
+          echo "docker_suite=$docker_suite" >> "$GITHUB_OUTPUT"
+          echo "extra_build_dep_workspaces=$extra_build_dep_workspaces" >> "$GITHUB_OUTPUT"
           echo "family=$family" >> "$GITHUB_OUTPUT"
           echo "force_docker_build=$force_docker_build" >> "$GITHUB_OUTPUT"
+          echo "package_version_identifier=$package_version_identifier" >> "$GITHUB_OUTPUT"
           echo "suite=$suite" >> "$GITHUB_OUTPUT"
 
   docker-build:
@@ -196,7 +263,7 @@ jobs:
       run:
         shell: bash
     container:
-      image: ghcr.io/qualcomm-linux/pkg-builder:${{ needs.resolve.outputs.suite }}
+      image: ghcr.io/qualcomm-linux/pkg-builder:${{ needs.resolve.outputs.docker_suite }}
       options: --privileged
       credentials:
         username: ${{ github.actor }}
@@ -216,7 +283,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.debian-ref }}
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
           path: package-repo
           fetch-depth: 0
           fetch-tags: true
@@ -231,7 +298,7 @@ jobs:
       - name: Build Debian Packages
         uses: ./qcom-build-utils/.github/actions/build_package
         with:
-          suite: ${{ needs.resolve.outputs.suite }}
+          suite: ${{ needs.resolve.outputs.docker_suite }}
           pkg-dir: package-repo
           build-dir: build-area
           run-lintian: ${{ inputs.run-lintian }}
@@ -241,7 +308,7 @@ jobs:
         if: ${{ inputs.run-abi-checker }}
         uses: ./qcom-build-utils/.github/actions/abi_checker
         with:
-          apt-repository: "deb [arch=arm64 trusted=yes] https://qartifactory-edge.qualcomm.com/artifactory/qsc-deb-releases ${{ needs.resolve.outputs.suite }} main"
+          apt-repository: "deb [arch=arm64 trusted=yes] https://qartifactory-edge.qualcomm.com/artifactory/qsc-deb-releases ${{ needs.resolve.outputs.docker_suite }} main"
 
       - name: Upload Docker build artifacts
         run: |
@@ -289,7 +356,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.debian-ref }}
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
           path: srcpkg
           fetch-depth: 0
           fetch-tags: true
@@ -298,6 +365,7 @@ jobs:
         if: ${{ inputs.release }}
         env:
           SUITE_INPUT: ${{ needs.resolve.outputs.suite }}
+          DEBUSINE_TARGET_WORKSPACE: ${{ needs.resolve.outputs.debusine_target_workspace }}
         run: |
           set -ex
           echo "::group::Prepare release"
@@ -321,8 +389,10 @@ jobs:
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
           DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
           DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
+          DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
           DEBUSINE_PARENT_WORKSPACE: ${{ inputs.debusine-parent-workspace }}
+          EXTRA_BUILD_DEP_WORKSPACES: ${{ needs.resolve.outputs.extra_build_dep_workspaces }}
           SUITE: ${{ needs.resolve.outputs.suite }}
         run: |
           set -euxo pipefail
@@ -387,7 +457,7 @@ jobs:
       srcpkg_version: ${{ steps.select.outputs.srcpkg_version }}
     runs-on: ubuntu-24.04-arm
     container:
-      image: ${{ format('ghcr.io/qualcomm-linux/pkg-builder:{0}', needs.resolve.outputs.suite) }} # zizmor: ignore[unpinned-images] Dynamic suite-driven image tag is required for hybrid Ubuntu builder routing.
+      image: ${{ format('ghcr.io/qualcomm-linux/pkg-builder:{0}', needs.resolve.outputs.docker_suite) }} # zizmor: ignore[unpinned-images] Dynamic suite-driven image tag is required for hybrid Ubuntu builder routing.
       options: --user 0:0
       credentials:
         username: ${{ github.actor }}
@@ -422,7 +492,7 @@ jobs:
         if: ${{ needs.resolve.outputs.family == 'debian' && needs.resolve.outputs.force_docker_build != 'true' }}
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.debian-ref }}
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
           path: srcpkg
           fetch-depth: 1
 
@@ -445,7 +515,7 @@ jobs:
           install -m 0600 debusine-ci-auth.conf /etc/apt/auth.conf.d/debusine-ci-auth.conf
 
           qartifactory_suite="$SUITE"
-          if [ "$qartifactory_suite" = "unstable" ]; then
+          if [ "$qartifactory_suite" = "unstable" ] || [ "$qartifactory_suite" = "forky" ]; then
             qartifactory_suite=sid
           fi
 
@@ -506,12 +576,12 @@ jobs:
         # Temporarily disabled while dependency repository injection is unresolved.
         if: ${{ false }}
         env:
-          SUITE: ${{ needs.resolve.outputs.suite }}
+          DOCKER_SUITE: ${{ needs.resolve.outputs.docker_suite }}
         run: |
           set -euxo pipefail
 
           # Add qsc-deb-releases so Qualcomm package dependencies are resolvable
-          suite="${SUITE}"
+          suite="${DOCKER_SUITE}"
           install -d /etc/apt/keyrings /etc/apt/sources.list.d
           cat > /etc/apt/keyrings/qsc-deb-releases.asc <<'KEYEOF'
           -----BEGIN PGP PUBLIC KEY BLOCK-----

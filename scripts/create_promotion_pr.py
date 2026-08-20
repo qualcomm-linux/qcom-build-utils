@@ -34,12 +34,12 @@ def parse_arguments():
 
     parser.add_argument("--promotion-version",
                         required=True,
-                        help="Full Debian changelog version used for the promotion (for example 1.2.3-1 for Debian-bound branches, or 1.2.3-0qli1 for qli branches). This is also the suffix of the PR branch name debian/pr/<promotion-version>.")
+                        help="Full Debian changelog version used for the promotion (for example 1.2.3-1 for Debian-bound branches, or 1.2.3-0qli1 for qli branches). This is also the suffix of the PR branch name promotion-pr/<promotion-version>.")
 
     parser.add_argument("--promotion-pr-branch",
                         required=False,
                         default="",
-                        help="Promotion PR branch name (for example debian/pr/1.2.3-0qli1_). If omitted, defaults to debian/pr/<promotion-version>.")
+                        help="Promotion PR branch name (for example promotion-pr/1.2.3-0qli1_). If omitted, defaults to promotion-pr/<promotion-version>.")
 
     parser.add_argument("--promoted-upstream-tag",
                         required=True,
@@ -113,7 +113,7 @@ def main():
 
     logger.debug(f"Print of the arguments: {args}")
 
-    promotion_pr_branch = args.promotion_pr_branch or f"debian/pr/{args.promotion_version}"
+    promotion_pr_branch = args.promotion_pr_branch or f"promotion-pr/{args.promotion_version}"
 
     pr_title = create_pr_title(args.normalized_version)
     pr_body = create_pr_body(
@@ -135,7 +135,6 @@ def main():
         "--base", args.base_branch,
         "--head", promotion_pr_branch,
     ]
-
     # Executing the PR creation command using GitHub CLI 
     subprocess.run(pr_creation_command, check=True)
         

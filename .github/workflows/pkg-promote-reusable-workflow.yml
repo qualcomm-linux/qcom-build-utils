@@ -143,7 +143,7 @@ jobs:
           # helps distinguishing local builds
           PROMOTION_VERSION="${PROMOTION_VERSION}~"
           PROMOTION_BRANCH_VERSION="$(sanitize_version_for_ref "${PROMOTION_VERSION}")"
-          PROMOTION_PR_BRANCH="debian/pr/${PROMOTION_BRANCH_VERSION}"
+          PROMOTION_PR_BRANCH="promotion-pr/${PROMOTION_BRANCH_VERSION}"
           if ! git check-ref-format "refs/heads/${PROMOTION_PR_BRANCH}"; then
             echo "❌ Computed promotion PR branch '${PROMOTION_PR_BRANCH}' is not a valid git ref."
             exit 1
@@ -297,7 +297,9 @@ jobs:
           # Keep track that the upstream tag already exists
           echo "UPSTREAM_TAG_ALREADY_EXISTS=true" >> $GITHUB_ENV
 
-          # Perform a last check to see if the debian/pr/<version> branch already exists locally (which would mean its also present remotely)
+          # Perform a last check to see if the promotion-pr/<version> branch
+          # already exists locally (which would mean it is also present
+          # remotely).
           if git ls-remote --exit-code --heads origin "${PROMOTION_PR_BRANCH}"; then
             echo "❌ The ${PROMOTION_PR_BRANCH} branch already exists remotely."
             echo "❌ This likely means the previous promotion PR branch was not deleted after closing the PR."
@@ -398,7 +400,7 @@ jobs:
 
           git commit -a -s -m "Update changelog version to ${{env.PROMOTION_VERSION}} and UNRELEASED suite"
 
-      - name: Push Upstream/latest and debian PR Branch
+      - name: Push Upstream/latest and Promotion PR Branch
         working-directory: ./package-repo
         run: |
           if [ "${{env.UPSTREAM_TAG_ALREADY_EXISTS}}" = "false" ]; then
