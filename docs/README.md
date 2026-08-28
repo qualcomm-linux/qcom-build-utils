@@ -1,68 +1,20 @@
-# qcom-build-utils Workflow Documentation
+# qcom-build-utils Documentation
 
-This directory contains documentation for the GitHub workflows and actions used in the qcom-build-utils repository.
-
-## Overview
-
-The qcom-build-utils repository provides a set of **reusable GitHub workflows** and **composite actions** designed to standardize the Debian package build process for Qualcomm Linux projects. These workflows are primarily consumed by Debian packaging repositories (conventionally prefixed with `pkg-`).
+This directory contains documentation for the utilities and composite actions
+that remain in `qcom-build-utils`.
 
 ## Documentation Index
 
-1. **[Workflow Architecture](./workflow-architecture.md)** - High-level overview of the workflow ecosystem and how it integrates with package repositories
-2. **[Reusable Workflows](./reusable-workflows.md)** - Detailed documentation of each reusable workflow
-3. **[GitHub Actions](./github-actions.md)** - Documentation of composite actions used by the workflows
-4. **[Package Repository Integration](./package-repo-integration.md)** - Guide for integrating these workflows into package repositories
+1. [GitHub Actions](./github-actions.md)
+2. [build_package action](./actions/build_package.md)
+3. [abi_checker action](./actions/abi_checker.md)
+4. [push_to_repo action](./actions/push_to_repo.md)
+5. [build_container action](./actions/build_container.md)
 
-## Quick Start
+## Ownership Notes
 
-For package repository maintainers looking to use these workflows:
+Package lifecycle reusable workflows and package workflow templates were moved to
+`qualcomm-linux/qli-ci`.
 
-1. **Start with the template**: Use [pkg-template](https://github.com/qualcomm-linux/pkg-template) to quickly create a new package repository
-2. Review the [Workflow Architecture](./workflow-architecture.md) to understand the overall system
-3. Follow the [Package Repository Integration](./package-repo-integration.md) guide to customize your repository
-4. Refer to the [pkg-example](https://github.com/qualcomm-linux/pkg-example) repository for a complete working example
-
-## Key Concepts
-
-- **Upstream Repository**: The source code repository for a project (e.g., [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source))
-- **Package Repository (pkg-*)**: A Debian packaging repository following the git-buildpackage structure, containing debian control files and workflows
-- **PKG_REPO_GITHUB_NAME Variable**: A repository variable set in the upstream repository that links it to its associated package repository
-- **Reusable Workflows**: Centralized workflow definitions in qcom-build-utils that are called from package repositories
-- **Composite Actions**: Modular steps that perform specific tasks like building packages or checking ABI compatibility
-- **Debian Branches**: Git branches following the `debian/` prefix convention (e.g., `debian/qcom-next`, `debian/1.0.0-1`)
-- **Upstream Branches**: Git branches following the `upstream/` prefix convention for tracking upstream source code
-
-### Repository Linking
-
-Upstream and package repositories are linked via the `PKG_REPO_GITHUB_NAME` repository variable, and in the opposite directrion via the `UPSTREAM_REPO_GITHUB_NAME`:
-
-```mermaid
-flowchart LR
-    subgraph US["Upstream Repository"]
-        USC[Source Code]
-        USV["Repo Variable:<br/>PKG_REPO_GITHUB_NAME"]
-    end
-    
-    subgraph PKG["Package Repository"]
-        PKGD[Debian Packaging]
-        PKGV["Repo Variable:<br/>UPSTREAM_REPO_GITHUB_NAME"]
-    end
-    
-    USC -.uses.-> USV
-    USV -->|to reference| PKGD
-    
-    PKGD -.uses.-> PKGV
-    PKGV -->|to reference| USC
-
-    style USV fill:#e1f5ff
-    style PKGV fill:#e1f5ff
-```
-
-## Support
-
-For questions or issues:
-- Review the documentation in this directory
-- Use the [pkg-template](https://github.com/qualcomm-linux/pkg-template) to start a new package repository
-- Check the [pkg-example](https://github.com/qualcomm-linux/pkg-example) repository for a complete packaging example
-- See the [qcom-example-package-source](https://github.com/qualcomm-linux/qcom-example-package-source) repository for an example upstream project with package integration
-- Consult the main [README.md](../README.md) for general build instructions
+If you are looking for pkg workflow integration docs, use the documentation in
+`qli-ci` and package-repo guidance in `pkg-workspace`.
