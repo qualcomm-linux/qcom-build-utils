@@ -1,20 +1,15 @@
 # qcom-build-utils Documentation
 
-This directory contains documentation for the utilities and composite actions
-that remain in `qcom-build-utils`.
+`qcom-build-utils` no longer hosts package reusable workflows, package
+composite actions, or package CI scripts.
 
-## Documentation Index
+Those assets were migrated to:
 
-1. [GitHub Actions](./github-actions.md)
-2. [build_package action](./actions/build_package.md)
-3. [abi_checker action](./actions/abi_checker.md)
-4. [push_to_repo action](./actions/push_to_repo.md)
-5. [build_container action](./actions/build_container.md)
+- [`qualcomm-linux/qli-ci`](https://github.com/qualcomm-linux/qli-ci)
+- [`qualcomm-linux/debusine-action`](https://github.com/qualcomm-linux/debusine-action)
 
-## Ownership Notes
+Use this `docs/` tree for platform-helper documentation that remains in this
+repository.
 
-Package lifecycle reusable workflows and package workflow templates were moved to
-`qualcomm-linux/qli-ci`.
-
-If you are looking for pkg workflow integration docs, use the documentation in
-`qli-ci` and package-repo guidance in `pkg-workspace`.
+For package workflow architecture and caller integration guidance, refer to the
+`qli-ci` documentation instead.

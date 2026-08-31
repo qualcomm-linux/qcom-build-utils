@@ -4,7 +4,6 @@
 
 .github/*    @simonbeaudoin0935
 docker/*     @simonbeaudoin0935
-scripts/*    @vishwasudupa @bjordiscollaku @simonbeaudoin0935
 rootfs/*     @bjordiscollaku
 kernel/*     @bjordiscollaku
 bootloader/* @bjordiscollaku
