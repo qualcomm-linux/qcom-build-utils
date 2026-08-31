@@ -1,45 +1,54 @@
-# qcom-build-utils — Agent Guidelines
+# qcom-build-utils - Agent Guidelines
 
 ## Purpose
 
-`qcom-build-utils` hosts shared build utilities and composite actions for the
-Qualcomm Linux ecosystem.
+`qcom-build-utils` no longer owns package lifecycle CI assets.
 
-Package lifecycle reusable workflows were moved to
-`qualcomm-linux/pkg-infra/qli-ci`.
+The following were migrated to `qualcomm-linux/qli-ci`:
+
+- reusable package workflows
+- composite package actions
+- shared package promotion/build scripts
+
+Use this repository for platform build helpers only.
 
 ## Current Scope
 
-- Composite GitHub actions under `.github/actions/`
-- Build/helper scripts under `scripts/`
-- Platform build helpers under `kernel/`, `bootloader/`, `rootfs/`, and `flash/`
-- Utility documentation under `docs/`
+Primary maintained paths:
 
-## Out of Scope
+- `kernel/`
+- `bootloader/`
+- `rootfs/`
+- `flash/`
+- repository metadata and issue templates under `.github/`
 
-Do not reintroduce package lifecycle reusable workflows in this repository.
-Those belong in `qli-ci`, including:
+## Source of Truth for Package CI
 
-- pkg build/release/promote/upstream-pr reusable workflows
-- package workflow templates (`.github/pkg-workflows/*`)
-- package workflow sync automation
+For package lifecycle workflow behavior, use:
 
-## Workflow Ownership Model
+- `qualcomm-linux/qli-ci` for reusable workflows and package helper scripts
+- `qualcomm-linux/debusine-action` for Debusine implementation details
 
-- `qli-ci` is the package workflow source of truth for `pkg-*` repositories.
-- `debusine-action` owns Debusine-specific implementation details.
-- `qcom-build-utils` provides lower-level reusable tools and scripts.
+## Do Not Reintroduce
+
+Unless there is an explicit design decision, do not add back:
+
+- `.github/workflows/pkg-*.yml` reusable workflow definitions
+- `.github/actions/` package composite actions
+- `scripts/` package CI helper scripts
 
 ## Editing Guidance
 
-- Prefer small, explicit changes focused on utilities/actions here.
-- If a change affects package workflow orchestration, implement it in `qli-ci`.
-- Keep references and examples aligned with the new ownership model.
+When the request is about package promotion/build/release CI wiring, work in
+`qli-ci` (and `debusine-action` when Debian Debusine internals are involved),
+not here.
+
+For this repo, keep changes focused on platform build helpers.
 
 ## Validation Expectations
 
-For utility/action changes in this repo:
+For platform-helper changes:
 
-1. validate touched scripts/actions locally where possible
-2. check docs/examples for stale references
-3. validate downstream caller impact only if action interfaces changed
+1. run script-level checks locally where applicable
+2. verify updated docs/reference paths are consistent
+3. validate in the consuming repository before merge when possible
