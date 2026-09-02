@@ -170,6 +170,7 @@ for _deb in "${LOCAL_DEBS[@]}"; do
     fi
 done
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKDIR=$(pwd)
 MNT_DIR="$WORKDIR/mnt"
 ROOTFS_DIR="$WORKDIR/rootfs_work"
@@ -543,7 +544,11 @@ echo "[INFO] Configuring /etc/default/grub..."
 mkdir -p "$ROOTFS_DIR/boot/grub"
 mkdir -p "$ROOTFS_DIR/etc/default"
 
-# Write GRUB defaults using quoted heredoc to prevent host-side expansion
+# Write GRUB defaults using quoted heredoc to prevent host-side expansion.
+# GRUB_DEFAULT=0: single generic menuentry.  Board-specific kernel parameters
+# are carried by each board's BOOTAA64.EFI as the GRUB variable soc_extra_cmdline
+# (set by build-efi-esp.sh --extra-cmdline).  grub.cfg appends it to the linux
+# line at runtime, so no per-board grub.cfg or multi-entry menu is needed.
 cat <<'EOF' > "$ROOTFS_DIR/etc/default/grub"
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=5
@@ -555,8 +560,8 @@ GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
 GRUB_TERMINAL="serial console"
 GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"
 
-# Kernel parameters applied to BOTH Normal and Recovery boot modes
-# (Critical hardware settings: console, rootfs, clocks, EFI)
+# Kernel parameters for Generic (non-RB4) boards.
+# The RB4 menu entry appends "arm64.nopauth" on top of these at build time.
 GRUB_CMDLINE_LINUX="earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M net.ifnames=0 rw clk_ignore_unused pd_ignore_unused rootwait ignore_loglevel"
 
 # Kernel parameters applied ONLY to Normal boot mode
@@ -727,6 +732,42 @@ umount -l "$ROOTFS_DIR/sys"
 umount -l "$ROOTFS_DIR/proc"
 
 # ==============================================================================
+# Step 9.4: Append ${soc_extra_cmdline} variable reference to grub.cfg linux line
+#
+# The rootfs carries a single generic grub.cfg menuentry.  Board-specific kernel
+# parameters (e.g. arm64.nopauth for RB4) are NOT baked into the rootfs.
+# Instead, build-efi-esp.sh embeds them as the GRUB variable soc_extra_cmdline
+# inside each board's BOOTAA64.EFI bootstrap config.  That variable survives
+# the configfile jump into /boot/grub/grub.cfg and is appended here to the
+# linux line at GRUB runtime.
+#
+# Flow:
+#   BOOTAA64.EFI bootstrap  →  set soc_extra_cmdline="arm64.nopauth"  (RB4)
+#                               set soc_extra_cmdline=""               (generic)
+#   configfile /boot/grub/grub.cfg
+#   linux /boot/vmlinuz-... <base_cmdline> ${soc_extra_cmdline}
+#
+# This keeps the rootfs image fully board-agnostic.
+# ==============================================================================
+echo "[INFO] Patching grub.cfg: appending \${soc_extra_cmdline} to linux line..."
+
+GRUB_CFG="$ROOTFS_DIR/boot/grub/grub.cfg"
+
+if [[ ! -f "$GRUB_CFG" ]]; then
+    echo "[ERROR] grub.cfg not found at $GRUB_CFG — update-grub may have failed." >&2
+    exit 1
+fi
+
+# Append ${soc_extra_cmdline} to every "linux " kernel line inside grub.cfg.
+# The variable is set by the bootstrap config embedded in BOOTAA64.EFI; it is
+# empty for generic boards and contains board-specific params for others.
+# sed matches lines starting with optional whitespace + "linux " + a path token.
+sed -i 's|^\(\s*linux\s\+/[^ ]\+.*\)$|\1 ${soc_extra_cmdline}|' "$GRUB_CFG"
+
+echo "[INFO] grub.cfg linux lines patched."
+echo "[INFO] grub.cfg contains $(grep -c '^\s*linux\s' "$GRUB_CFG") kernel line(s)."
+
+# ==============================================================================
 # Step 9.5: Remove build-only apt sources and caches from final image
 #   - build-only sources declared in the overlay manifest ("build-only": true)
 #   - local .deb repo created for --local-debs
@@ -769,7 +810,6 @@ rm -f  "$ROOTFS_DIR/var/cache/apt/archives/"*.deb
 #   extracts everything as root, --no-overwrite-dir leaves existing directory
 #   metadata untouched.
 # ==============================================================================
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_DIR="${SCRIPT_DIR}/../runtime"
 
 if [[ ! -d "$RUNTIME_DIR" ]]; then
