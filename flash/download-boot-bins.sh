@@ -11,11 +11,18 @@
 #   boot_bin_url, the ZIP is downloaded only once and the extracted contents
 #   are reused.
 #
+#   When a target also has boot_bin_immutable_url set, that second archive is
+#   downloaded and its contents are merged (cp -a) into the same bins_<board>/
+#   directory, mirroring the Yocto firmware-qcom-boot-common.inc behaviour where
+#   both BOOTBINARIES and BOOTBINARIES_IMMUTABLE are deployed to the same
+#   DEPLOYDIR.
+#
 # Usage:
 #   download-boot-bins.sh --boards-json '<json-array>' --output-dir <dir>
 #
 # Output layout (inside --output-dir):
 #   bins_<board-name>/     extracted boot binary files for that board
+#                          (main + immutable archives merged into one directory)
 #   cdt_<board-name>/      extracted CDT files for that board (if cdt_url set)
 #
 # ==============================================================================
@@ -51,65 +58,93 @@ fi
 
 mkdir -p "$OUTPUT_DIR"
 
-# Cache: map boot_bin_url -> local extracted directory (to deduplicate downloads)
+# Cache: map URL -> local extracted directory (to deduplicate downloads)
 declare -A URL_TO_EXTRACTED_DIR
+
+# ------------------------------------------------------------------------------
+# Helper: download_and_extract <url> -> sets EXTRACTED_DIR
+#   Downloads <url> into OUTPUT_DIR, extracts it, strips a single top-level
+#   directory if present, caches the result in URL_TO_EXTRACTED_DIR, and
+#   sets the global EXTRACTED_DIR variable to the resulting path.
+# ------------------------------------------------------------------------------
+download_and_extract() {
+    local url="$1"
+
+    if [[ -n "${URL_TO_EXTRACTED_DIR[$url]+x}" ]]; then
+        EXTRACTED_DIR="${URL_TO_EXTRACTED_DIR[$url]}"
+        echo "[INFO]   Already downloaded (${url}), reusing: ${EXTRACTED_DIR}"
+        return
+    fi
+
+    local archive_name
+    archive_name=$(basename "$url")
+    local archive_path="${OUTPUT_DIR}/${archive_name}"
+
+    echo "[INFO]   Downloading: ${url}"
+    wget -q --show-progress -O "$archive_path" "$url" || \
+        { echo "[ERROR] Failed to download: $url"; exit 1; }
+
+    local extract_dir="${OUTPUT_DIR}/_extract_$(echo "$url" | sha256sum | cut -c1-8)"
+    mkdir -p "$extract_dir"
+
+    if [[ "$archive_name" == *.zip ]]; then
+        unzip -q "$archive_path" -d "$extract_dir"
+    else
+        tar -xf "$archive_path" -C "$extract_dir"
+    fi
+
+    # Strip a single top-level directory if the archive has one.
+    # Use find -type d to count only real subdirectories, ignoring any
+    # top-level files that would cause the glob approach to miscount.
+    local top_dirs=()
+    while IFS= read -r -d '' d; do
+        top_dirs+=("$d")
+    done < <(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -print0)
+    if [[ ${#top_dirs[@]} -eq 1 ]]; then
+        local flat_dir="${extract_dir}_flat"
+        mv "${top_dirs[0]}" "$flat_dir"
+        rm -rf "$extract_dir"
+        extract_dir="$flat_dir"
+    fi
+
+    rm -f "$archive_path"
+    URL_TO_EXTRACTED_DIR[$url]="$extract_dir"
+    EXTRACTED_DIR="$extract_dir"
+}
 
 BOARD_COUNT=$(echo "$BOARDS_JSON" | jq 'length')
 
 for i in $(seq 0 $((BOARD_COUNT - 1))); do
     BOARD_NAME=$(echo "$BOARDS_JSON"     | jq -r ".[$i].name")
     BOOT_URL=$(echo "$BOARDS_JSON"       | jq -r ".[$i].boot_bin_url")
+    BOOT_IMMUTABLE_URL=$(echo "$BOARDS_JSON" | jq -r ".[$i].boot_bin_immutable_url // empty")
     CDT_URL=$(echo "$BOARDS_JSON"        | jq -r ".[$i].cdt_url // empty")
 
     echo ""
     echo "[INFO] Board: ${BOARD_NAME}"
 
     # ------------------------------------------------------------------
-    # Boot binaries — deduplicate by URL
+    # Boot binaries (main archive) — deduplicate by URL
     # ------------------------------------------------------------------
     BINS_DST="${OUTPUT_DIR}/bins_${BOARD_NAME}"
 
-    if [[ -n "${URL_TO_EXTRACTED_DIR[$BOOT_URL]+x}" ]]; then
-        CACHED="${URL_TO_EXTRACTED_DIR[$BOOT_URL]}"
-        echo "[INFO]   Boot bins already downloaded (${BOOT_URL}), reusing: ${CACHED}"
-        if [[ ! -d "$BINS_DST" ]]; then
-            cp -a "$CACHED" "$BINS_DST"
-        fi
-    else
-        echo "[INFO]   Downloading boot bins: ${BOOT_URL}"
-        ARCHIVE_NAME=$(basename "$BOOT_URL")
-        ARCHIVE_PATH="${OUTPUT_DIR}/${ARCHIVE_NAME}"
+    echo "[INFO]   Boot bins (main):"
+    download_and_extract "$BOOT_URL"
+    if [[ ! -d "$BINS_DST" ]]; then
+        cp -a "$EXTRACTED_DIR" "$BINS_DST"
+    fi
+    echo "[INFO]   Boot bins extracted to: ${BINS_DST}"
 
-        wget -q --show-progress -O "$ARCHIVE_PATH" "$BOOT_URL" || \
-            { echo "[ERROR] Failed to download boot bins: $BOOT_URL"; exit 1; }
-
-        EXTRACT_DIR="${OUTPUT_DIR}/_extract_$(echo "$BOOT_URL" | sha256sum | cut -c1-8)"
-        mkdir -p "$EXTRACT_DIR"
-
-        if [[ "$ARCHIVE_NAME" == *.zip ]]; then
-            unzip -q "$ARCHIVE_PATH" -d "$EXTRACT_DIR"
-        else
-            tar -xf "$ARCHIVE_PATH" -C "$EXTRACT_DIR"
-        fi
-
-        # Strip a single top-level directory if the archive has one.
-        # Use find -type d to count only real subdirectories, ignoring any
-        # top-level files that would cause the glob approach to miscount.
-        TOP_DIRS=()
-        while IFS= read -r -d '' d; do
-            TOP_DIRS+=("$d")
-        done < <(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
-        if [[ ${#TOP_DIRS[@]} -eq 1 ]]; then
-            FLAT_DIR="${EXTRACT_DIR}_flat"
-            mv "${TOP_DIRS[0]}" "$FLAT_DIR"
-            rm -rf "$EXTRACT_DIR"
-            EXTRACT_DIR="$FLAT_DIR"
-        fi
-
-        rm -f "$ARCHIVE_PATH"
-        URL_TO_EXTRACTED_DIR[$BOOT_URL]="$EXTRACT_DIR"
-        cp -a "$EXTRACT_DIR" "$BINS_DST"
-        echo "[INFO]   Boot bins extracted to: ${BINS_DST}"
+    # ------------------------------------------------------------------
+    # Boot binaries (immutable archive) — optional, merged into BINS_DST
+    # Mirrors Yocto firmware-qcom-boot-common.inc: both BOOTBINARIES and
+    # BOOTBINARIES_IMMUTABLE are deployed into the same DEPLOYDIR.
+    # ------------------------------------------------------------------
+    if [[ -n "$BOOT_IMMUTABLE_URL" ]]; then
+        echo "[INFO]   Boot bins (immutable):"
+        download_and_extract "$BOOT_IMMUTABLE_URL"
+        cp -a "${EXTRACTED_DIR}/." "${BINS_DST}/"
+        echo "[INFO]   Immutable boot bins merged into: ${BINS_DST}"
     fi
 
     # ------------------------------------------------------------------

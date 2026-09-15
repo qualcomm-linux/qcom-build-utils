@@ -9,6 +9,7 @@
 #     {
 #       "name":             "iq-x7181-evk",       (required)
 #       "boot_bin_url":     "https://...",         (required)
+#       "boot_bin_immutable_url": "https://...",   (optional, default "")
 #       "ptool_platform":   "iq-x7181-evk",       (required)
 #       "cdt_url":          "https://...",         (optional, default "")
 #       "cdt_filename":     "cdt_foo.bin",         (optional, default "")
@@ -58,6 +59,7 @@ def main() -> int:
                 print(f"[ERROR] targets[{i}] missing '{key}'", file=sys.stderr)
                 return 1
         t.setdefault("cdt_url", "")
+        t.setdefault("boot_bin_immutable_url", "")
         t.setdefault("cdt_filename", "")
         t.setdefault("contents_xml_in", "")
         sv = t.setdefault("seed_volatile_vars", False)
