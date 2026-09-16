@@ -167,3 +167,13 @@ done
 
 echo ""
 echo "[INFO] download-boot-bins.sh complete."
+
+# ------------------------------------------------------------------------------
+# Cleanup: remove all _extract_* / _flat temporary directories now that every
+# bins_<board>/ folder has been created.
+# ------------------------------------------------------------------------------
+echo "[INFO] Cleaning up temporary extract directories..."
+for tmp_dir in "${URL_TO_EXTRACTED_DIR[@]}"; do
+    rm -rf "$tmp_dir"
+done
+echo "[INFO] Cleanup complete."
