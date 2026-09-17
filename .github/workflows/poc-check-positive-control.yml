@@ -1,0 +1,71 @@
+name: POC Check Positive Control
+
+# Sanity check for the capture methodology used in poc-check.yml. This is
+# NOT part of the pull_request/workflow_run chain — manual only. It
+# deliberately puts the secret in the "untrusted" step's env and runs the
+# same capture logic against itself, to prove that if a secret really were
+# reachable, this test setup would actually show it, rather than the clean
+# result in poc-check.yml being a false negative from a broken test.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prove-capture-works:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Untrusted-in-name-only step (secret deliberately left in scope)
+        env:
+          POC_FORK_PR_TEST_TOKEN: ${{ secrets.POC_FORK_PR_TEST_TOKEN }}
+        run: |
+          set -u
+          mkdir -p "${RUNNER_TEMP}/evil-bin"
+          env | grep POC_FORK_PR_TEST_TOKEN > "${RUNNER_TEMP}/env-dump.txt" || true
+
+          cat > "${RUNNER_TEMP}/evil-bin/curl" <<'EOF'
+          #!/bin/bash
+          {
+            echo "=== hijacked curl invoked ==="
+            echo "args: $*"
+            echo "POC_FORK_PR_TEST_TOKEN=${POC_FORK_PR_TEST_TOKEN:-<unset>}"
+          } >> "${RUNNER_TEMP}/curl-capture.txt"
+          exit 0
+          EOF
+          chmod +x "${RUNNER_TEMP}/evil-bin/curl"
+          echo "${RUNNER_TEMP}/evil-bin" >> "$GITHUB_PATH"
+
+      - name: Later step that calls curl (still has the secret here too)
+        env:
+          POC_FORK_PR_TEST_TOKEN: ${{ secrets.POC_FORK_PR_TEST_TOKEN }}
+        run: |
+          curl -s -o /dev/null https://example.com/ || true
+
+      - name: Summarize findings
+        if: always()
+        run: |
+          set -u
+          {
+            echo "## Positive control findings"
+            echo
+            if [ -s "${RUNNER_TEMP}/env-dump.txt" ]; then
+              echo "- direct env capture worked (expected: yes, since the secret was deliberately put in scope)"
+            fi
+            if [ -s "${RUNNER_TEMP}/curl-capture.txt" ]; then
+              echo "- PATH-hijack capture worked (expected: yes)"
+            else
+              echo "- PATH-hijack capture did NOT fire — investigate before trusting a clean poc-check.yml result"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload capture artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: positive-control-captures-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/env-dump.txt
+            ${{ runner.temp }}/curl-capture.txt
+          if-no-files-found: ignore

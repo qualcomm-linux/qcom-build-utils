@@ -1,0 +1,32 @@
+name: POC Broken
+
+# This reproduces the actual bug in qli-ci#30: pkg-pr-hook.yml calls the build
+# reusable workflow on a plain `pull_request` trigger and references secrets
+# directly. GitHub withholds all secrets except GITHUB_TOKEN from
+# `pull_request` runs triggered by a fork, so on a fork PR this secret is
+# empty. This workflow exists to demonstrate that "before" state; it is not
+# meant to be fixed, only observed. Scoped to the POC branch only so it can
+# never interact with real PRs against main or elsewhere.
+
+on:
+  pull_request:
+    branches: [poc/fork-pr-secrets-qli39]
+
+permissions:
+  contents: read
+
+jobs:
+  use-secret-directly:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report whether the secret is visible here
+        env:
+          POC_FORK_PR_TEST_TOKEN: ${{ secrets.POC_FORK_PR_TEST_TOKEN }}
+        run: |
+          if [ -n "${POC_FORK_PR_TEST_TOKEN:-}" ]; then
+            echo "secret length: ${#POC_FORK_PR_TEST_TOKEN}" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "result=present" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "secret is EMPTY in this job (expected for a fork PR)" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "result=empty" >> "$GITHUB_STEP_SUMMARY"
+          fi

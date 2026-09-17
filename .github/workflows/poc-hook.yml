@@ -1,0 +1,31 @@
+name: POC Hook
+
+# Untrusted stage, mirroring debusine-pr-hook.yml — with one correction found
+# by this POC: GitHub forces GITHUB_TOKEN to read-only for `pull_request` runs
+# triggered by a fork, regardless of the `permissions:` block below. That
+# means this stage can never successfully write a commit status (confirmed:
+# attempting it reproduces the exact "Resource not accessible by
+# integration" 403 reported against debusine-pr-hook.yml in
+# debusine-action#69). So this stage does nothing but exist as something for
+# "POC Check" to chain off of via workflow_run — it grants no secrets, and
+# the only PR-derived data it touches is the trusted event payload, never
+# PR-controlled file content. Scoped to the POC branch only.
+
+on:
+  pull_request:
+    branches: [poc/fork-pr-secrets-qli39]
+
+permissions:
+  contents: read
+
+jobs:
+  record-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record PR identity (trusted event fields only)
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "PR #${PR_NUMBER}, head ${PR_HEAD_SHA}"
+          echo "No secrets, no write permissions requested — this stage only exists so POC Check can trigger off it via workflow_run."
