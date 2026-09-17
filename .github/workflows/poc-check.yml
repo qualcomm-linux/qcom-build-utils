@@ -1,0 +1,146 @@
+name: POC Check
+
+# Trusted stage, mirroring debusine-pr-check.yml. This is the only workflow in
+# the pair that ever sees the secret. It is triggered by `workflow_run`, so it
+# always runs the copy of this file from this branch (the "base" branch for
+# this POC), never the PR branch's copy, and every identifier it uses (head
+# SHA, head repo) comes from the trusted `workflow_run` event payload, not
+# from anything the untrusted "POC Hook" run produced.
+#
+# It deliberately DOES check out and execute the PR's own content (like the
+# real build workflow checks out and builds PR-supplied packaging), to test
+# whether that PR content can reach the secret — directly (env access) or
+# indirectly (by tampering with something a later, secret-bearing step
+# invokes, e.g. a PATH-hijacked `curl`). The "process PR content" step below
+# never has the secret in its own env; only the later "stand-in upload" step
+# does.
+on: # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    workflows: ["POC Hook"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  check:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      # POC Hook itself cannot write this: GITHUB_TOKEN is forced read-only
+      # for pull_request runs triggered by a fork. This workflow_run-triggered
+      # job is not subject to that restriction, so it sets both the pending
+      # and (later) final status.
+      - name: Set pending status
+        uses: actions/github-script@v9
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.payload.workflow_run.head_sha,
+              state: 'pending',
+              context: 'POC Check',
+              description: 'Running POC check...'
+            });
+
+      # Deliberately NOT using github.event.workflow_run.pull_requests[0]:
+      # empirically, that array is EMPTY when the head repo is a fork (GitHub
+      # only populates it for same-repository PRs), so `refs/pull/<n>/merge`
+      # built from it resolves to an invalid ref for exactly the fork-PR case
+      # this whole POC exists to test. head_sha/head_repository on the
+      # (nested) workflow_run object ARE populated for forks and are trusted
+      # (they describe the completed run, not attacker-supplied content), so
+      # use those to check out the PR's head commit directly instead.
+      #
+      # actions/checkout also refuses this by default with an explicit "pwn
+      # request" warning (checking out fork PR code from a workflow_run
+      # workflow). That guard is real and correct in general — but this POC
+      # exists specifically to test the risk profile of a trusted stage
+      # checking out and executing fork PR content (which is exactly what the
+      # real pkg-build-reusable-workflow.yml / debusine.yml build job does
+      # once it checks out `inputs.debian-ref` / `source_ref`), so opt in
+      # deliberately rather than being blocked by, or accidentally
+      # bypassing, the safety net.
+      - name: Checkout PR head commit
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.event.workflow_run.head_repository.full_name }}
+          ref: ${{ github.event.workflow_run.head_sha }}
+          path: src
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+
+      # No secret in this step's env. This step runs whatever the PR supplies
+      # (src/attack.sh), the same way the real build job runs PR-supplied
+      # debian/rules via gbp/dpkg-buildpackage before any secret is in scope.
+      - name: Process PR content (no secret in scope)
+        run: |
+          set -u
+          mkdir -p "${RUNNER_TEMP}/evil-bin"
+          : > "${RUNNER_TEMP}/env-dump.txt"
+          : > "${RUNNER_TEMP}/curl-capture.txt"
+          if [ -f src/attack.sh ]; then
+            echo "Found src/attack.sh, running it"
+            bash src/attack.sh
+          else
+            echo "No src/attack.sh in this PR, nothing to run"
+          fi
+
+      # The secret is in scope from here on, but this step never executes PR
+      # content — it only does a stand-in "upload" call, the same way the real
+      # build job's lib/build step only uploads the already-built .dsc.
+      - name: Stand-in upload (secret in scope, no PR content executed)
+        env:
+          POC_FORK_PR_TEST_TOKEN: ${{ secrets.POC_FORK_PR_TEST_TOKEN }}
+        run: |
+          set -u
+          echo "Performing stand-in upload..."
+          curl -s -o /dev/null -w 'stand-in upload HTTP status: %{http_code}\n' https://example.com/ || true
+
+      - name: Summarize findings
+        if: always()
+        run: |
+          set -u
+          {
+            echo "## POC Check findings"
+            echo
+            if [ -s "${RUNNER_TEMP}/env-dump.txt" ] && grep -q POC_FORK_PR_TEST_TOKEN "${RUNNER_TEMP}/env-dump.txt"; then
+              echo "- :x: secret was directly visible to the untrusted step's env dump"
+            else
+              echo "- :white_check_mark: secret was NOT visible to the untrusted step (env-dump has no matching entry, or no dump was made)"
+            fi
+            if [ -s "${RUNNER_TEMP}/curl-capture.txt" ]; then
+              echo "- :x: The hijacked curl shim was invoked by the later step (PATH-hijack path) — see curl-capture artifact"
+            else
+              echo "- :white_check_mark: No evidence the hijacked curl shim was invoked by the later step"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload capture artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poc-check-captures-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/env-dump.txt
+            ${{ runner.temp }}/curl-capture.txt
+          if-no-files-found: ignore
+
+      - name: Set final status
+        if: always()
+        uses: actions/github-script@v9
+        env:
+          JOB_STATUS: ${{ job.status }}
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.payload.workflow_run.head_sha,
+              state: process.env.JOB_STATUS === 'success' ? 'success' : 'failure',
+              context: 'POC Check',
+              description: 'POC check finished'
+            });
