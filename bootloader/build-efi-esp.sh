@@ -62,6 +62,11 @@ ESP_LABEL="system-boot"
 NO_INSTALL=0
 SEED_VOLATILE_VARS=0
 SEED_VOLATILE_VARS_CONFIG=""
+# Extra kernel cmdline parameters to embed in BOOTAA64.EFI bootstrap config.
+# Exposed as the GRUB variable ${soc_extra_cmdline} which grub.cfg appends to
+# the linux line.  Empty string = generic board (no extra params).
+# Example: "arm64.nopauth" for RB4 boards.
+EXTRA_CMDLINE=""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -86,12 +91,17 @@ print_usage() {
 Usage:
   $0 [--sector-size <bytes>] [--esp-size-mb <mb>] [--root-label <label>]
      [--esp-label <label>] [--out <efi.bin>] [--no-install]
+     [--extra-cmdline <params>]
      [--seed-volatile-vars] [--seed-volatile-vars-config <json>] [-h|--help]
 
 Notes:
   - Produces a FAT32 filesystem image (no GPT inside the file).
   - Installs a standalone ARM64 GRUB as /EFI/BOOT/BOOTAA64.EFI using grub-mkstandalone.
   - At boot, GRUB searches for rootfs by LABEL and loads its /boot/grub/grub.cfg.
+  - --extra-cmdline embeds SoC-specific kernel parameters inside BOOTAA64.EFI as the
+    GRUB variable ${soc_extra_cmdline}.  grub.cfg appends it to the linux line so the
+    rootfs image stays generic while each board's efi.bin carries its own cmdline.
+    Example: --extra-cmdline "arm64.nopauth"  (RB4 boards only).
   - --seed-volatile-vars pre-seeds /VolatileVars.bin with default UEFI variables
     (see gen-volatile-vars.py), e.g. VendorDtbOverlays, so overlay/DTBO
     loading works from first boot without waiting on firmware-side
@@ -119,6 +129,8 @@ while [[ $# -gt 0 ]]; do
             OUT_IMG="${2-}"; shift 2 ;;
         --no-install)
             NO_INSTALL=1; shift ;;
+        --extra-cmdline)
+            EXTRA_CMDLINE="${2-}"; shift 2 ;;
         --seed-volatile-vars)
             SEED_VOLATILE_VARS=1; shift ;;
         --seed-volatile-vars-config)
@@ -184,6 +196,7 @@ echo "[INFO] ESP size: ${ESP_SIZE_MB} MB"
 echo "[INFO] FAT sector size: ${SECTOR_SIZE}"
 echo "[INFO] Rootfs label: ${ROOT_LABEL}"
 echo "[INFO] ESP label: ${ESP_LABEL}"
+echo "[INFO] Extra cmdline: ${EXTRA_CMDLINE:-(none)}"
 
 # ==============================================================================
 # Step 4  Ensure required host tools exist (optionally install)
@@ -244,8 +257,13 @@ echo "[INFO] GRUB platform dir: ${GRUB_PLATFORM_DIR}"
 BOOTSTRAP_CFG="$(mktemp -p "${WORKDIR}" efiesp.bootstrap.XXXXXX.cfg)"
 cat > "${BOOTSTRAP_CFG}" <<EOF
 # Embedded bootstrap grub.cfg (inside BOOTAA64.EFI)
+# This config is baked into the EFI binary at build time.
+# soc_extra_cmdline carries board-specific kernel parameters (may be empty).
+# grub.cfg on the rootfs appends it to the linux line so the rootfs image
+# stays fully generic while each board's efi.bin carries its own cmdline.
 set default=0
 set timeout=0
+set soc_extra_cmdline="${EXTRA_CMDLINE}"
 
 # Prefer label-based discovery for portability
 search --no-floppy --label ${ROOT_LABEL} --set=root
@@ -323,6 +341,9 @@ LOOP_DEV=""
 
 echo "[SUCCESS] EFI System Partition image created: ${OUT_IMG}"
 echo "[INFO] Contains: /EFI/BOOT/BOOTAA64.EFI (standalone GRUB + embedded bootstrap)."
+if [[ -n "${EXTRA_CMDLINE}" ]]; then
+    echo "[INFO] Embedded soc_extra_cmdline: '${EXTRA_CMDLINE}'"
+fi
 if [[ "${SEED_VOLATILE_VARS}" -eq 1 ]]; then
     echo "[INFO] Contains: /VolatileVars.bin (pre-seeded UEFI variables)."
 fi
