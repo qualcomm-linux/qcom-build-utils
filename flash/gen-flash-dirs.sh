@@ -296,11 +296,20 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
             BOOT_BIN_SRC="${BOARD_BOOT_DIR}/${storage}"
         fi
         if [[ ! -d "$BOOT_BIN_SRC" ]]; then
-            BOOT_BIN_SRC="${BOARD_BOOT_DIR}"
+            # For targets with spinor, the flat boot bins archive belongs to
+            # spinor only. Skip the fallback-to-root copy for non-spinor
+            # storage types so that nvme/ufs dirs do not receive spinor bins.
+            if [[ "$HAS_SPINOR" == "true" && "$storage" != "spinor" ]]; then
+                BOOT_BIN_SRC=""
+            else
+                BOOT_BIN_SRC="${BOARD_BOOT_DIR}"
+            fi
         fi
-        if [[ -d "$BOOT_BIN_SRC" ]]; then
+        if [[ -n "$BOOT_BIN_SRC" && -d "$BOOT_BIN_SRC" ]]; then
             cp --preserve=mode,timestamps -av "${BOOT_BIN_SRC}/." "${STORAGE_DIR}/"
             echo "[INFO] Copied boot bins from: ${BOOT_BIN_SRC}"
+        elif [[ -z "$BOOT_BIN_SRC" ]]; then
+            echo "[INFO] Skipping boot bin copy for ${storage} (spinor target — bins are spinor-only)"
         else
             echo "[ERROR] Boot bins directory not found: ${BOOT_BIN_SRC}"
             exit 1
