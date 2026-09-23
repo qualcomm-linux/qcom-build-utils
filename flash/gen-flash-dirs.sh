@@ -310,6 +310,30 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
             echo "[INFO] Copied boot bins from: ${BOOT_BIN_SRC}"
         elif [[ -z "$BOOT_BIN_SRC" ]]; then
             echo "[INFO] Skipping boot bin copy for ${storage} (spinor target — bins are spinor-only)"
+            # Even though the flat archive is spinor-only, the programmer
+            # (xbl_s_devprg_ns.melf) must be present in every storage dir so
+            # that flashing tools can use it.  Starting with bootbins 00023 the
+            # nvme/ and ufs/ subdirs were removed from the archive, so the
+            # programmer now lives only in the spinor/ subdir (or at the flat
+            # archive root for older releases).  Copy it explicitly here.
+            PROGRAMMER_FILE="xbl_s_devprg_ns.melf"
+            PROGRAMMER_SRC=""
+            for _search_dir in \
+                    "${BOARD_BOOT_DIR}/spinor" \
+                    "${BOARD_BOOT_DIR}/partition_spinor" \
+                    "${BOARD_BOOT_DIR}"; do
+                if [[ -f "${_search_dir}/${PROGRAMMER_FILE}" ]]; then
+                    PROGRAMMER_SRC="${_search_dir}/${PROGRAMMER_FILE}"
+                    break
+                fi
+            done
+            if [[ -n "$PROGRAMMER_SRC" ]]; then
+                cp --preserve=mode,timestamps -v \
+                    "$PROGRAMMER_SRC" "${STORAGE_DIR}/${PROGRAMMER_FILE}"
+                echo "[INFO] Copied programmer from: ${PROGRAMMER_SRC}"
+            else
+                echo "[WARN] Programmer (${PROGRAMMER_FILE}) not found in archive — skipping"
+            fi
         else
             echo "[ERROR] Boot bins directory not found: ${BOOT_BIN_SRC}"
             exit 1
