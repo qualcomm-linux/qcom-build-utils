@@ -288,51 +288,36 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
         # 1. Copy boot binaries from archive first.
         #    Auto-detect layout: if partition_<storage>/ subdir exists in the
         #    archive, boot bins are there; otherwise they are flat at archive root.
-        #    Copy everything (including any pre-existing partition files from the
-        #    archive) — ptool will overwrite them in step 2.
+        #    For spinor targets: copy full boot bins only to spinor storage;
+        #    for non-spinor storages, copy only *.melf programmer binaries.
+        #    For non-spinor targets: copy full boot bins to all storage types.
+        #    ptool will overwrite partition files in step 2.
         if [[ -d "${BOARD_BOOT_DIR}/partition_${storage}" ]]; then
             BOOT_BIN_SRC="${BOARD_BOOT_DIR}/partition_${storage}"
         else
             BOOT_BIN_SRC="${BOARD_BOOT_DIR}/${storage}"
         fi
         if [[ ! -d "$BOOT_BIN_SRC" ]]; then
-            # For targets with spinor, the flat boot bins archive belongs to
-            # spinor only. Skip the fallback-to-root copy for non-spinor
-            # storage types so that nvme/ufs dirs do not receive spinor bins.
-            if [[ "$HAS_SPINOR" == "true" && "$storage" != "spinor" ]]; then
-                BOOT_BIN_SRC=""
-            else
-                BOOT_BIN_SRC="${BOARD_BOOT_DIR}"
-            fi
+            BOOT_BIN_SRC="${BOARD_BOOT_DIR}"
         fi
-        if [[ -n "$BOOT_BIN_SRC" && -d "$BOOT_BIN_SRC" ]]; then
-            cp --preserve=mode,timestamps -av "${BOOT_BIN_SRC}/." "${STORAGE_DIR}/"
-            echo "[INFO] Copied boot bins from: ${BOOT_BIN_SRC}"
-        elif [[ -z "$BOOT_BIN_SRC" ]]; then
-            echo "[INFO] Skipping boot bin copy for ${storage} (spinor target — bins are spinor-only)"
-            # Even though the flat archive is spinor-only, the programmer
-            # (xbl_s_devprg_ns.melf) must be present in every storage dir so
-            # that flashing tools can use it.  Starting with bootbins 00023 the
-            # nvme/ and ufs/ subdirs were removed from the archive, so the
-            # programmer now lives only in the spinor/ subdir (or at the flat
-            # archive root for older releases).  Copy it explicitly here.
-            PROGRAMMER_FILE="xbl_s_devprg_ns.melf"
-            PROGRAMMER_SRC=""
-            for _search_dir in \
-                    "${BOARD_BOOT_DIR}/spinor" \
-                    "${BOARD_BOOT_DIR}/partition_spinor" \
-                    "${BOARD_BOOT_DIR}"; do
-                if [[ -f "${_search_dir}/${PROGRAMMER_FILE}" ]]; then
-                    PROGRAMMER_SRC="${_search_dir}/${PROGRAMMER_FILE}"
-                    break
+        if [[ -d "$BOOT_BIN_SRC" ]]; then
+            # Spinor targets: copy full boot bins only to spinor storage, skip for other storages
+            if [[ "$HAS_SPINOR" == "true" && "$storage" != "spinor" ]]; then
+                # For non-spinor storages (nvme/ufs/emmc) when spinor exists: find and copy only *.melf files
+                # These are the programmer binaries needed to initialize each storage type
+                DEVPRG_FILES=$(find "$BOOT_BIN_SRC" -name "*.melf" 2>/dev/null)
+                if [[ -n "$DEVPRG_FILES" ]]; then
+                    while IFS= read -r devprg_file; do
+                        cp --preserve=mode,timestamps -v "$devprg_file" "${STORAGE_DIR}/"
+                        echo "[INFO] Copied $(basename "$devprg_file") to ${storage}"
+                    done <<< "$DEVPRG_FILES"
+                else
+                    echo "[WARN] No *.melf files found for ${BOARD_NAME}/${storage}"
                 fi
-            done
-            if [[ -n "$PROGRAMMER_SRC" ]]; then
-                cp --preserve=mode,timestamps -v \
-                    "$PROGRAMMER_SRC" "${STORAGE_DIR}/${PROGRAMMER_FILE}"
-                echo "[INFO] Copied programmer from: ${PROGRAMMER_SRC}"
             else
-                echo "[WARN] Programmer (${PROGRAMMER_FILE}) not found in archive — skipping"
+                # Non-spinor targets or spinor storage: copy full boot bins archive
+                cp --preserve=mode,timestamps -av "${BOOT_BIN_SRC}/." "${STORAGE_DIR}/"
+                echo "[INFO] Copied boot bins from: ${BOOT_BIN_SRC}"
             fi
         else
             echo "[ERROR] Boot bins directory not found: ${BOOT_BIN_SRC}"
