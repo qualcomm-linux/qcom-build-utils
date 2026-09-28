@@ -639,7 +639,7 @@ usermod -aG sudo qcom
 usermod -aG audio qcom
 usermod -aG video qcom
 
-# create dmaheap group and add qcom user in this group
+# create dmaheap group and add qcom user to it
 groupadd dmaheap
 usermod -aG dmaheap qcom
 
@@ -647,6 +647,10 @@ echo '[CHROOT] Installing udev rule for DMA heap group access...'
 cat <<'EOF' > /etc/udev/rules.d/99-dma-heap.rules
 SUBSYSTEM==\"dma_heap\", KERNEL==\"system\", GROUP=\"dmaheap\", MODE=\"0660\"
 EOF
+
+# create fastrpc group and add qcom user to it
+groupadd fastrpc
+usermod -aG fastrpc qcom
 
 echo '[CHROOT] Installing local .deb packages via local APT repository (if any)...'
 if ls /opt/local-debs/*.deb >/dev/null 2>&1; then
