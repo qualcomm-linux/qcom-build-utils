@@ -16,6 +16,7 @@
 #       "contents_xml_in":  "platform/foo/..."     (optional, default "")
 #       "seed_volatile_vars":        true          (optional, default false)
 #       "seed_volatile_vars_config": "extra.json"  (optional, default "")
+#       "boot_hypervisor":  "kvm"                   (optional, default "": "kvm"|"gunyah"|"")
 #     },
 #     ...
 #   ]
@@ -67,6 +68,10 @@ def main() -> int:
             print(f"[ERROR] targets[{i}].seed_volatile_vars must be a boolean, got {sv!r}", file=sys.stderr)
             return 1
         t.setdefault("seed_volatile_vars_config", "")
+        hyp = t.setdefault("boot_hypervisor", "")
+        if hyp not in ("", "kvm", "gunyah"):
+            print(f"[ERROR] targets[{i}].boot_hypervisor must be one of \"\", \"kvm\", \"gunyah\", got {hyp!r}", file=sys.stderr)
+            return 1
 
     print(json.dumps(targets, indent=2))
     return 0
