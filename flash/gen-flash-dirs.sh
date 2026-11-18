@@ -160,6 +160,10 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
     CDT_FILENAME=$(echo "$BOARDS_JSON"   | jq -r ".[$i].cdt_filename // empty")
     SEED_VOLATILE_VARS=$(echo "$BOARDS_JSON" | jq -r ".[$i].seed_volatile_vars // false")
     SEED_VOLATILE_VARS_CONFIG=$(echo "$BOARDS_JSON" | jq -r ".[$i].seed_volatile_vars_config // empty")
+    # Board-specific kernel parameters embedded in BOOTAA64.EFI as soc_extra_cmdline.
+    # grub.cfg appends this variable to the linux line at GRUB runtime.
+    # Empty string = generic board (no extra params).  Example: "arm64.nopauth" for RB4.
+    EXTRA_CMDLINE=$(echo "$BOARDS_JSON" | jq -r ".[$i].extra_cmdline // empty")
     if [[ -n "$SEED_VOLATILE_VARS_CONFIG" ]]; then
         # Paths in targets.json are relative to the qcom-distro-images repo
         # root, i.e. two levels above boot_bins/ (see contents_xml_in below).
@@ -374,6 +378,21 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
                 else
                     echo "[ERROR] efi.bin not found for ${storage} (sector size ${SECTOR_SIZE})"
                     exit 1
+                fi
+
+                # If this board has board-specific kernel parameters, rebuild
+                # BOOTAA64.EFI with --extra-cmdline so soc_extra_cmdline is
+                # embedded in the EFI binary.  The rootfs grub.cfg stays generic.
+                if [[ -n "${EXTRA_CMDLINE}" ]]; then
+                    echo "[INFO] Rebuilding efi.bin for ${BOARD_NAME} with extra-cmdline: '${EXTRA_CMDLINE}'"
+                    BOARD_EFI_TMP="$(mktemp -p "${OUTPUT_DIR}" efi_board.XXXXXX.bin)"
+                    "${SCRIPT_DIR}/../bootloader/build-efi-esp.sh" \
+                        --sector-size "${SECTOR_SIZE}" \
+                        --out "${BOARD_EFI_TMP}" \
+                        --extra-cmdline "${EXTRA_CMDLINE}" \
+                        --no-install
+                    mv -f "${BOARD_EFI_TMP}" "${STORAGE_DIR}/efi.bin"
+                    echo "[INFO] Board-specific efi.bin written to ${STORAGE_DIR}/efi.bin"
                 fi
 
                 if [[ "$SEED_VOLATILE_VARS" == "true" ]]; then

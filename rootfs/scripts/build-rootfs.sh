@@ -170,6 +170,7 @@ for _deb in "${LOCAL_DEBS[@]}"; do
     fi
 done
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKDIR=$(pwd)
 MNT_DIR="$WORKDIR/mnt"
 ROOTFS_DIR="$WORKDIR/rootfs_work"
@@ -543,7 +544,12 @@ echo "[INFO] Configuring /etc/default/grub..."
 mkdir -p "$ROOTFS_DIR/boot/grub"
 mkdir -p "$ROOTFS_DIR/etc/default"
 
-# Write GRUB defaults using quoted heredoc to prevent host-side expansion
+# Write GRUB defaults using quoted heredoc to prevent host-side expansion.
+# GRUB_DEFAULT=0: single generic menuentry.  Board-specific kernel parameters
+# are carried by each board's BOOTAA64.EFI as the GRUB variable soc_extra_cmdline
+# (set by build-efi-esp.sh --extra-cmdline).  GRUB_CMDLINE_LINUX ends with
+# ${soc_extra_cmdline} so update-grub naturally includes it on the linux line;
+# no post-processing of grub.cfg is needed.
 cat <<'EOF' > "$ROOTFS_DIR/etc/default/grub"
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=5
@@ -555,9 +561,10 @@ GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
 GRUB_TERMINAL="serial console"
 GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"
 
-# Kernel parameters applied to BOTH Normal and Recovery boot modes
-# (Critical hardware settings: console, rootfs, clocks, EFI)
-GRUB_CMDLINE_LINUX="earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M net.ifnames=0 rw clk_ignore_unused pd_ignore_unused rootwait ignore_loglevel"
+# Kernel parameters applied to all boards.
+# ${soc_extra_cmdline} is expanded at GRUB runtime from the value embedded
+# in each board's BOOTAA64.EFI by build-efi-esp.sh --extra-cmdline.
+GRUB_CMDLINE_LINUX="earlycon console=ttyMSM0,115200n8 root=LABEL=system cma=128M net.ifnames=0 rw clk_ignore_unused pd_ignore_unused rootwait ignore_loglevel \${soc_extra_cmdline}"
 
 # Kernel parameters applied ONLY to Normal boot mode
 # (UX settings: quiet, splash, etc. - Left empty for verbose output)
@@ -731,6 +738,24 @@ umount -l "$ROOTFS_DIR/sys"
 umount -l "$ROOTFS_DIR/proc"
 
 # ==============================================================================
+# Step 9.4: soc_extra_cmdline is already in GRUB_CMDLINE_LINUX
+#
+# ${soc_extra_cmdline} is appended to GRUB_CMDLINE_LINUX in /etc/default/grub
+# (written above).  update-grub (run inside the chroot in Step 8) therefore
+# includes it on every linux line in grub.cfg automatically — no post-processing
+# of grub.cfg is required here.
+#
+# Flow:
+#   BOOTAA64.EFI bootstrap  →  set soc_extra_cmdline="arm64.nopauth"  (RB4)
+#                               set soc_extra_cmdline=""               (generic)
+#   configfile /boot/grub/grub.cfg
+#   linux /boot/vmlinuz-... <base_cmdline> ${soc_extra_cmdline}
+#
+# The rootfs image is fully board-agnostic.
+# ==============================================================================
+echo "[INFO] soc_extra_cmdline is embedded in GRUB_CMDLINE_LINUX; grub.cfg already contains it."
+
+# ==============================================================================
 # Step 9.5: Remove build-only apt sources and caches from final image
 #   - build-only sources declared in the overlay manifest ("build-only": true)
 #   - local .deb repo created for --local-debs
@@ -773,7 +798,6 @@ rm -f  "$ROOTFS_DIR/var/cache/apt/archives/"*.deb
 #   extracts everything as root, --no-overwrite-dir leaves existing directory
 #   metadata untouched.
 # ==============================================================================
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_DIR="${SCRIPT_DIR}/../runtime"
 
 if [[ ! -d "$RUNTIME_DIR" ]]; then
