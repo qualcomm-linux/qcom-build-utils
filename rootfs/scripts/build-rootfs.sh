@@ -619,6 +619,16 @@ if [ \"\${variant_lc}\" = \"desktop\" ]; then
   else
     echo \"[CHROOT][WARN] Unknown distro '\${DISTRO}' for desktop variant; skipping desktop meta-package.\"
   fi
+  echo \"[CHROOT] Disabling GNOME automatic suspend (CR 4689166)...\"
+  f=/etc/gdm3/greeter.dconf-defaults
+  if [ -f \"\$f\" ]; then
+    sed -i \\
+      -e \"s/^#\\s*sleep-inactive-ac-type=.*/sleep-inactive-ac-type='nothing'/\" \\
+      -e \"s/^#\\s*sleep-inactive-battery-type=.*/sleep-inactive-battery-type='nothing'/\" \\
+      \"\$f\"
+  else
+    echo \"[CHROOT][WARN] \$f not found; skipping\" >&2
+  fi
 fi
 # --- End desktop variant handling ---
 
