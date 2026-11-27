@@ -357,9 +357,12 @@ for i in $(seq 0 $((BOARD_COUNT - 1))); do
         #    rootfs.img is at the output root, referenced as ../../rootfs.img in rawprogram.
         case "$storage" in
             spinor)
-                if [[ -f "${SYSTEM_IMAGES_DIR}/dtb.bin" ]]; then
+                # Prefer the reduced spinor dtb (hamoa/purwa); else full dtb.bin.
+                SPINOR_DTB_SRC="${SYSTEM_IMAGES_DIR}/dtb_spinor.bin"
+                [[ -f "$SPINOR_DTB_SRC" ]] || SPINOR_DTB_SRC="${SYSTEM_IMAGES_DIR}/dtb.bin"
+                if [[ -f "$SPINOR_DTB_SRC" ]]; then
                     cp --preserve=mode,timestamps -v \
-                        "${SYSTEM_IMAGES_DIR}/dtb.bin" "${STORAGE_DIR}/dtb.bin"
+                        "$SPINOR_DTB_SRC" "${STORAGE_DIR}/dtb.bin"
                 else
                     echo "[ERROR] dtb.bin not found for spinor"
                     exit 1
